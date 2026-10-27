@@ -516,3 +516,61 @@ Aday tablosu Binance fiyatının yanında BtcTurk fiyatını, puanı, zaman dili
 - **Analiz Raporu:** Radarın coin analiz sonuçlarını `.json.gz` biçiminde yerel dosyaya kaydeder ve bağlantı ayarlanmışsa aynı sıkıştırılmış içeriği sunucuya gönderir. Bu rapor motor tanılamasını veya günlük kayıtlarını içermez.
 
 Bu üç düğme farklı amaçlara hizmet eder; birbirlerinin yerine geçmez.
+
+## Sürüm 01 — Ekran görüntülerini buluta yükleme
+
+Bu bölüm, kullanıcının onayladığı yeni özelliğin gereksinim kaydıdır. Gereksinimlerin README'ye kaydedilmesi, kodun tamamlandığı veya canlı testlerin geçtiği anlamına gelmez. Her sonuç, aşağıdaki doğrulama durumuna göre ayrıca raporlanır.
+
+### Arayüz ve seçim
+
+- Mevcut araç çubuğunun en sağına yalnızca `📷` içeren bir düğme eklenir; açıklama metni eklenmez.
+- Düğme, yalnızca `C:\\Users\\erdal\\OneDrive\\Resimler\\Screenshots` klasörünü seçim penceresinin başlangıç konumu olarak açar. Klasör yoksa hata gösterilir; başka klasöre kendiliğinden geçilmez.
+- Kullanıcı görüntüleri kendisi seçer; klasör içeriği topluca veya kendiliğinden yüklenmez. İptal/0 seçim yükleme başlatmaz. 1–3 görüntü kabul edilir; 4 veya daha fazlası reddedilir.
+- Seçimler ve buluttaki mevcut etkin görüntüler önizlemede gösterilir. Her mevcut görüntü için korunacak/değiştirilecek durumu, yerel seçimler için de küçük önizleme gösterilir. Ağ üzerinden aktarım ancak kullanıcı **Buluta Yükle** düğmesine bastığında başlar.
+
+### Dosya doğrulama
+
+- Yalnızca PNG, JPG ve JPEG kabul edilir. Her dosyanın üst sınırı 15 MiB (15.728.640 bayt) ve bu sınır görüntü başına uygulanır.
+- Dosya uzantısı, bildirilen içerik türü ve gerçek dosya imzası birbiriyle eşleşmelidir. Bozuk veya desteklenmeyen dosya reddedilir.
+- Pillow ile gerçek görüntü açılabilirliği doğrulanır; Pillow yalnızca doğrulama ve önizleme için kullanılır. Görüntü otomatik küçültülmez, yeniden boyutlandırılmaz veya sıkıştırılmaz.
+- CI Python sürümü 3.14.8'dir. Pillow 13.0.0 Python 3.14 desteği bulunan sürüm olarak kullanılabilir; bağımlılığın CI ortamında kurulması ayrıca doğrulanır. Kaynak: [Pillow 13.0.0 — PyPI](https://pypi.org/project/pillow/13.0.0/) ve [Python sürüm desteği](https://pillow.readthedocs.io/en/stable/installation/python-support.html).
+
+### Etkin görüntü listesi ve değiştirme
+
+- R2'de aynı anda en fazla 3 etkin görüntü bulunur.
+- Yeni seçim mevcut boş yuvaları doldurur. Liste doluysa, gerekli sayıda en eski etkin görüntü sunucudaki yüklenme zamanına göre değiştirilir; en yeni mevcut görüntüler mümkün oldukça korunur.
+- Her yeni görüntü önce geçici bir R2 nesnesi olarak ayrı istekle yüklenir. Seçimdeki bütün görüntüler geçici olarak başarıyla yüklenmeden etkin manifest değiştirilmez.
+- Başarılı toplu yüklemenin etkinleştiği tek nokta, etkin manifestin koşullu/atomik nesne yazımıdır. Manifest yazımı başarısızsa önceki etkin liste korunur ve yeni geçici/etkin olmayan nesneler temizlenmeye çalışılır.
+- Yeni manifest yayımlandıktan sonra eski ve artık etkin olmayan nesneler silinir. Silinemeyen nesnelerin temizliği sonraki işlemlerde yeniden denenir. Manifest üçten fazla etkin görüntü yayımlamaz.
+
+### Bulut arayüzü ve güvenlik
+
+- Görüntüler yalnızca Cloudflare R2'de tutulur; mevcut `ANALYSIS_REPORTS` KV alanı görüntü deposu olarak kullanılmaz. R2 kovası herkese açık yapılmaz.
+- Yalnızca etkin manifestte bulunan görüntüler Worker'ın herkese açık okuma rotasından sunulur. Manifest dışında kalan nesneler doğrudan görüntü rotasından okunamaz.
+- Yazma uçları mevcut Windows Credential Manager hedefi `Firsat-Kontrol-Paneli/ReportUploadToken` üzerinden kimlik doğrular.
+- Görüntü yükleme için Render geçidinde ayrı 15 MiB sınırı kullanılır; mevcut JSON raporları ve sorun giderme ZIP aktarımındaki 8 MiB sınırı değişmez.
+- Günlüklerde erişim anahtarı veya görüntünün ikili içeriği yazılmaz. Görüntüler tek tek aktarılır; birden fazla büyük görüntü tek istekte birleştirilmez.
+
+### Uygulama rotaları
+
+- `POST /api/images/stage` — bir dosyayı geçici yükleme.
+- `POST /api/images/commit` — geçici görüntü grubunu etkin manifestte tek geçişle yayımlama.
+- `POST /api/images/abort` — başarısız/iptal edilmiş geçici yüklemeyi temizleme.
+- `GET /images/manifest` — en fazla üç etkin görüntünün listesini ve URL'lerini döndürme.
+- `GET /images/{id}` — yalnızca etkin manifestteki görüntüyü okuma.
+
+Render geçidi yazma rotalarını doğrulayıp mevcut Worker'a iletir. Dosya adları ve içerik türü ayrı metadata olarak taşınır; görüntü verisi tek tek ikili gövde olarak gönderilir.
+
+### Zorunlu doğrulamalar ve sonuçların raporlanması
+
+- Masaüstü: klasör yok; iptal/0 seçim; 1, 2, 3 ve 4+ seçim; boyut sınırı; PNG/JPG/JPEG; uzantı-imza uyuşmazlığı; bozuk dosya; önizleme hatası; boş yuva ve en eski görüntü değiştirme sırası; kimlik doğrulama, ağ ve sunucu hataları.
+- Worker/R2: kimlik doğrulama; medya türü, imza ve boyut; stage/commit/abort; en fazla üç etkin görüntü; manifestte olmayan nesnenin okunamaması; başarısız toplu yüklemede eski manifestin korunması; manifest geçişinden sonra temizleme ve silinemeyen nesnelerin sonraki işlemde tekrar temizlenmesi.
+- Render: her görüntü için 15 MiB; eski rapor uçları için 8 MiB sınırının korunması; kimlik doğrulama, istek sınırı ve metadata; içerik veya sırların günlüklere yazılmaması.
+- Uçtan uca: gerçek R2 yüklemesi, manifest, değiştirme/temizlik, görüntü URL'sinin açılması ve asistanın URL üzerinden görsel inceleme yapabildiğinin doğrulanması gerekir. HTTP 200 tek başına görsel inceleme kanıtı sayılmaz.
+- **Canlı ortam engeli:** önceki kontrolde R2 henüz etkin değildi ve Cloudflare API `403 — Please enable R2 through the Cloudflare Dashboard.` yanıtını verdi. R2 Dashboard üzerinden etkinleştirilip kova ve binding hazırlanmadıkça gerçek R2 ve uçtan uca testler başarılı olarak raporlanamaz. KV'ye alternatif geçiş yapılmaz.
+- Yeni özellik için son ZIP/nihai paket ayrıca açık kullanıcı onayı olmadan hazırlanmamalı veya yayımlanmamalıdır.
+
+### Değişiklik ve test günlüğü
+
+- Başlangıçta: gereksinimler kayda geçirildi; bu kayıt tek başına kodlama, test veya dağıtım kanıtı değildir.
+- Kodlama, birim testleri, CI ve canlı R2 doğrulaması tamamlandıkça tarih, commit, test komutu ve gerçek sonuç buraya eklenir. R2 engeli sürüyorsa açık engel olarak kalır; tamamlanmış gibi işaretlenmez.
