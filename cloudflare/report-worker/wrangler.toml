@@ -5,3 +5,7 @@ compatibility_date = "2026-10-26"
 [[kv_namespaces]]
 binding = "ANALYSIS_REPORTS"
 id = "d2d4e7f6ef0c45f2bcad8a982bcebdca"
+
+[[r2_buckets]]
+binding = "IMAGES_BUCKET"
+bucket_name = "firsat-kontrol-paneli-images"
