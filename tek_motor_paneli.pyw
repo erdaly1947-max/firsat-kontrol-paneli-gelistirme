@@ -78,6 +78,18 @@ def _make_logger() -> logging.Logger:
 LOGGER = _make_logger()
 
 
+def _normalize_font_size(value: Any, default: int = 8) -> int:
+    """Round and clamp a saved/UI font size to the supported 8–15 point range."""
+    fallback = max(8, min(15, int(default)))
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return fallback
+    if not math.isfinite(numeric):
+        return fallback
+    return max(8, min(15, int(round(numeric))))
+
+
 def _read_json(path: Path, default: Any = None) -> Any:
     try:
         with path.open("r", encoding="utf-8-sig") as handle:
@@ -566,8 +578,8 @@ class ControlPanel(tk.Tk):
         self.alarm_enabled = panel.get("alarm_sound_enabled", True) is True
         volume = _safe_float(panel.get("alarm_volume", 55))
         self.alarm_volume = int(max(0, min(100, volume if volume is not None else 55)))
-        font_size = _safe_float(panel.get("font_size", 10))
-        self.font_size = int(max(10, min(15, font_size if font_size is not None else 10)))
+        font_size = panel.get("font_size", 8)
+        self.font_size = _normalize_font_size(font_size)
 
         self.engine: subprocess.Popen[str] | None = None
         self.engine_started_epoch: float | None = None
@@ -725,8 +737,18 @@ class ControlPanel(tk.Tk):
         self.volume_label.pack(fill="x")
         self.toolbar_items.append(volume_group)
         font_group = ttk.Frame(self.controls_inner)
-        self.font_size_button = ttk.Button(font_group, text="Yazı Büyüt", command=self._increase_font_size)
-        self.font_size_button.pack(fill="x", pady=(0, 13))
+        ttk.Label(font_group, text="Yazı boyutu", anchor="center").pack(fill="x")
+        self.font_size_var = tk.DoubleVar(value=self.font_size)
+        self.font_size_scale = ttk.Scale(
+            font_group, from_=8, to=15, orient="horizontal", length=92,
+            variable=self.font_size_var, command=self._font_size_moved,
+            style="Slim.Horizontal.TScale",
+        )
+        self.font_size_scale.pack(fill="x", padx=2)
+        self.font_size_scale.bind("<ButtonRelease-1>", self._save_font_size)
+        self.font_size_scale.bind("<KeyRelease>", self._save_font_size)
+        self.font_size_label = ttk.Label(font_group, text=f"{self.font_size} punto", anchor="center")
+        self.font_size_label.pack(fill="x", pady=(0, 13))
         self.toolbar_items.append(font_group)
         self.controls_inner.bind("<Configure>", self._layout_toolbar, add="+")
         self.after(120, self._layout_toolbar)
@@ -960,44 +982,53 @@ class ControlPanel(tk.Tk):
             self.diagnostics_toggle_button.configure(text="Tanılama ve son kayıtlar ▸")
             self.diagnostics_frame.pack_forget()
 
-    def _increase_font_size(self) -> None:
-        self.font_size = self.font_size + 1 if self.font_size < 15 else 10
+    def _font_size_moved(self, value: str | None = None) -> None:
+        raw_value = value if value is not None else self.font_size_var.get()
+        size = _normalize_font_size(raw_value)
+        self.font_size = size
+        if getattr(self, "font_size_var", None) is not None and self.font_size_var.get() != size:
+            self.font_size_var.set(size)
+        if hasattr(self, "font_size_label"):
+            self.font_size_label.configure(text=f"{size} punto")
         self._apply_font_scale()
-        self.panel_settings["font_size"] = self.font_size
+
+    def _save_font_size(self, _event: Any = None) -> None:
+        self._font_size_moved()
+        self.panel_settings["font_size"] = int(self.font_size)
         self._save_panel_settings()
         self._log_line(f"Arayüz yazı boyutu: {self.font_size} punto")
 
     def _apply_font_scale(self) -> None:
-        size = max(10, min(15, int(self.font_size)))
+        size = _normalize_font_size(self.font_size)
+        self.font_size = size
         style = ttk.Style(self)
         style.configure("TLabel", font=("Segoe UI", size))
         style.configure("TLabelframe.Label", font=("Segoe UI", size, "bold"))
-        style.configure("TButton", font=("Segoe UI", max(9, size - 1)))
+        style.configure("TButton", font=("Segoe UI", max(8, size - 1)))
         style.configure("Status.TLabel", font=("Segoe UI", size, "bold"))
         style.configure("Section.TLabel", font=("Segoe UI", size, "bold"))
         for name in ("SectionGood.TLabel", "SectionPending.TLabel", "SectionBad.TLabel", "LiveGood.TLabel", "LiveBad.TLabel", "HistoryGood.TLabel", "HistoryPending.TLabel", "BTC.TLabel"):
             style.configure(name, font=("Segoe UI", size, "bold"))
-        style.configure("Time.TLabel", font=("Segoe UI", max(9, size - 2)))
-        style.configure("Treeview", font=("Segoe UI", max(9, size - 1)), rowheight=max(27, int(size * 2.7)))
-        style.configure("Treeview.Heading", font=("Segoe UI", max(9, size - 1), "bold"))
+        style.configure("Time.TLabel", font=("Segoe UI", max(8, size - 2)))
+        style.configure("Treeview", font=("Segoe UI", max(8, size - 1)), rowheight=max(27, int(size * 2.7)))
+        style.configure("Treeview.Heading", font=("Segoe UI", max(8, size - 1), "bold"))
         for widget in getattr(self, "toolbar_items", []):
             for child in widget.winfo_children():
                 if isinstance(child, PillButton):
-                    child.configure(font=("Segoe UI", max(9, size - 1), "bold"))
+                    child.configure(font=("Segoe UI", max(8, size - 1), "bold"))
                 elif isinstance(child, ttk.Label):
-                    child.configure(font=("Segoe UI", max(9, size - 2)))
-        for widget_name, font in (("details", ("Segoe UI", size)), ("btc_details_text", ("Segoe UI", max(9, size - 1))), ("technical_details", ("Consolas", max(9, size - 1))), ("log_view", ("Consolas", max(9, size - 1)))):
+                    child.configure(font=("Segoe UI", max(8, size - 2)))
+        for widget_name, font in (("details", ("Segoe UI", size)), ("btc_details_text", ("Segoe UI", max(8, size - 1))), ("technical_details", ("Consolas", max(8, size - 1))), ("log_view", ("Consolas", max(8, size - 1)))):
             widget = getattr(self, widget_name, None)
             if widget is not None:
                 try:
                     widget.configure(font=font)
                 except tk.TclError:
                     pass
-        if hasattr(self, "details"):
+        if hasattr(self, 'details'):
             self.details.tag_configure("scenario", font=("Segoe UI", size, "bold"))
             self.details.tag_configure("decision_good", font=("Segoe UI", size, "bold"))
         self._refresh_status_indicators()
-
     def _refresh_status_indicators(self) -> None:
         if not hasattr(self, "live_status_label"):
             return

@@ -100,12 +100,17 @@ class PanelUIContractTests(unittest.TestCase):
             'text="Başlat"', 'text="Durdur"', 'text="Pariteleri Güncelle"',
             'text="Günlük Rapor"', 'text="Analiz Raporu"', 'text="Sorun Giderme ZIP"',
             'text="Seviye Takibi: Kapalı"', 'text="Sesli Bildirim: Açık" if self.alarm_enabled else "Sesli Bildirim: Kapalı"',
-            'text="Ses Testi"', 'text="Yazı Büyüt"',
+            'text="Ses Testi"', 'text="Yazı boyutu"',
         ]
         positions = [source.index(label) for label in labels]
         self.assertEqual(positions, sorted(positions))
         self.assertIn('base, hover = "#c62828", "#ff7f8b"', source)
         self.assertIn('style.map("Slim.Horizontal.TScale", background=[("active", white), ("pressed", white)])', source)
+        self.assertIn("from_=8, to=15", source)
+        self.assertIn('orient="horizontal"', source)
+        self.assertIn('self.font_size_scale.bind("<ButtonRelease-1>", self._save_font_size)', source)
+        self.assertIn('self.font_size_scale.bind("<KeyRelease>", self._save_font_size)', source)
+        self.assertIn('self.font_size_label.configure(text=f"{size} punto")', source)
         self.assertNotIn("self.panel_brightness", source)
         self.assertNotIn("self._brightness_moved", source)
 
@@ -134,11 +139,30 @@ class PanelUIContractTests(unittest.TestCase):
     def test_panel_settings_use_saved_font_size_and_remove_brightness_keys(self):
         settings = json.loads((ROOT / "ayarlar.json").read_text(encoding="utf-8-sig"))
         ui = settings.get("panel_ui", {})
-        self.assertEqual(ui.get("font_size"), 10)
+        self.assertEqual(ui.get("font_size"), 8)
         source = PANEL_SOURCE
+        self.assertIn('font_size = panel.get("font_size", 8)', source)
+        self.assertIn("self.font_size = _normalize_font_size(font_size)", source)
         self.assertIn('"font_size": int(self.font_size)', source)
         self.assertIn('ui.pop("screen_brightness", None)', source)
         self.assertIn('ui.pop("panel_brightness", None)', source)
+
+    def test_font_size_normalization_defaults_clamps_and_preserves_saved_values(self):
+        function = next(
+            node for node in PANEL_TREE.body
+            if isinstance(node, ast.FunctionDef) and node.name == '_normalize_font_size'
+        )
+        namespace = {"math": __import__("math"), "Any": __import__("typing").Any}
+        module = ast.Module(body=[function], type_ignores=[])
+        exec(compile(module, str(PANEL_PATH), 'exec'), namespace)
+        normalize = namespace['_normalize_font_size']
+        self.assertEqual(normalize(None), 8)
+        self.assertEqual(normalize('12'), 12)
+        self.assertEqual(normalize(12.6), 13)
+        self.assertEqual(normalize(7), 8)
+        self.assertEqual(normalize(16), 15)
+        self.assertEqual(normalize('not-a-number'), 8)
+        self.assertEqual(normalize(float('nan')), 8)
 
     def test_price_rendering_is_shared_with_risk_plan_levels(self):
         source = PANEL_SOURCE

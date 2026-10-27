@@ -90,6 +90,6 @@
   "panel_ui": {
     "alarm_sound_enabled": true,
     "alarm_volume": 55,
-    "font_size": 10
+    "font_size": 8
   }
 }

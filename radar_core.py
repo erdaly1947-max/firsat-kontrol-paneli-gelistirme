@@ -1,10 +1,11 @@
 """Ortak yardımcılar ve açıklanabilir aşama değerlendirmesi.
-from decimal import Decimal
 
 Bu modül otomatik alım-satım veya emir gönderimi içermez. A/B/C aşamaları
 araştırma durumudur; bir işlem onayı veya kârlılık iddiası değildir.
 """
 from __future__ import annotations
+
+from decimal import Decimal
 
 import json
 import logging
