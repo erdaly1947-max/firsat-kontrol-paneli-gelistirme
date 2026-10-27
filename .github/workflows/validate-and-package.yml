@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 # Development repository: validate on main pushes, pull requests, or manual runs.
-# Serialize package/Release writes so concurrent pushes cannot delete each other's assets.
+# Serialize validation/package steps and explicit Release writes.
 concurrency:
   group: s01-validation-${{ github.ref }}
   cancel-in-progress: false
@@ -119,8 +119,8 @@ jobs:
           print(f"Örnek fiyatlar: {sample}")
           PY
 
-      - name: İstenen son paketleme için Sürüm 01 ZIP ve SHA-256 oluştur
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[package]')))
+      - name: Başarılı testlerden sonra Sürüm 01 ZIP ve SHA-256 oluştur
+        if: success() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
           python - <<'PY'
           import hashlib
@@ -280,11 +280,11 @@ jobs:
           print(f"RELEASE_PAGE={release['html_url']}", flush=True)
           PY
 
-      - name: GitHub Actions artifact'i de yayımla
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[package]')))
+      - name: Sürüm 01 Windows deneme paketini indirilebilir artefakt olarak yayımla
+        if: success() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@v7
         with:
-          name: Firsat-Kontrol-Paneli-Surum-01
+          name: Firsat-Kontrol-Paneli-Surum-01-${{ github.run_number }}
           path: |
             dist/Firsat-Kontrol-Paneli-Surum-01.zip
             dist/Firsat-Kontrol-Paneli-Surum-01.zip.sha256
