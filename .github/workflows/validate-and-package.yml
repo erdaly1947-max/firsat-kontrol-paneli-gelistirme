@@ -9,6 +9,7 @@ on:
       - main
   workflow_dispatch:
 
+# Development repository: validate on main pushes, pull requests, or manual runs.
 # Serialize package/Release writes so concurrent pushes cannot delete each other's assets.
 concurrency:
   group: s01-validation-${{ github.ref }}
