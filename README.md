@@ -49,7 +49,10 @@ Bu kimlik, korunacak Sürüm 00 referans paketini ayırt etmek içindir; güncel
 
 Bu bölüm uygulanan davranışı kalan görsel yerleşim farklarından ayırır. Otomatik testler gerçek Windows ekranındaki taşma/kesilme durumunu veya stratejinin kârlılığını kanıtlamaz.
 
-## Paket doğrulaması ve gerçek Windows çalışma kanıtı
+## Tarihsel doğrulama ve Windows çalışma kanıtı — Sürüm 00
+
+Aşağıdaki CI sonucu, bulut raporu zamanları ve Windows anlık görüntüleri önceki Sürüm 00/önceki deneme paketinin tarihsel kayıtlarıdır. Bunlar `Decimal` hatasını ve yazı boyutu kontrolünü düzelten güncel Sürüm 01 commit'inin test sonucu değildir. Düzeltilen sürüm yalnızca güncel `main` commit'ine ait GitHub Actions doğrulaması ve o çalışmanın yeni artefaktı üzerinden değerlendirilmelidir.
+
 
 - Paketleme/CI çalıştırması [#40505956633](https://github.com/erdaly1947-max/matrix/actions/runs/40505956633) başarılı tamamlandı: 19 Python kaynak dosyası derlendi; ayar JSON'ları doğrulandı; **78 Python birim testi** geçti; Cloudflare rapor Worker testleri, Render geçidi testleri ve canlı Render/Binance WebSocket ile BtcTurk USDT doğrulamaları geçti; ZIP bütünlüğü kontrol edildi ve Release dosyaları güncellendi.
 - CI başarısı, gerçek Windows ekranında bütün kontrol ve yerleşimlerin görsel olarak sınandığını veya stratejinin kârlı olduğunu kanıtlamaz. Kullanıcı bu ZIP'i kendi bilgisayarında başlatıp rapor gönderdi; bu, açılış ve rapor akışına ilişkin gerçek kullanım kanıtıdır.
