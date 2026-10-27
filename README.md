@@ -2,6 +2,31 @@
 
 > **Güncel kaynak:** Bu depodaki `main` dalı Sürüm 01 geliştirme kaynağıdır. Önceki Windows deneme paketinde `radar_core.py` içindeki `Decimal` ad alanı hatası görüldü; düzeltilen sürüm için ayrı regresyon testleri eklendi. Korunan Sürüm 00 Release'i ayrı bir referanstır. Uygulanan işlevler kaynak kod ve test kanıtıyla, ölçülmemiş kalanlar açıkça ayrılır.
 
+## En son gerçek çalışma kayıtları — 28 Ekim 2026, Türkiye saati
+
+Bu bölüm, 28 Ekim 2026 saat 00:51 Türkiye saati civarındaki son rapor ve günlük incelemesini kaydeder. Bu kayıt, daha eski Sürüm 00 anlık görüntülerinden ayrıdır. Tespitler o inceleme anına aittir; sonraki çalıştırmalar yeni zaman damgalarıyla ayrıca kaydedilmelidir.
+
+### Bulut raporlarının durumu
+
+- **Analiz raporu — 00:08:05 TRT (2026-10-27 21:08:05 UTC):** Son okunabilen analiz raporu 0 aday gösteriyor ve BTC bağlamını eski/eksik olarak işaretliyordu. Daha sonraki günlük ve sorun giderme kayıtlarıyla karşılaştırıldığında bu rapor güncel durumu yansıtmıyor; analiz raporu yenilemesi başarısız veya doğrulanmamış durumda.
+- **Günlük rapor — 00:49:37 TRT (21:49:37 UTC):** Rapor içindeki motor durumu 00:49:20 TRT (21:49:20 UTC) zamanına aitti. Uygulama sürümü `01`; canlı akış `CANLI AKIŞ GÜNCEL`, geçmiş mum hazırlığı `GEÇMİŞ MUM HAZIRLIĞI EKSİK`, motor durumu `BAĞLANTI/VERİ UYARISI` olarak kaydedildi. Tarama evreni 156 pariteydi.
+- **Sorun giderme raporu — 00:51:11 TRT (21:51:11 UTC):** Uygulama sürümü `01`; durum uyarıydı, canlı akış güncel görünüyordu ve geçmiş mum hazırlığı tamamlanmamıştı. 156 paritenin incelenmiş olması, 156 güçlü fırsat bulunduğu anlamına gelmez.
+- Günlük raporun gönderimi 00:50:18 TRT'de başarılı göründü. Analiz raporu gönderimi 00:50:23 TRT'de `RuntimeError: Sunucu bağlantısı başarısız` hatasıyla başarısız oldu; hata ayrıntısı logda bulunmuyordu. 00:50:45 TRT'de başka bir analiz raporu gönderim girişimi başladı, fakat sonraki kayıt kesitinde başarılı tamamlandığı doğrulanmadı. Bu nedenle en son analiz raporunun yenilendiği kabul edilmemelidir.
+
+### Veri hazırlığı ve altyapı logları
+
+- Önceki tanılama denemesinde piyasa geçidi/proxy üzerinden gelen HTTP 502 hatalarıyla 134 hata görüldü. Sonraki denemede geçmiş mum hazırlığı hataları 2 kayda düştü: `CVCUSDT 1M` ve `USDCUSDT 1M` için eski/eksik geçmiş aralıkları. Buna rağmen `bootstrap_ready=false` olduğundan tüm başlangıç geçmiş mum hazırlığı hazır sayılmaz.
+- Render piyasa geçidi loglarında 27 Ekim 2026 UTC saat yaklaşık 21:09 ve 21:43 civarında Node.js bellek taşması (heap out of memory) ve yeniden başlama olayları görüldü; bunlar Türkiye saatiyle yaklaşık 28 Ekim 00:09 ve 00:43'tür. Bunlar bağlantı hatalarına katkıda bulunmuş olabilir; mevcut kayıtlar, analiz raporu gönderim hatasının doğrudan bu olaylardan kaynaklandığını kanıtlamaz.
+- Yerel `ayarlar.json` dosyasını atomik olarak değiştirme sırasında yaklaşık 00:44 TRT'de `PermissionError / WinError 5 — Access denied` kaydedildi. Sonraki ayar/yazı boyutu kayıtları sorunun geçici olmuş olabileceğini gösteriyor; kesin olarak çözüldüğü doğrulanmadı.
+- Sorun giderme ZIP'i için yapılan bütünlük kontrolü başarılıydı. Boyut: **1.983.519 bayt**. SHA-256: `5a09d8449ee94d65e83e7491ff443d1a1b9c4cf7a564b74b4e03dc1be3ed0fbd`.
+
+### Bu kayıt anındaki sonuç ve açık işler
+
+1. Günlük ve sorun giderme raporları yeni durum bilgisi taşıyor; analiz raporu ise eski kalmış veya yenilenmesi doğrulanmamış durumda.
+2. Canlı akışın güncel olması, sekiz zaman dilimi için geçmiş mum hazırlığının tamamlandığını göstermez. `bootstrap_ready=false` kaldığı için veri hazırlığı uyarısı sürmektedir.
+3. Analiz raporu gönderim hatasının nedeni, Render bellek taşması olaylarının bu hatayla doğrudan ilişkisi ve `ayarlar.json` yazma izni sorununun kalıcı olup olmadığı henüz kesinleştirilmemiştir.
+4. Bu incelemede kod veya bulut hizmeti yapılandırması değiştirilmedi. Bu bölüm yalnızca görülen rapor ve log bulgularının kaydıdır.
+
 ## Çalışma ve sürüm kuralları — güncel geliştirme düzeni
 
 1. Program kaynakları ve kod değişiklikleri bu geliştirme deposunda, mevcut `main` dalında yürütülür. Kullanıcının açık onayı olmadan yeni dal oluşturulmaz. Bu düzeltme grubu için kod değişiklikleri ve test ekleme yetkisi verilmiştir.
