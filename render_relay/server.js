@@ -10,6 +10,8 @@ const MAX_WS_PER_IP = 128;
 const MAX_WS_GLOBAL = 200;
 const REPORT_WORKER_BASE_URL = "https://firsat-kontrol-analysis-report.erdaly1947.workers.dev";
 const REPORT_MAX_BODY_BYTES = 8 * 1024 * 1024;
+const IMAGE_MAX_BODY_BYTES = 15 * 1024 * 1024;
+const IMAGE_CONTROL_BODY_BYTES = 64 * 1024;
 const REPORT_RATE_WINDOW_MS = 60_000;
 const REPORT_RATE_LIMIT_PER_IP = 20;
 const REPORT_RATE_BUCKETS = new Map();
@@ -18,6 +20,9 @@ const REPORT_UPLOAD_ROUTES = new Map([
   ["/api/report/daily", { kind: "daily", contentType: "application/json", workerPath: "/api/report/daily", encoding: "gzip" }],
   ["/api/report/troubleshooting", { kind: "troubleshooting", contentType: "application/json", workerPath: "/api/report/troubleshooting", encoding: "gzip" }],
   ["/api/report/troubleshooting-zip", { kind: "troubleshooting_zip", contentType: "application/zip", workerPath: "/api/report/troubleshooting-zip", encoding: null }],
+  ["/api/images/stage", { kind: "image_stage", contentType: null, acceptedContentTypes: ["image/png", "image/jpeg"], workerPath: "/api/images/stage", encoding: null, maxBodyBytes: IMAGE_MAX_BODY_BYTES }],
+  ["/api/images/commit", { kind: "image_commit", contentType: "application/json", workerPath: "/api/images/commit", encoding: null, maxBodyBytes: IMAGE_CONTROL_BODY_BYTES }],
+  ["/api/images/abort", { kind: "image_abort", contentType: "application/json", workerPath: "/api/images/abort", encoding: null, maxBodyBytes: IMAGE_CONTROL_BODY_BYTES }],
 ]);
 const REST_BUCKETS = new Map();
 const REST_CACHE = new Map();
@@ -105,6 +110,10 @@ function checkRestRateLimit(ip, now = Date.now()) {
 
 export function resolveRestRoute(pathname) {
   return ROUTE_BY_PATH.get(pathname) || null;
+}
+
+export function resolveReportUploadRoute(pathname) {
+  return REPORT_UPLOAD_ROUTES.get(pathname) || null;
 }
 
 function isSafeSymbol(value) {
@@ -308,6 +317,36 @@ async function readLimitedBody(request, maxBytes) {
   return Buffer.concat(chunks, total);
 }
 
+function decodeImageFilename(value) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(value)) return null;
+  try {
+    const bytes = Buffer.from(value, "base64url");
+    if (!bytes.length || bytes.toString("base64url") !== value) return null;
+    const filename = bytes.toString("utf8");
+    if (!Buffer.from(filename, "utf8").equals(bytes)) return null;
+    if (!filename || filename.length > 255 || filename.includes("/") || filename.includes("\\") ||
+        /[\u0000-\u001f\u007f]/u.test(filename)) return null;
+    if (!/\.(?:png|jpe?g)$/i.test(filename)) return null;
+    return filename;
+  } catch {
+    return null;
+  }
+}
+
+function imageBodyMatchesType(body, contentType) {
+  if (contentType === "image/png") {
+    return body.length >= 8 && body.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  return contentType === "image/jpeg" && body.length >= 3 &&
+    body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff;
+}
+
+function imageFilenameMatchesType(filename, contentType) {
+  const lower = filename.toLowerCase();
+  if (contentType === "image/png") return lower.endsWith(".png");
+  return contentType === "image/jpeg" && (lower.endsWith(".jpg") || lower.endsWith(".jpeg"));
+}
+
 function bearerToken(request) {
   const value = request.headers.authorization;
   if (typeof value !== "string" || value.length > 8_192) return "";
@@ -345,20 +384,38 @@ async function handleReportUpload(request, response, route) {
 
   const contentType = String(request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
   const contentEncoding = String(request.headers["content-encoding"] || "").trim().toLowerCase();
-  if (contentType !== route.contentType) {
-    jsonResponse(response, 415, { ok: false, error: "Rapor içerik türü beklenen biçimde değil." });
+  const acceptedTypes = route.acceptedContentTypes || [route.contentType];
+  if (!acceptedTypes.includes(contentType)) {
+    jsonResponse(response, 415, { ok: false, error: route.kind.startsWith("image_")
+      ? "Görüntü içerik türü PNG/JPEG olmalıdır."
+      : "Rapor içerik türü beklenen biçimde değil." });
     request.resume();
     return;
   }
   if (contentEncoding !== (route.encoding || "")) {
-    jsonResponse(response, 415, { ok: false, error: "Rapor sıkıştırma biçimi beklenen biçimde değil." });
+    jsonResponse(response, 415, { ok: false, error: route.kind.startsWith("image_")
+      ? "Görüntü aktarımında Content-Encoding kullanılmamalıdır."
+      : "Rapor sıkıştırma biçimi beklenen biçimde değil." });
     request.resume();
     return;
   }
 
+  let imageFilename = null;
+  if (route.kind === "image_stage") {
+    imageFilename = decodeImageFilename(request.headers["x-image-name-b64"]);
+    if (!imageFilename || !imageFilenameMatchesType(imageFilename, contentType)) {
+      jsonResponse(response, 400, { ok: false, error: "Dosya adı metadata'sı veya uzantısı içerik türüyle eşleşmiyor." });
+      request.resume();
+      return;
+    }
+  }
+
+  const maxBodyBytes = Number.isSafeInteger(route.maxBodyBytes) ? route.maxBodyBytes : REPORT_MAX_BODY_BYTES;
   const declaredLength = request.headers["content-length"];
-  if (declaredLength !== undefined && (!/^\d+$/.test(String(declaredLength)) || Number(declaredLength) > REPORT_MAX_BODY_BYTES)) {
-    jsonResponse(response, 413, { ok: false, error: "Rapor boyut sınırını aşıyor." });
+  if (declaredLength !== undefined && (!/^\d+$/.test(String(declaredLength)) || Number(declaredLength) > maxBodyBytes)) {
+    jsonResponse(response, 413, { ok: false, error: route.kind.startsWith("image_")
+      ? "Görüntü boyut sınırını aşıyor."
+      : "Rapor boyut sınırını aşıyor." });
     request.resume();
     return;
   }
@@ -374,10 +431,15 @@ async function handleReportUpload(request, response, route) {
 
   let body;
   try {
-    body = await readLimitedBody(request, REPORT_MAX_BODY_BYTES);
+    body = await readLimitedBody(request, maxBodyBytes);
   } catch (error) {
     request.resume();
-    jsonResponse(response, error.status || 400, { ok: false, error: error.status === 413 ? error.message : "Rapor gövdesi okunamadı." });
+    jsonResponse(response, error.status || 400, { ok: false, error: error.status === 413 ? (route.kind.startsWith("image_") ? "Görüntü boyut sınırını aşıyor." : error.message) : "Aktarım gövdesi okunamadı." });
+    return;
+  }
+
+  if (route.kind === "image_stage" && !imageBodyMatchesType(body, contentType)) {
+    jsonResponse(response, 400, { ok: false, error: "Dosya imzası PNG/JPEG içerik türüyle eşleşmiyor." });
     return;
   }
 
@@ -386,11 +448,12 @@ async function handleReportUpload(request, response, route) {
   const headers = {
     "Authorization": "Bearer " + upstreamToken,
     "Accept": "application/json",
-    "Content-Type": route.contentType + (route.contentType === "application/json" ? "; charset=utf-8" : ""),
+    "Content-Type": (route.contentType || contentType) + ((route.contentType || contentType) === "application/json" ? "; charset=utf-8" : ""),
     "User-Agent": "FirsatKontrolReportRelay/1.0",
     "X-Request-ID": requestId,
   };
   if (route.encoding) headers["Content-Encoding"] = route.encoding;
+  if (route.kind === "image_stage") headers["X-Image-Name-B64"] = String(request.headers["x-image-name-b64"]);
 
   let upstream;
   let responseText;
