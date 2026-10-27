@@ -2,7 +2,32 @@
 
 > **Güncel kaynak:** Bu depodaki `main` dalı Sürüm 01 geliştirme kaynağıdır. Önceki Windows deneme paketinde `radar_core.py` içindeki `Decimal` ad alanı hatası görüldü; düzeltilen sürüm için ayrı regresyon testleri eklendi. Korunan Sürüm 00 Release'i ayrı bir referanstır. Uygulanan işlevler kaynak kod ve test kanıtıyla, ölçülmemiş kalanlar açıkça ayrılır.
 
-## En son gerçek çalışma kayıtları — 28 Ekim 2026, Türkiye saati
+## CANLI BAĞLAM — en son doğrulanmış durum
+
+> **Bu bölüm güncel özet içindir; yeni kanıt geldikçe güncellenir.** Eski canlı özetin önemli ayrıntıları tarihsel kayıtta korunur. Aşağıdaki durumun son rapor kanıtı 28 Ekim 2026, 00:51 TRT civarındadır. Bu zamandan sonraki gerçek çalışma durumu yeni rapor/log görülmeden doğrulanmış sayılmaz.
+
+### Nerede kaldık?
+Sürüm 01’in son incelenen çalıştırmasında canlı piyasa akışı güncel olarak raporlandı; ancak geçmiş mumların başlangıç hazırlığı tamamlanmamıştı. Günlük ve sorun giderme raporları yeni durum taşıyordu, analiz raporunun yenilenmesi ise doğrulanmamıştı.
+
+### Doğrulananlar ve halledilenler
+- README’de son incelemenin bulguları ve açık işler tarihli kayıt olarak saklandı.
+- Günlük raporun gönderimi 00:50:18 TRT’de başarılı olarak loglandı.
+- Sorun giderme ZIP’i üretildi ve bütünlük kontrolü başarılı oldu: 1.983.519 bayt; SHA-256 değeri aşağıdaki tarihsel kayıtta yer alır.
+- Günlük, analiz ve sorun giderme JSON raporları okunabildi; ancak bunların zaman damgaları farklıdır ve aynı anda oluşmuş tek bir durum gibi değerlendirilmemelidir.
+
+### Açık kalanlar
+- **Analiz raporu gönderimi:** 00:50:23 TRT’de sunucu bağlantısı hatası görüldü. 00:50:45 TRT’deki sonraki girişimin başarılı olduğu doğrulanmadı.
+- **Geçmiş mum hazırlığı:** Son tanıda `bootstrap_ready=false` idi. İki eski/eksik mum aralığı hatası kalmıştı; canlı akışın güncel olması bu hazırlığın tamamlandığı anlamına gelmez.
+- **Render piyasa geçidi:** Yaklaşık 00:09 ve 00:43 TRT’de bellek taşması/yeniden başlama logları görüldü. Bunların analiz raporu hatasına doğrudan sebep olduğu kanıtlanmadı.
+- **`ayarlar.json` kaydı:** Yaklaşık 00:44 TRT’de `PermissionError / WinError 5` görüldü. Sorunun kalıcı olarak çözüldüğü doğrulanmadı.
+
+### Sıradaki iş
+Yeni bir rapor veya günlük alındığında önce zaman damgalarını karşılaştır; analiz raporunun güncellenip güncellenmediğini, geçmiş mum hazırlığının tamamlanıp tamamlanmadığını ve geçit/ayar hatalarının tekrarlanıp tekrarlanmadığını kontrol et. Sonucu bu canlı bölüme özetle, ayrıntılı yeni bulguları gerektiğinde tarihli tarihsel kayda ekle.
+
+### Değişiklik ve onay durumu
+Bu son incelemede yalnızca README kaydı güncellendi. Bu açık sorunları çözmek amacıyla kaynak kodda veya bulut hizmeti yapılandırmasında değişiklik yapılmış değildir. Teşhis ile düzeltme ayrı tutulur; kod veya bulut yapılandırması değişikliği için kullanıcıdan açık onay beklenir.
+
+## Tarihsel çalışma kaydı — 28 Ekim 2026 (son rapor anı: 00:51 TRT)
 
 Bu bölüm, 28 Ekim 2026 saat 00:51 Türkiye saati civarındaki son rapor ve günlük incelemesini kaydeder. Bu kayıt, daha eski Sürüm 00 anlık görüntülerinden ayrıdır. Tespitler o inceleme anına aittir; sonraki çalıştırmalar yeni zaman damgalarıyla ayrıca kaydedilmelidir.
 
@@ -210,6 +235,9 @@ Her yeni çalışma başlangıcında mevcut sürüm, aktif aşama, README’deki
 - **Gereksinim/tasarım kaydı ile uygulama durumu kaydı ayrıdır:** Gereksinimler ve planlanan davranış önceden yazılır. Uygulamanın tamamlandığı, test edildiği veya başarılı olduğu ancak kod, rapor ve test kanıtları görüldükten sonra kayda geçirilir ve kullanıcıya bildirilir.
 - İlgili uygulama ve test grubu tamamlandığında sonuçlar, kalan eksikler ve sürüm kayıtları README'de gerçeğe uygun biçimde güncellenir. Uygun olduğunda ilgili kod, test ve durum kayıtları tek commit altında toplanır.
 - **README her zaman güncel tutulur:** Her çalışma sonunda güncel program durumu, gerçekten çalışan akışlar ve açık kalan işler README ile karşılaştırılır; güncel duruma aykırı eski ifadeler düzeltilir. Geçmiş kayıtlar gerektiğinde korunur, ancak açıkça “tarihsel/eski kayıt” ve ilgili tarih olarak işaretlenir. Eski test veya CI sonucu güncel çalışma durumuyla karıştırılmaz. Aynı konu hakkındaki güncel durum, eski notlardan belirgin biçimde ayrılır.
+
+- **README iki katmanlı tutulur: canlı bağlam ve tarihsel kayıt.** Canlı bağlam README'nin üst kısmındaki kısa, güncel çalışma özetidir; her yeni rapor, günlük, test veya inceleme sonrasında en son doğrulanmış durumla güncellenir. İçinde nerede kalındığı, tamamlanan/doğrulanan işler, açık sorunlar, sıradaki kontrol ve kod/bulut değişiklikleri için onay durumu bulunur. Yeni durum geldikçe bu özet güncellenir; tekrar eden eski özetler canlı bölümde biriktirilmez.
+- **Geçmiş kayıtlar silinmez veya güncel durum gibi sunulmaz.** Canlı bölümden çıkarılan önemli bulgular, çözüm ve test kanıtı ile zaman bilgisi gerektiğinde tarihsel kayıtta tutulur. Bir bulgu ancak yeni kanıtla çözüldü olarak işaretlenir; şüphe veya olası neden kesin sebep gibi yazılmaz. Yeni kanıt önceki kaydı değiştiriyorsa canlı bağlam düzeltilir ve tarihsel kayıt ilgili tarihle korunur.
 - Tamamlanmış işler tekrar uygulanmaz. Her yeni değişiklik doğrulanmış bir eksiğe veya kullanıcı tarafından onaylanmış yeni bir gereksinime dayanır.
 
 ### 5. Dal, sürüm, aşamalar arası aktarım ve son ZIP paketi
