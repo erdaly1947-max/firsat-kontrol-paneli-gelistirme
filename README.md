@@ -1,28 +1,19 @@
-# Fırsat-Kontrol Paneli — Sürüm 1 arayüz ve teknik doğrulama
+# Fırsat-Kontrol Paneli — Sürüm 00 güncel başlangıç tabanı
 
 > **Güncel kaynak:** Kullanıcının bilgisayarında başlatıp bulut raporlarını gönderdiği son Sürüm 00 ZIP'i. Bundan sonraki kod incelemeleri, motor değerlendirmeleri ve arayüz karşılaştırmaları bu paketteki gerçek dosyaları başlangıç noktası alır. Bu belge yalnızca gözlemlenen davranışı “uygulandı” sayar; henüz uygulanmamış tasarım kararları aşağıda ayrı gösterilir.
 
-## Sürüm 1 — uygulama ve doğrulama kaydı
+## Değişmez kural — yeni sürüm dalı, paketleme ve Main'in korunması
 
-Bu bölüm güncel geliştirme durumunu gösterir. Aşağıdaki Sürüm 00 bölümleri başlangıç paketinin gerçek durumunu ve geçmiş doğrulama kayıtlarını korur.
+Bu iş akışı, kullanıcı tarafından açıkça değiştirilmadıkça her sürüm geçişinde uygulanır. Eski README notları bu kuralla çelişiyorsa geçerli olan bu bölümdür; eski notlar gerekiyorsa tarihsel/eski kayıt olarak etiketlenir ve güncel kuralın yerine geçmez.
 
-### Sürüm 1 kapsamında uygulanan kod
+1. **Başlangıç yalnızca kullanıcı onayıyla yapılır.** Kullanıcı yeni sürüme geçişi onayladığında veya açıkça “yeni sürüme geçelim” dediğinde, yeni sürüm hazırlığı başlatılır. Bu ifade ya da onay gelmeden yeni sürüm dalı, paketleme işi veya başka bir değişiklik başlatılmaz.
+2. **Yeni dal, en son sürüm dalının mevcut son commit'inden oluşturulur.** Her yeni sürümün başlangıç noktası önceki en son sürüm dalının doğrulanmış HEAD commit'idir. Kod dosyaları elle kopyalanmaz; Git dalı bu commit'i başlangıç noktası alır. Kullanıcı ayrıca farklı bir taban belirlemedikçe `main` yeni sürümlerin başlangıç noktası olarak kullanılmaz.
+3. **Paketleme iş akışı yeni dala uyarlanır.** Yeni sürüm dalında CI/test ve aday paketleme çalışacak şekilde iş akışı güncellenir; çalıştırma ve test sonucu kontrol edilir. Yeni sürüm paketleri ayrı, açıkça sürüm/aday adı taşıyan dosya ve Actions artefaktı olarak oluşturulur.
+4. **Önceki kararlı ZIP ve `main` değiştirilmez.** Yeni sürümün derlenmesi veya test edilmesi önceki son sürümün kalıcı ZIP/Release dosyasının üzerine yazmaz; `main` dalına commit, merge, force-push veya başka bir değişiklik yapılmaz. Yeni paket, kullanıcı açıkça yeni sürümün kararlı dağıtım olarak yayımlanmasını onaylamadan önceki sürümün indirme dosyasının yerine geçmez.
+5. **Koruma ayarları en son ele alınır.** GitHub arayüzünden yapılandırılması gereken dal koruması, yeni sürüm dalı ve paketleme iş akışı hazırlandıktan sonra kullanıcıya adım adım yaptırılır. `main` hedef alınır; `Restrict updates`, `Restrict deletions` ve `Block force pushes` etkinleştirilir; bypass listesi boş bırakılır. Bu kuralların gerçekten etkinleştiği GitHub ekranından doğrulanmadan Main'in kilitlendiği söylenmez.
+6. **Hata durumunda sıfır noktası korunur.** Yeni sürüm dalı başarısız veya kullanılamaz hâle gelirse onu bırakıp önceki doğrulanmış sürüm dalının son commit'inden yeni bir dal açılabilir. Bunun için `main` veya önceki sürüm ZIP'i değiştirilmez.
 
-- Coin fiyatları ortak sabit ondalık gösterime bağlandı. 4.41E-09 yerine 0.00000000441 gösterilir; anlamlı basamaklar korunur ve geçersiz fiyatlar sıfırmış gibi yazılmaz.
-- İç panel başlık tekrarı kaldırıldı; canlı akış ve geçmiş mum hazırlığı bağımsız renkli ve yazılı göstergeler olarak gösterilir.
-- Siyah arka plan ve beyaz temel metin uygulanır. Windows 11 yapı 22000 ve sonrasında gri pencere başlığı/beyaz başlık yazısı en iyi çabayla ayarlanır; eski yapılarda aynı görünüm garanti değildir.
-- Yinelenen durum satırı günlük görünümden kaldırıldı. Bağlantı, tarama evreni, ses ve seviye ayrıntıları açılabilir tanılama alanına taşındı.
-- Kontrol sırası sadeleştirildi; Başlat/Durdur düğmelerinde saatler korunur. Kayıtlar düğmesi kaldırıldı; kayıt klasörüne tanılama alanından ulaşılır. Panel Işığı yerine Yazı Büyüt kontrolü kullanılır.
-- BTC bağlamı kısa günlük özet ve genişletilebilir teknik ayrıntılar olarak ayrıldı. Aday tablosuna BTC'ye göre göreceli güç alanı eklendi. Seçilen coin alanında hızlı karar, giriş/risk ve teknik kanıt bölümleri ayrıldı.
-- Aday tablosu, seçilen coin, teknik ayrıntılar ve tanılama alanında kaydırma çubukları bulunur; alan ayırıcıları sürüklenerek yeniden boyutlandırılır ve pencere daraldığında ana paneller alt alta geçer.
-- Kullanım kılavuzu Sürüm 1 düğme ve renk davranışlarını açıklayacak şekilde yenilendi. Analiz motorunun puanlama, teknik analiz ve risk planı hesaplamaları yeniden yazılmadı.
-- Sürüm 1 paketleme iş akışı surum-01 etiketini ve Firsat-Kontrol-Paneli-Surum-01.zip dosyasını kullanır.
-
-### Sürüm 1 doğrulama durumu
-
-Testler, motor uyumu, canlı piyasa geçidi doğrulaması ve ZIP bütünlüğü sonuçları ancak gerçekten sonuçlandıktan sonra bu bölüme yazılır. Başarılı otomatik testler bile Windows masaüstünde bütün görsel/etkileşimlerin doğrulandığını veya stratejinin kârlı olduğunu kanıtlamaz.
-
----
+Bu kuralın amacı, her sürümün önceki doğrulanmış sürümden izlenebilir biçimde türemesi, önceki kararlı paketin korunması ve `main` dalının güvenilir referans olarak kalmasıdır.
 
 ## Sürüm 00 ZIP kimliği — sabit referans
 
@@ -35,7 +26,7 @@ Testler, motor uyumu, canlı piyasa geçidi doğrulaması ve ZIP bütünlüğü 
 
 Bu kimlik, üzerinde çalışılacak mevcut Sürüm 00 paketini ayırt etmek içindir. Bu README güncellemesi program kaynak kodunu veya kullanıcının bilgisayarındaki ZIP'i değiştirmez. ZIP yeniden paketlenmedikçe yukarıdaki paket kimliği değişmiş sayılmaz.
 
-## Sürüm 00 başlangıç paketinde gerçekten bulunanlar (tarihsel referans)
+## Mevcut pakette gerçekten bulunanlar
 
 - Windows üzerinde `BASLAT.bat` ile açılan Python/Tkinter masaüstü paneli; `.exe` olarak derlenmiş bir uygulama değildir.
 - Tek analiz motoru Binance Spot genel piyasa verisini kullanır. Paketteki `market_data_relay.json`, Render piyasa geçidini (`https://firsat-kontrol-market-relay.onrender.com`) gösterir. BtcTurk yerel USDT Spot listesi tarama evreni için kullanılır; fiyat/mum analizi Binance verisi üzerinden yapılır.
@@ -43,7 +34,7 @@ Bu kimlik, üzerinde çalışılacak mevcut Sürüm 00 paketini ayırt etmek iç
 - Kodda teknik göstergeler, A/B/C aşamaları, BTC piyasa bağlamı, BTC'ye göre göreceli güç/korelasyon, likidite kontrolleri, puanlama, koşullu giriş/stop/teknik hedef planı, alarm ve sinyal/geçmiş kayıtları vardır. Kodda bulunmaları, bütün piyasa koşullarında kârlılıklarının veya tarihsel başarının kanıtlandığı anlamına gelmez.
 - Bulut rapor Worker'ı günlük, analiz ve sorun giderme JSON raporlarını okunabilir uçlardan sunar. Güncel kullanıcı çalıştırmasında bu üç JSON raporunun içeriğine erişildi; raporların her biri farklı bir çalışma anını temsil edebilir.
 
-## Sürüm 00 arayüzünün tarihsel durumu
+## Arayüzün mevcut hali — kodda uygulanan davranış
 
 - Panelin üstünde motor durumu, tarama evreni, WebSocket durumu, sesli bildirim durumu ve BTC piyasa bağlamı gösterilir.
 - Kontroller: `Motoru Başlat`, `Motoru Durdur`, `Pariteleri Güncelle`, `Kayıtlar`, `Günlük Rapor`, `Analiz Raporu`, `Seviye Takibi`, `Sesli Bildirim`, `Ses Testi`, `Sorun Giderme Paketi (ZIP)`, ses seviyesi ve `Panel Işığı`.
@@ -52,7 +43,7 @@ Bu kimlik, üzerinde çalışılacak mevcut Sürüm 00 paketini ayırt etmek iç
 - Sesli fırsat alarmı ile stop geçişinin sesleri ayrıdır. Seviye takibi aday seçimi değiştiğinde veya motor kapanınca açık takip görünümü bırakmamak üzere kapatılır.
 - Pencere ekran boyutundan hesaplanıp ortalanır. Güncel kodda varsayılan genişlik ekran genişliğinin yaklaşık **%72'si**, yükseklik yaklaşık **%86'sıdır**; bu, aşağıda kayıtlı daha dar panel hedefinin tamamıyla uygulandığı anlamına gelmez.
 
-### Sürüm 00 paketinde henüz uygulanmamış hedefler (tarihsel kayıt)
+### Arayüz için kabul edilmiş, ancak bu ZIP'te henüz uygulanmamış kararlar
 
 - **Panel arka planı siyah olacaktı; bu karar henüz uygulanmadı.** Mevcut kod `Panel Işığı` ayarıyla gri arka plan üretir: aralık `#444444`–`#757575`, paket içindeki ayarlar nedeniyle varsayılan kod değeri yaklaşık `#6e6e6e` olur. Bu README güncellemesinde arayüz kodu değiştirilmemiştir.
 - Hedef pencere genişliği ilk açılışta ekranın yaklaşık yarısı, ihtiyaç olursa en fazla yaklaşık %80'i; yükseklik ekranın en az %10 altında olacaktı. Mevcut varsayılan genişlik yaklaşık %72, yükseklik %86'dır. Bu ölçü kararı tamamlanmış kabul edilmez.
@@ -62,7 +53,7 @@ Bu kimlik, üzerinde çalışılacak mevcut Sürüm 00 paketini ayırt etmek iç
 
 Bu bölüm **mevcut gerçek durumun kaydıdır**. Sonraki “Panel tasarımı” bölümü kabul edilmiş hedef gereksinimleri içerir; oradaki bir madde bu ZIP'te yoksa kodlanmış gibi sunulmaz.
 
-## Sürüm 00 paketinin tarihsel doğrulaması
+## Paket doğrulaması ve gerçek Windows çalışma kanıtı
 
 - Paketleme/CI çalıştırması [#40505956633](https://github.com/erdaly1947-max/matrix/actions/runs/40505956633) başarılı tamamlandı: 19 Python kaynak dosyası derlendi; ayar JSON'ları doğrulandı; **78 Python birim testi** geçti; Cloudflare rapor Worker testleri, Render geçidi testleri ve canlı Render/Binance WebSocket ile BtcTurk USDT doğrulamaları geçti; ZIP bütünlüğü kontrol edildi ve Release dosyaları güncellendi.
 - CI başarısı, gerçek Windows ekranında bütün kontrol ve yerleşimlerin görsel olarak sınandığını veya stratejinin kârlı olduğunu kanıtlamaz. Kullanıcı bu ZIP'i kendi bilgisayarında başlatıp rapor gönderdi; bu, açılış ve rapor akışına ilişkin gerçek kullanım kanıtıdır.
@@ -136,7 +127,7 @@ Bu bölümdeki tarihler geçmişte yapılan değişiklikleri ve o zamanki test s
 - **25 Ekim 2026 — motor durumlarının ayrılması:** [Commit `ab1c7d7d`](https://github.com/erdaly1947-max/matrix/commit/ab1c7d7d8a21ca8bf2b37d652a49d6d294737048) canlı WebSocket sağlığını, geçmiş mum hazırlığını ve genel motor durumunu ayrı kaydetti. Geçici ağ hataları ile kalıcı geçmiş veri boşlukları için farklı tekrar deneme davranışları tanımlandı.
 - [Eski doğrulama çalıştırması #40238052373](https://github.com/erdaly1947-max/matrix/actions/runs/40238052373) ve [#40233230870](https://github.com/erdaly1947-max/matrix/actions/runs/40233230870), ilgili 25–26 Ekim kod/test durumlarının tarihsel kanıtlarıdır. Son paket için güncel doğrulama ise [#40505956633](https://github.com/erdaly1947-max/matrix/actions/runs/40505956633) çalıştırmasıdır.
 
-### Sürüm 00 öncesi kaydedilmiş açık işler (tarihsel kayıt)
+### Güncel açık işler
 
 - Başlangıç mum hazırlığının 1.248 parite/zaman dilimi birleşimi için tamamlandığı, son alınan sorun giderme raporunda doğrulanmadı (`bootstrap_ready=false`). Canlı veri güncelliği ile geçmiş mumların hazır olması ayrı durumlar olarak izlenmelidir.
 - Gerçek tarihsel piyasa verisi üzerinde geriye dönük test (backtest), kaçırılan yükselişler/yanlış pozitifler ve stratejinin tarihsel performansı ölçülmedi. Kodda analiz ve sinyal takibi bulunması kârlılık kanıtı değildir.
@@ -144,7 +135,7 @@ Bu bölümdeki tarihler geçmişte yapılan değişiklikleri ve o zamanki test s
 - Panel ayar dosyasında `screen_brightness` ile kodun okuduğu/yazdığı `panel_brightness` anahtarı tutarsızdır. Bu inceleme sırasında yalnızca kaydedilmiştir; kaynak koda değişiklik yapılmamıştır.
 - `ayarlar.json` komisyon/kayma oranlarını tanımlamaz. Mevcut teknik risk/getiri değeri brüttür; güçlü fırsat kapısı ilk teknik hedef için en az 1,5 brüt teknik risk/getiri, en az 80/100 puan ve diğer veri/aşama/likidite/plan/BTC kapılarını arar. Program net masraf sonrası getiri hesaplamaz.
 
-## Sürüm 00 — tarihsel başlangıç noktası
+## Sürüm 00 — kesin başlangıç noktası
 
 - **En son Sürüm 00 paketi üstteki SHA-256 ile tanımlanan ZIP'tir.** Bundan sonraki modül incelemelerinde `radar_core.py`, `binance_erken_firsat_radari.py`, `ortak_piyasa.py`, `tek_motor_evreni.py`, `binance_mum_arsivi.py`, `sinyal_kaydi.py`, `analysis_report.py`, `tek_motor_paneli.pyw` ve diğer ZIP dosyaları referans alınır.
 - Kaynak kod yeniden yazılmaz; mevcut motor fonksiyonları ve hesaplamalar korunarak geliştirme yapılır. Bir işlevin planda yazılı olması, kodda uygulanmış olduğuna kanıt değildir; bir işlevin kodda bulunması da tarihsel piyasa başarısını kanıtlamaz.
@@ -186,12 +177,13 @@ Her yeni çalışma başlangıcında mevcut sürüm, aktif aşama, README’deki
 
 ### 5. Dal, sürüm, aşamalar arası aktarım ve son ZIP paketi
 
-- Dal kuralı: Kullanıcının önceki açık talimatı gereği çalışma yalnızca main dalında yürütülür. Yeni dal, birleştirme veya başka bir dalda geliştirme yapılmaz; kullanıcı bu kuralı ayrıca değiştirmedikçe yalnızca main güncellenir.
-- Kullanıcı Sürüm 1 için kodlama, motor uyumu kontrolü ve ZIP oluşturulmasını açıkça onayladı. Bu kapsamda kod değişiklikleri main üzerinde yapılır ve paketleme, otomatik testler ile paket bütünlük kontrolü başarıyla tamamlanınca yapılır.
+- **Sürüm 00 başlangıç tabanı**, yukarıda kimliği verilen ve kullanıcının bilgisayarında başlattığı ZIP paketidir. Paketteki sürüm etiketi "00" olarak kalır; bu README güncellemesi kaynak kodunu veya uygulama davranışını değiştirmez. Planlanan yeni özellikler, uygulanıp doğrulanana kadar uygulanmış sayılmaz.
+- **Dal açılmadan önce açık kullanıcı onayı zorunludur.** Onay alınmadan dal oluşturulmaz, yeniden adlandırılmaz veya başka bir dal geliştirme alanı olarak seçilmez. Sürüm 00 başlangıç ve düzeltme işleri `main` üzerinde yürütülür. Kullanıcı Sürüm 1 dalının açılmasını onaylarsa adı tam olarak `1.surum-readme-gereksinimler` olur. Sürüm 00 tabanının bu dala kopyalanması ve sonraki geliştirmelerin orada yürütülmesi, yalnızca verilen onay kapsamındadır; onay olmadan `main` veya başka bir dal üzerinde farklı bir geliştirme süreci başlatılmaz.
+- Yan dalda yapılan değişiklikler gerekli hesaplama, regresyon, geçmiş veri, panel, raporlama ve paket kontrolleri tamamlanmadan main dalına aktarılmaz. Sürüm 1 ancak bu kontroller ve ilgili kullanıcı onayı sonrasında hazırlanır.
 - Her aşamanın sonunda, yeni sohbet odasında kesintisiz devam edilebilmesi için kesinleşmiş kararlar, tamamlanan işler, doğrulanmış eksikler ve sıradaki aşamanın amacı birlikte özet olarak aktarılır.
 - Bağlam aktarımı tamamlanmış sayılmadan önce güncel README kontrol edilir; aktarım README'deki gerçek durumla tutarlı olmalıdır.
 - ZIP paketi hazırlanırken gerekli yerel BtcTurk USDT evreni dosyası pakette bulunur; fan token dışlama kuralları korunur.
-- Yeni sürüm ZIP'i ancak kullanıcı açıkça istediğinde oluşturulur. Testler başarısız olursa paketleme adımları çalışmamalıdır.
+- Nihai ZIP paketi oluşturulmadan önce paketleme aşaması kullanıcıya bildirilir ve açık onayı alınır. Bu bildirim ve onay olmadan yeni ZIP paketi oluşturulmaz.
 
 ## Geliştirme hedefi ve ortak karar sistemi
 
