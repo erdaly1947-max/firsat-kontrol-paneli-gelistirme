@@ -49,6 +49,19 @@ Bu kimlik, korunacak Sürüm 00 referans paketini ayırt etmek içindir; güncel
 
 Bu bölüm uygulanan davranışı kalan görsel yerleşim farklarından ayırır. Otomatik testler gerçek Windows ekranındaki taşma/kesilme durumunu veya stratejinin kârlılığını kanıtlamaz.
 
+#### A–D tasarım bölümleri: hedef ile mevcut durum
+
+| README'deki hedef bölüm | Güncel kaynakta görülen durum | Sonuç |
+|---|---|---|
+| A. Üst bölüm — BTC ve genel piyasa | Motor/canlı veri/geçmiş mum durumları, BTC özeti ve açılır BTC ayrıntıları var; tarama evreni bilgisi tanılama özetinde de gösteriliyor. | İçerik mevcut; BTC ve genel durum alanı korunmuş/genişletilmiş. |
+| B. Orta bölüm — öncelikli adaylar | Aday tablosunda dokuz sütun var; Binance/BtcTurk fiyatları, puan, zaman dilimi, A/B/C, veri tazeliği, BTC'ye göre durum ve karar gösteriliyor. | Mevcut. |
+| C. Seçilen coin — hızlı karar ve teknik ayrıntılar | Hızlı karar özeti ile teknik ayrıntı ayrı bileşenler; teknik ayrıntı sağ tarafta özetin altında dikey açılır/kapanır. | İki içerik alanı mevcut; istenen yan yana yerleşim uygulanmamış. |
+| D. Alt bölüm — giriş, hedef ve risk kontrolü | Giriş bölgesi, kırılım, stop ve teknik hedefler seçilen coin özeti içinde yazılıyor; bunlar için ayrı, sürekli görünen alt panel yok. | İçerik var; bağımsız alt bölüm olarak uygulanmamış. |
+
+Sonuç: kabul edilmiş A–D tasarımında **iki yerleşim farkı** açık kalıyor: C bölümündeki hızlı özet/teknik ayrıntı yan yana değil, dikey; D bölümündeki giriş-hedef-risk bilgileri ayrı bir alt panelde değil. Bu, iki ana bölümün bilinçli olarak silindiğine dair kanıt değildir. README'de “tam olarak iki bölüm kalıcı olarak kaldırılacak” şeklinde açık bir karar kaydı bulunmuyor; bu yüzden böyle bir karar varsayılmamalı.
+
+Kaynak kod ve testlerde ayrıca görülen arayüz kontrolü farkları şunlardır: ayrı `Kayıtlar` araç çubuğu düğmesi yoktur, kayıtlar tanılama bölümünden açılır; eski `Panel Işığı` kontrolünün yerini yazı boyutu kaydıracı almıştır; ikinci/tekrarlı iç başlık üretilmez. Bunlar kontrol veya başlık değişiklikleridir ve A–D ana bölümlerinin kaldırılmasıyla aynı şey değildir.
+
 ## Tarihsel doğrulama ve Windows çalışma kanıtı — Sürüm 00
 
 Aşağıdaki CI sonucu, bulut raporu zamanları ve Windows anlık görüntüleri önceki Sürüm 00/önceki deneme paketinin tarihsel kayıtlarıdır. Bunlar `Decimal` hatasını ve yazı boyutu kontrolünü düzelten güncel Sürüm 01 commit'inin test sonucu değildir. Düzeltilen sürüm yalnızca güncel `main` commit'ine ait GitHub Actions doğrulaması ve o çalışmanın yeni artefaktı üzerinden değerlendirilmelidir.
