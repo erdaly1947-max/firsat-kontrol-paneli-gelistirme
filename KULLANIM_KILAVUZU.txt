@@ -1,0 +1,54 @@
+FIRSAT-KONTROL PANELİ — KISA KULLANIM KILAVUZU
+Sürüm 1
+
+PROGRAM NE YAPAR?
+Binance Spot'un halka açık piyasa verilerini tarar; yükseliş ihtimali taşıyan coinleri A/B/C araştırma aşamalarında sıralar ve teknik seviyeleri gösterir. BtcTurk, taranacak yerel USDT paritelerinin listesini sağlar; tabloda BtcTurk fiyatı ayrıca gösterilir. Program borsa hesabına bağlanmaz, emir göndermez ve otomatik alım-satım yapmaz. A/B/C aşamaları garanti değildir.
+
+İLK ÇALIŞTIRMA
+1. ZIP dosyasını yeni bir klasöre ayıklayın.
+2. Klasördeki BASLAT.bat dosyasını çalıştırın.
+3. Panelde “Başlat” düğmesine basın.
+4. Canlı akış ve geçmiş mum durumlarını ayrı ayrı izleyin. Canlı akışın güncel olması geçmiş mum hazırlığının bittiği anlamına gelmez.
+5. Parite listesi yoksa veya eskiyse “Pariteleri Güncelle” düğmesini kullanın; güncelleme tamamlanınca motoru yeniden başlatın.
+6. Önceki ayarları korumak istiyorsanız önceki klasördeki ayarlar.json ve data klasörünü uygulama kapalıyken yeni klasöre kopyalayın.
+
+DÜĞMELER VE KONTROLLER
+• Başlat — Binance piyasa taramasını başlatır. Altındaki saat son başlatma zamanıdır.
+• Durdur — motoru kontrollü durdurur. Altındaki saat son durdurma zamanıdır.
+• Pariteleri Güncelle — taranacak yerel USDT parite listesini yeniler. Başarısız olursa önceki liste korunur.
+• Günlük Rapor — programın çalışma durumunu ve tanılama bilgilerini reports klasörüne yazar; raporun okunabilir özetini gösterir.
+• Analiz Raporu — coinlerin teknik analiz sonuçlarını içeren raporu oluşturur ve kayıtlıysa Windows Kimlik Bilgileri Yöneticisi'ndeki anahtarla buluta gönderir.
+• Sorun Giderme ZIP — raporları ve sınırlı tanılama kayıtlarını bir ZIP dosyasında toplar; kayıtlıysa buluta gönderir.
+• Seviye Takibi: Açık/Kapalı — seçili coin için giriş bölgesi, kırılım, hedef ve zarar durdurma seviyelerini izler. Motor çalışmalı, seçili coin verisi güncel ve teknik plan geçerli olmalıdır. Coin seçimi değişince takip kapanır.
+• Sesli Bildirim: Açık/Kapalı — güçlü fırsat ve seviye bildirimlerinin sesini açar/kapatır; analizi ve puanlamayı kapatmaz.
+• Ses Testi — fırsat bildirim sesini dener; zarar durdurma sesini ayrıca test etmez.
+• Ses kaydırıcısı — bildirim sesini yüzde 0–100 arasında ayarlar. Yüzde 0 sessizdir.
+• Yazı Büyüt — paneldeki metin boyutunu artırır; en büyük boyuttan sonra başlangıç boyutuna döner. Tercih kaydedilir.
+• Tanılama ve son kayıtlar — tarama evreni, bağlantı sayısı, son veri zamanı, motor uyarıları ve uygulama kayıtlarını açar. “Kayıt klasörünü aç” düğmesi yerel kayıt klasörünü gösterir.
+• BTC ayrıntıları — günlük kısa özete ek olarak destek/direnç, kanal, oynaklık ve risk bilgilerini açar.
+• Teknik ayrıntılar — seçili coin için sekiz zaman dilimindeki mevcut gösterge ve fiyat yapısı kanıtlarını açar. Bölümler arasındaki ayırıcılar sürüklenerek alan boyutları değiştirilebilir.
+
+CANLI VERİ VE GEÇMİŞ MUM GÖSTERGELERİ
+• Canlı akış güncelse “CANLI AKIŞ · GÜNCEL” yeşil gösterilir.
+• Canlı akış eskiyse, eksikse veya motor çalışmıyorsa “CANLI AKIŞ · UYARI” kırmızı gösterilir.
+• Geçmiş mumlar hazır olduğunda yeşil; hazırlanıyorken veya gerekli geçmiş kontroller tamamlanmamışken sarı gösterilir.
+• Aday ve seçilen coin başlıklarında hem renk hem kısa durum yazısı kullanılır. Yeşil başlık kendi başına alım onayı değildir.
+
+ADAY TABLOSU VE RENKLER
+• Yıldız (★), güncel veride güçlü fırsat koşullarını geçen ve güçlü bildirim için uygun adayı gösterir; sesin o anda çaldığını veya kazanç garantisini göstermez.
+• Binance USDT fiyatı analiz motorunun kullandığı fiyattır. BtcTurk USDT fiyatı ek bilgi içindir; fiyat farkı sütunu yoktur.
+• A — erken hazırlık; teyit eksik olabilir. B — fiyat yapısı ve olağan dışı hacim teyidi. C — kırılımın devamlılığına ilişkin araştırma aşaması. A/B/C aşaması, nihai alım/satım kararından ayrıdır.
+• Beyaz tarafsız bilgi; yeşil olumlu teknik bulgu ve güçlü fırsat kararı; kırmızı kritik risk, geçersizlik ve zarar durdurma; sarı koşullu giriş, bekleme veya eksik kontrol; lila teknik hedefler; mavi erken aşama ve izleme içindir.
+• Canlı akış güncelliği ayrı göstergedir: güncel akış yeşil, eski/bağlantısı kopmuş akış kırmızı, hazırlığı süren geçmiş veri sarıdır.
+• Seçilen coin bölümünde koşullu giriş bölgesi, beklenen kırılım, zarar durdurma, en fazla üç teknik hedef, brüt risk/getiri ve geçersizleşme koşulu gösterilir.
+• Fiyatlar normal ondalık gösterimle yazılır. Örneğin 4.41E-09 yerine 0.00000000441 gösterilir. Çok küçük fiyatlarda gerekli ondalık basamaklar korunur; fiyatlar sıfıra yuvarlanmamalıdır.
+• Eski veya eksik veri güçlü fırsat değerlendirmesini geçersiz kılabilir. Fiyat giriş bölgesini geçtiyse fiyatı kovalamayın.
+
+ALARMLAR VE ÖNEMLİ NOT
+Güçlü fırsat bildirimi, canlı veriyle doğrulanmış yeni bir güçlü aday ortaya çıktığında çalar. Seviye takibi açıksa seçili coin giriş, kırılım, hedef veya zarar durdurma seviyesini geçtiğinde bildirim verebilir. Zarar durdurma sesi diğer bildirimlerden farklıdır. Bildirimler emir göndermez; işlem kararı ve risk kullanıcıya aittir. Teknik seviyeler tahmindir, garanti değildir. Risk/getiri gösterimi brüttür; komisyon ve kayma dahil değildir.
+
+RAPOR DOSYALARI
+Raporlar ve çalışma kayıtları uygulama klasöründeki reports ve logs klasörlerine yazılır. Raporlar otomatik olarak ChatGPT'ye gönderilmez; rapor düğmeleri kullanıcı isteğiyle aktarım başlatır. Gizli anahtarı sohbetlere, ekran görüntülerine, kayıtlara veya GitHub'a koymayın.
+
+BULUT ANAHTARININ GÜVENLİ TAŞINMASI
+Güncelleme sırasında eski chatgpt_baglanti.local.json dosyasını önceden silmeyin. Program anahtarı Windows Kimlik Bilgileri Yöneticisi'ne taşıma akışında önce yeni kaydı doğrular; doğrulama başarısızsa eski dosya korunur. Anahtarı sohbetlere veya GitHub'a koymayın.

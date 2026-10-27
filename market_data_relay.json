@@ -1,0 +1,5 @@
+{
+  "url": "https://firsat-kontrol-market-relay.onrender.com",
+  "purpose": "Public read-only market-data relay URL deployed on Render Free in Frankfurt; REST and Binance WebSocket market data.",
+  "protocol": 1
+}

@@ -1,0 +1,291 @@
+name: Validate and package Sürüm 01
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Serialize package/Release writes so concurrent pushes cannot delete each other's assets.
+concurrency:
+  group: s01-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-slim
+    timeout-minutes: 20
+    steps:
+      - name: Kaynak kodu al
+        uses: actions/checkout@v7
+
+      - name: Python hazırla
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14.8"
+
+      - name: Node.js hazırla
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Python sürümünü doğrula
+        run: |
+          python - <<'PY'
+          import sys
+
+          expected = (3, 14, 8)
+          print(f"CI Python: {sys.version}")
+          if sys.version_info[:3] != expected:
+              raise SystemExit(
+                  f"Beklenen Python {expected[0]}.{expected[1]}.{expected[2]}, "
+                  f"bulunan {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+              )
+          PY
+
+      - name: Bağımlılıkları doğrula
+        run: python -m pip install -r requirements.txt
+
+      - name: Python kaynaklarını derle
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import py_compile
+
+          excluded = {".git", ".github", ".venv", "venv", "__pycache__", "dist"}
+          sources = [
+              path for path in Path(".").rglob("*")
+              if path.is_file()
+              and path.suffix.lower() in {".py", ".pyw"}
+              and not any(part in excluded for part in path.parts)
+          ]
+          if not sources:
+              raise SystemExit("Kaynak dosyası bulunamadı.")
+          for source in sorted(sources):
+              py_compile.compile(str(source), doraise=True)
+              print(f"OK: {source}")
+          print(f"Derlenen dosya sayısı: {len(sources)}")
+          PY
+
+      - name: Ayar JSON dosyalarını doğrula
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          for name in ("ayarlar.json", "btcturk_usdt_spot.json"):
+              value = json.loads(Path(name).read_text(encoding="utf-8-sig"))
+              print(f"OK: {name} ({type(value).__name__})")
+          PY
+
+      - name: Otomatik birim testleri
+        shell: bash
+        run: python -m unittest discover -s tests -v
+
+      - name: Bulut geçidi JavaScript testleri
+        run: node --test cloudflare_worker/test/index.test.js
+
+      - name: Analiz raporu Worker testleri
+        run: node --test cloudflare/report-worker/test/index.test.js
+
+      - name: Render piyasa geçidi bağımlılıkları
+        run: npm install --prefix render_relay --no-package-lock
+
+      - name: Render piyasa geçidi testleri
+        run: npm test --prefix render_relay
+
+      - name: Canlı Render piyasa verisi ve WebSocket doğrulaması
+        env:
+          RELAY_URL: https://firsat-kontrol-market-relay.onrender.com
+        run: npm run smoke --prefix render_relay
+
+      - name: Canlı BtcTurk USDT fiyat doğrulaması
+        run: |
+          python - <<'PY'
+          from ortak_piyasa import fetch_btcturk_usdt_last_prices
+
+          prices = fetch_btcturk_usdt_last_prices(timeout=8.0)
+          if not prices:
+              raise SystemExit("BtcTurk güncel USDT fiyatı alınamadı.")
+          sample = list(sorted(prices.items()))[:3]
+          print(f"BtcTurk canlı USDT fiyatı alınan parite: {len(prices)}")
+          print(f"Örnek fiyatlar: {sample}")
+          PY
+
+      - name: İstenen son paketleme için Sürüm 01 ZIP ve SHA-256 oluştur
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[package]')))
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import requests
+          from zipfile import ZipFile, ZIP_DEFLATED
+
+          relay_url = "https://firsat-kontrol-market-relay.onrender.com"
+          print(f"Frankfurt Render piyasa geçidi ZIP içine yazılacak: {relay_url}")
+
+          root = Path(".")
+          dist = root / "dist"
+          dist.mkdir(exist_ok=True)
+          archive_path = dist / "Firsat-Kontrol-Paneli-Surum-01.zip"
+          excluded_dirs = {".git", ".github", ".venv", "venv", "__pycache__", "dist", "data", "logs", "reports", "run", "tests", "cloudflare_worker", "render_relay"}
+          with ZipFile(archive_path, "w", compression=ZIP_DEFLATED) as archive:
+              for path in sorted(root.rglob("*")):
+                  if not path.is_file():
+                      continue
+                  relative = path.relative_to(root)
+                  if any(part in excluded_dirs for part in relative.parts):
+                      continue
+                  if path.suffix.lower() in {".zip", ".pyc", ".sha256"}:
+                      continue
+                  if relative.as_posix() == "market_data_relay.json" and relay_url:
+                      relay_config = json.loads(path.read_text(encoding="utf-8"))
+                      relay_config["url"] = relay_url
+                      archive.writestr(
+                          relative.as_posix(),
+                          json.dumps(relay_config, ensure_ascii=False, indent=2) + "\n",
+                      )
+                  else:
+                      archive.write(path, relative.as_posix())
+
+          with ZipFile(archive_path) as archive:
+              bad_member = archive.testzip()
+              if bad_member is not None:
+                  raise SystemExit(f"ZIP bütünlük kontrolü başarısız: {bad_member}")
+              names = archive.namelist()
+              if "btcturk_usdt_spot.json" not in names:
+                  raise SystemExit("btcturk_usdt_spot.json paket içinde bulunamadı.")
+              if "market_data_relay.json" not in names:
+                  raise SystemExit("market_data_relay.json paket içinde bulunamadı.")
+              relay_member = json.loads(archive.read("market_data_relay.json").decode("utf-8"))
+              if relay_url and relay_member.get("url") != relay_url:
+                  raise SystemExit("Bulut geçidi ZIP ayarına yazılamadı.")
+              if any(name.endswith(".zip") for name in names):
+                  raise SystemExit("ZIP içinde iç içe ZIP dosyası bulundu.")
+
+          digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+          checksum_path = archive_path.with_suffix(archive_path.suffix + ".sha256")
+          checksum_path.write_text(f"{digest}  {archive_path.name}\n", encoding="ascii")
+          print(f"ZIP: {archive_path}")
+          print(f"SHA-256: {digest}")
+          print(f"Dosya sayısı: {len(names)}")
+          PY
+
+      - name: Kalıcı GitHub Release indirme dosyalarını otomatik güncelle
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[package]')))
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from urllib.parse import quote
+          import requests
+
+          owner, repo = os.environ.get("GITHUB_REPOSITORY", "erdaly1947-max/firsat-kontrol-paneli-gelistirme").split("/", 1)
+          tag = "surum-01"
+          api = f"https://api.github.com/repos/{owner}/{repo}"
+          headers = {
+              "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          session = requests.Session()
+          session.headers.update(headers)
+
+          response = session.get(f"{api}/releases/tags/{tag}", timeout=20)
+          if response.status_code == 404:
+              response = session.post(
+                  f"{api}/releases",
+                  json={
+                      "tag_name": tag,
+                      "target_commitish": os.environ["GITHUB_SHA"],
+                      "name": "Fırsat Kontrol Paneli — Sürüm 01",
+                      "body": (
+                          "Dağıtım paketi yalnızca kullanıcı tarafından açıkça başlatılan son paketleme işleminde güncellenir. "
+                          "ZIP ve SHA-256 dosyaları güncellenir. Python 3.14.8 ve "
+                          "halka açık piyasa verisi uç noktası önceliğini içerir. "
+                          "Program hesap bağlantısı kurmaz ve alım-satım emri göndermez."
+                      ),
+                      "draft": False,
+                      "prerelease": False,
+                      "generate_release_notes": False,
+                  },
+                  timeout=30,
+              )
+              if response.status_code not in (200, 201):
+                  raise SystemExit(
+                      f"GitHub Release oluşturulamadı: HTTP {response.status_code} "
+                      f"{response.text[:1200]}"
+                  )
+              release = response.json()
+          elif response.status_code == 200:
+              release = response.json()
+          else:
+              raise SystemExit(
+                  f"GitHub Release sorgulanamadı: HTTP {response.status_code} "
+                  f"{response.text[:1200]}"
+              )
+
+          release_id = release["id"]
+          assets_url = f"{api}/releases/{release_id}/assets"
+          asset_response = session.get(assets_url, timeout=20)
+          asset_response.raise_for_status()
+          replace_names = {
+              "Firsat-Kontrol-Paneli-Surum-01.zip",
+              "Firsat-Kontrol-Paneli-Surum-01.zip.sha256",
+          }
+          for asset in asset_response.json():
+              if asset.get("name") in replace_names:
+                  deletion = session.delete(
+                      f"{api}/releases/assets/{asset['id']}", timeout=20
+                  )
+                  if deletion.status_code not in (200, 204, 404):
+                      raise SystemExit(
+                          f"Eski release varlığı silinemedi: {asset['name']} "
+                          f"HTTP {deletion.status_code} {deletion.text[:500]}"
+                      )
+
+          files = [
+              (Path("dist/Firsat-Kontrol-Paneli-Surum-01.zip"), "application/zip"),
+              (Path("dist/Firsat-Kontrol-Paneli-Surum-01.zip.sha256"), "text/plain"),
+          ]
+          upload_base = release["upload_url"].split("{", 1)[0]
+          for path, content_type in files:
+              upload_url = f"{upload_base}?name={quote(path.name)}"
+              upload_headers = dict(headers)
+              upload_headers["Content-Type"] = content_type
+              with path.open("rb") as stream:
+                  uploaded = requests.post(
+                      upload_url, headers=upload_headers, data=stream, timeout=90
+                  )
+              if uploaded.status_code not in (200, 201):
+                  raise SystemExit(
+                      f"Release dosyası yüklenemedi: {path.name} "
+                      f"HTTP {uploaded.status_code} {uploaded.text[:1200]}"
+                  )
+              print(f"RELEASE_ASSET_OK={path.name}", flush=True)
+              print(f"RELEASE_ASSET_URL={uploaded.json().get('browser_download_url')}", flush=True)
+
+          print(f"RELEASE_PAGE={release['html_url']}", flush=True)
+          PY
+
+      - name: GitHub Actions artifact'i de yayımla
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[package]')))
+        uses: actions/upload-artifact@v7
+        with:
+          name: Firsat-Kontrol-Paneli-Surum-01
+          path: |
+            dist/Firsat-Kontrol-Paneli-Surum-01.zip
+            dist/Firsat-Kontrol-Paneli-Surum-01.zip.sha256
+          if-no-files-found: error
+          retention-days: 14

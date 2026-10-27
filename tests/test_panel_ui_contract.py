@@ -1,0 +1,165 @@
+"""Regression checks for the Sürüm 1 desktop-panel contracts."""
+import ast
+import json
+from pathlib import Path
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PANEL_PATH = ROOT / "tek_motor_paneli.pyw"
+PANEL_SOURCE = PANEL_PATH.read_text(encoding="utf-8")
+PANEL_TREE = ast.parse(PANEL_SOURCE, filename=str(PANEL_PATH))
+
+
+def _method(name):
+    panel_class = next(
+        node for node in PANEL_TREE.body
+        if isinstance(node, ast.ClassDef) and node.name == "ControlPanel"
+    )
+    return next(
+        node for node in panel_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
+    )
+
+
+class PanelUIContractTests(unittest.TestCase):
+    def test_candidate_table_keeps_both_usdt_prices_btc_relative_strength_and_decision(self):
+        method = _method("_build_ui")
+        columns = next(
+            node.value for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "columns" for target in node.targets)
+        )
+        values = tuple(ast.literal_eval(item) for item in columns.elts)
+        self.assertEqual(
+            values,
+            ("symbol", "price", "btcturk_price", "score", "timeframe", "phase", "freshness", "btc_relative", "decision"),
+        )
+        self.assertFalse(any("diff" in value.lower() for value in values))
+
+    def test_stale_candidate_cannot_get_strong_opportunity_style(self):
+        method = _method("_render_state")
+        strong_assignment = next(
+            node for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "strong" for target in node.targets)
+        )
+        expression = ast.unparse(strong_assignment.value)
+        self.assertIn("CANLI AKIŞ GÜNCEL", expression)
+
+    def test_opportunity_and_stop_alert_patterns_are_distinct(self):
+        source = ast.unparse(_method("_write_alarm_wave"))
+        self.assertIn("for _ in range(3)", source)
+        self.assertIn("for _ in range(4)", source)
+        self.assertIn("880.0", source)
+        self.assertIn("1175.0", source)
+        self.assertIn("1568.0", source)
+
+    def test_stop_loss_crossing_selects_distinct_stop_alert(self):
+        source = ast.unparse(_method("_check_level_watch"))
+        self.assertIn("stop_triggered", source)
+        self.assertIn("_play_alert", source)
+        self.assertIn("stop", source)
+        self.assertIn("opportunity", source)
+
+    def test_selected_coin_details_include_conditional_trade_levels(self):
+        source = ast.unparse(_method("_selection_changed"))
+        for field in ("entry_zone_low", "entry_zone_high", "breakout_level", "stop_loss", "targets"):
+            self.assertIn(field, source)
+        self.assertIn("targets[:3]", source)
+        self.assertIn("risk_reward", source)
+        self.assertIn("geçersizleşme", source.lower())
+
+    def test_engine_exit_disables_level_tracking(self):
+        source = ast.unparse(_method("_poll"))
+        self.assertIn("Seviye Takibi: Kapalı", source)
+        self.assertIn("motor durdu", source)
+
+    def test_live_stream_and_historical_candle_readiness_are_separate(self):
+        source = PANEL_SOURCE
+        self.assertIn("CANLI AKIŞ  ·  GÜNCEL", source)
+        self.assertIn("CANLI AKIŞ  ·  UYARI", source)
+        self.assertIn("GEÇMİŞ MUMLAR  ·  HAZIR", source)
+        self.assertIn("GEÇMİŞ MUMLAR  ·  BEKLİYOR", source)
+        self.assertIn("history_ready = engine_running and", source)
+
+    def test_black_background_white_text_and_nonduplicated_inner_title(self):
+        source = PANEL_SOURCE
+        self.assertIn('black, white = "#000000", "#FFFFFF"', source)
+        self.assertIn('self.configure(background=black)', source)
+        self.assertIn('background="#000000", cursor="hand2"', source)
+        self.assertIn("DwmSetWindowAttribute", source)
+        self.assertNotIn("self.title_label =", source)
+        self.assertIn("Başlat", source)
+        self.assertIn("Durdur", source)
+        self.assertNotIn('text="Kayıtlar"', source)
+
+    def test_toolbar_order_and_text_size_replaces_brightness(self):
+        source = PANEL_SOURCE
+        labels = [
+            'text="Başlat"', 'text="Durdur"', 'text="Pariteleri Güncelle"',
+            'text="Günlük Rapor"', 'text="Analiz Raporu"', 'text="Sorun Giderme ZIP"',
+            'text="Seviye Takibi: Kapalı"', 'text="Sesli Bildirim: Açık" if self.alarm_enabled else "Sesli Bildirim: Kapalı"',
+            'text="Ses Testi"', 'text="Yazı Büyüt"',
+        ]
+        positions = [source.index(label) for label in labels]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('base, hover = "#c62828", "#ff7f8b"', source)
+        self.assertIn('style.map("Slim.Horizontal.TScale", background=[("active", white), ("pressed", white)])', source)
+        self.assertNotIn("self.panel_brightness", source)
+        self.assertNotIn("self._brightness_moved", source)
+
+    def test_resizable_diagnostics_and_technical_details_exist(self):
+        source = PANEL_SOURCE
+        self.assertIn("ttk.Panedwindow(self, orient=", source)
+        self.assertIn("Teknik ayrıntılar ▸", source)
+        self.assertIn("Tanılama ve son kayıtlar ▸", source)
+        self.assertIn("Kayıt klasörünü aç", source)
+        self.assertIn('orient="horizontal", style="Slim.Horizontal.TScrollbar"', source)
+        self.assertIn("_toggle_diagnostics", source)
+        self.assertIn("_toggle_technical_details", source)
+
+    def test_motor_fields_used_by_panel_are_present_in_engine_contract(self):
+        core = (ROOT / "radar_core.py").read_text(encoding="utf-8")
+        for field in (
+            "risk_plan", "relative_strength_vs_btc_pct_points", "btc_return_correlation",
+            "strong_alarm_eligible", "strong_opportunity_qualified", "data_freshness",
+            "data_completeness", "critical_level_loss_timeframes", "latest_confirmed_support_zone",
+            "nearest_relevant_resistance_zone", "relative_volatility_ratio",
+        ):
+            self.assertIn(field, core)
+        self.assertIn('"timeframes"', core)
+        self.assertIn('"targets"', core)
+
+    def test_panel_settings_use_saved_font_size_and_remove_brightness_keys(self):
+        settings = json.loads((ROOT / "ayarlar.json").read_text(encoding="utf-8-sig"))
+        ui = settings.get("panel_ui", {})
+        self.assertEqual(ui.get("font_size"), 10)
+        source = PANEL_SOURCE
+        self.assertIn('"font_size": int(self.font_size)', source)
+        self.assertIn('ui.pop("screen_brightness", None)', source)
+        self.assertIn('ui.pop("panel_brightness", None)', source)
+
+    def test_price_rendering_is_shared_with_risk_plan_levels(self):
+        source = PANEL_SOURCE
+        self.assertIn("from arayuz_bicim import format_price as _format_market_price", source)
+        self.assertIn("return _format_market_price(value)", source)
+        core = (ROOT / "radar_core.py").read_text(encoding="utf-8")
+        self.assertIn("def _display_price(value: float)", core)
+        self.assertIn('"invalid_if": f"{_display_price(stop)}', core)
+        self.assertNotRegex(core, r'round\([^\n]*,\s*10\)')
+
+    def test_package_workflow_is_for_s1_and_package_is_explicit(self):
+        workflow = (ROOT / ".github" / "workflows" / "validate-and-package.yml").read_text(encoding="utf-8")
+        self.assertIn("Validate and package Sürüm 01", workflow)
+        self.assertIn("Firsat-Kontrol-Paneli-Surum-01.zip", workflow)
+        self.assertIn('tag = "surum-01"', workflow)
+        self.assertNotIn("Firsat-Kontrol-Paneli-Surum-00.zip", workflow)
+        condition = "if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[package]')))"
+        self.assertIn(condition, workflow)
+        self.assertIn("checksum_path.write_text", workflow)
+        self.assertIn("uses: actions/upload-artifact@v7", workflow)
+
+
+if __name__ == "__main__":
+    unittest.main()
