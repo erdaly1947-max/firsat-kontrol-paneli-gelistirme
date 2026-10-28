@@ -87,6 +87,55 @@ def _make_logger() -> logging.Logger:
 LOGGER = _make_logger()
 
 
+def _choose_screenshot_paths(
+    parent: tk.Misc,
+    initialdir: str | Path,
+    *,
+    open_dialog: Any = None,
+    ask_more: Any = None,
+) -> tuple[str, ...]:
+    """Choose screenshots one at a time to avoid Windows multi-select dialog issues."""
+    if open_dialog is None:
+        open_dialog = filedialog.askopenfilename
+    if ask_more is None:
+        ask_more = messagebox.askyesno
+
+    selected_paths: list[str] = []
+    current_directory = str(initialdir)
+    image_filetypes = [
+        ("PNG görüntüleri", "*.png"),
+        ("JPG görüntüleri", "*.jpg"),
+        ("JPEG görüntüleri", "*.jpeg"),
+        ("Tüm dosyalar", "*.*"),
+    ]
+
+    while len(selected_paths) < 3:
+        selected = open_dialog(
+            parent=parent,
+            title="Ekran görüntüsünü seç",
+            initialdir=current_directory,
+            filetypes=image_filetypes,
+        )
+        if not selected:
+            break
+
+        selected_path = str(selected)
+        if selected_path not in selected_paths:
+            selected_paths.append(selected_path)
+        current_directory = str(Path(selected_path).parent)
+
+        if len(selected_paths) >= 3:
+            break
+        if not ask_more(
+            "Başka görüntü seçilsin mi?",
+            f"{Path(selected_path).name} seçildi.\\n\\nBir görüntü daha eklemek ister misiniz? (En fazla 3 görüntü.)",
+            parent=parent,
+        ):
+            break
+
+    return tuple(selected_paths)
+
+
 def _normalize_font_size(value: Any, default: int = 8) -> int:
     """Round and clamp a saved/UI font size to the supported 8–15 point range."""
     fallback = max(8, min(15, int(default)))
@@ -1912,12 +1961,7 @@ class ControlPanel(tk.Tk):
                 parent=self,
             )
             return
-        selected_paths = filedialog.askopenfilenames(
-            parent=self,
-            title="Ekran görüntülerini seç",
-            initialdir=str(SCREENSHOTS_DIR),
-            filetypes=[("PNG / JPG / JPEG görüntüleri", "*.png *.jpg *.jpeg")],
-        )
+        selected_paths = _choose_screenshot_paths(self, SCREENSHOTS_DIR)
         if not selected_paths:
             return
         if len(selected_paths) > 3:
