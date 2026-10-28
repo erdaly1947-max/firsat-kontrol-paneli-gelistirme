@@ -3,6 +3,7 @@ import ast
 import json
 from pathlib import Path
 import unittest
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -172,6 +173,55 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn("def _display_price(value: float)", core)
         self.assertIn('"invalid_if": f"{_display_price(stop)}', core)
         self.assertNotRegex(core, r'round\([^\n]*,\s*10\)')
+
+    def test_screenshot_picker_uses_single_file_dialog_and_supports_three_images(self):
+        function = next(
+            node for node in PANEL_TREE.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_choose_screenshot_paths"
+        )
+        opened_options = []
+        file_results = iter([
+            r"C:\\Users\\erdal\\OneDrive\\Resimler\\Screenshots\\first screen.png",
+            r"C:\\Users\\erdal\\OneDrive\\Resimler\\Screenshots\\second chart.jpg",
+            "",
+        ])
+        confirm_results = iter([True, False])
+        parent = object()
+
+        def open_dialog(**options):
+            opened_options.append(options)
+            return next(file_results)
+
+        def ask_more(*args, **kwargs):
+            return next(confirm_results)
+
+        namespace = {
+            "tk": SimpleNamespace(Misc=object),
+            "Path": Path,
+            "Any": object,
+        }
+        extracted = ast.Module(body=[function], type_ignores=[])
+        exec(compile(extracted, str(PANEL_PATH), "exec"), namespace)
+        chosen = namespace["_choose_screenshot_paths"](
+            parent, Path(r"C:\\Users\\erdal\\OneDrive\\Resimler\\Screenshots"),
+            open_dialog=open_dialog, ask_more=ask_more,
+        )
+
+        self.assertEqual(len(chosen), 2)
+        self.assertEqual(chosen[0].split("\\\\")[-1], "first screen.png")
+        self.assertEqual(chosen[1].split("\\\\")[-1], "second chart.jpg")
+        self.assertEqual(len(opened_options), 2)
+        self.assertEqual(opened_options[0]["parent"], parent)
+        self.assertEqual(
+            [item[1] for item in opened_options[0]["filetypes"]],
+            ["*.png", "*.jpg", "*.jpeg", "*.*"],
+        )
+        self.assertEqual(
+            opened_options[1]["initialdir"],
+            str(Path(chosen[0]).parent),
+        )
+        self.assertIn("filedialog.askopenfilename", ast.unparse(function))
+        self.assertNotIn("askopenfilenames", ast.unparse(_method("open_screenshot_upload")))
 
     def test_package_workflow_is_for_s1_and_package_is_explicit(self):
         workflow = (ROOT / ".github" / "workflows" / "validate-and-package.yml").read_text(encoding="utf-8")
