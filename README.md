@@ -521,36 +521,37 @@ Aday tablosu Binance fiyatının yanında BtcTurk fiyatını, puanı, zaman dili
 
 Bu üç düğme farklı amaçlara hizmet eder; birbirlerinin yerine geçmez.
 
-## Sürüm 01 — Ekran görüntülerini buluta yükleme ve ChatGPT'de okuma
+## Sürüm 01 — Görsel gönderme ve ChatGPT'de inceleme
 
-### Uçtan uca akış — başarılı yöntem
+### Çalışan yöntem
 
-1. **Kullanıcının gönderimi:** Windows masaüstü panelindeki 📷 düğmesi dosya seçiciyi açar. Kullanıcı 1–3 PNG/JPG/JPEG dosyasını kendisi seçer. Dosyalar otomatik olarak klasörden topluca alınmaz. Her görüntü 15 MiB sınırını geçmemeli; türü ve dosya imzası doğrulanır. Asıl görüntü verisi küçültülmez veya yeniden sıkıştırılmaz.
-2. **Masaüstü → Render test geçidi:** `analysis_report.py`, HTTPS üzerinden `https://firsat-kontrol-test-relay.onrender.com` adresine bağlanır. Önce `/healthz` ile servis uyandırılır/doğrulanır; geçici ağ/cold-start hatalarında GET istekleri sınırlı yeniden denemeler kullanır. Görüntü yükleme POST'ları körlemesine tekrarlanmaz.
-3. **Render → Cloudinary:** `render_relay/server.js`, `/api/images/stage` isteğinde PNG/JPEG içeriğini doğrular ve Render'da tutulan `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` değerleriyle Cloudinary API'sine yükler. API Secret masaüstü programına, README'ye, GitHub'a veya sohbet mesajlarına yazılmaz. Her yükleme `fkp_screenshot_<UUID>` kimliği ve `fkp-staged` etiketiyle geçici olarak saklanır; orijinal dosya adı metadata içinde korunur.
-4. **Grup halinde etkinleştirme ve üç görsel sınırı:** Seçilen dosyaların tümü geçici yüklemeyi başarıyla tamamladıktan sonra `/api/images/commit` çağrılır. Sunucu yeni görüntüleri etkinleştirir ve etkin listeyi en fazla üç kayıtla sınırlar; yeni yükleme daha eski kayıtlardan yer açmayı gerektirirse en eski görüntü kaldırılır. Bir grup başarısız olursa mevcut etkin listeyi yarım bırakmamak için commit iptal edilir ve geçici görüntüler temizlenmeye çalışılır.
-5. **Listeleme:** `GET /images/manifest` yalnızca etkin kayıtların `id`, `filename`, `content_type`, `size_bytes` ve `uploaded_at` metadata alanlarını JSON olarak döndürür. Manifestte görünmesi, tek başına görüntünün içeriğinin açılıp okunduğu anlamına gelmez.
-6. **ChatGPT tarafında görüntüyü açma:** Önce `/healthz`, sonra `/images/manifest` çağrılır. İncelenecek görüntünün UUID'si manifestten alınır ve `GET /images/{UUID}?format=base64` isteği yapılır. Yanıt `application/json` biçimindedir; `ok`, `id`, `content_type`, `size_bytes`, `encoding: "base64"` ve `data` alanlarını içerir. `data` alanı `data:image/png;base64,...` veya JPEG karşılığına dönüştürülür ve görseli okuyabilen görüntü aracına verilir. Böylece yalnızca URL'nin döndüğünü değil, görsel piksel içeriğini gerçekten okuyup açıklayabildiğimizi doğrularız.
+**Gönderim ve bulutta saklama**
+- Kullanıcı, Windows panelindeki 📷 düğmesinden 1–3 adet PNG/JPG/JPEG dosyası seçip **Buluta Yükle** ile gönderir. Görüntüler en fazla 15 MiB olabilir; kaynak görüntü yeniden boyutlandırılmaz.
+- Masaüstü kodu: `analysis_report.py`. Bu dosya `upload_image_batch()`, `upload_image_stage()`, `commit_image_uploads()` ve `fetch_image_manifest()` işlevleriyle aktarımı yürütür.
+- Görüntü API geçidi: Render'daki `firsat-kontrol-test-relay` hizmeti, `render_relay/server.js` koduyla çalışır. Masaüstü kodu HTTPS üzerinden `https://firsat-kontrol-test-relay.onrender.com` adresini kullanır.
+- Görüntü depolama: Cloudinary. `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` ve `CLOUDINARY_API_SECRET` yalnızca Render ortam değişkenlerinde bulunur; gizli anahtar masaüstü koduna veya sohbete konmaz.
+- Yeni dosyalar önce geçici olarak yüklenir, ardından topluca etkinleştirilir. Etkin listede en fazla 3 görüntü tutulur; yeni yüklemede gerekirse en eski görüntü çıkarılır.
 
-### Neden bu düzeltme gerekiyordu?
+**ChatGPT'nin görseli okuma yolu**
+1. Exa'nın web-fetch bağlantısı üzerinden `GET /images/manifest` JSON yanıtı alınır; buradan görüntünün `id`, dosya adı, türü ve boyutu belirlenir.
+2. İlgili görüntü için `GET /images/{UUID}?format=base64` çağrılır. Bu yol `render_relay/server.js` içindedir ve JSON olarak `content_type`, `size_bytes` ve Base64 kodlu `data` döndürür.
+3. Base64 verisi `data:image/png;base64,...` veya JPEG data URI biçimine çevrilir ve ChatGPT'nin görsel algılama yeteneğine verilir. Böylece sadece dosya listesi okunmaz; pikseller gerçekten açılır ve görselin içeriği görülebilir.
+4. Base64 inceleme yanıtının sınırı 512 KiB'dir. Daha büyük görüntüler için bu metin tabanlı yol tek başına yeterli değildir. Normal PNG/JPEG indirme rotası ayrıca korunur.
 
-- Normal `GET /images/{UUID}` yolu, doğru biçimde `image/png` veya `image/jpeg` ikili yanıtı döndürür. Ancak bu oturumdaki metin ağırlıklı web okuma/aracısı, ikili görüntü içeriğini doğrudan alamayıp `CRAWL_UNEXPECTED_CONTENT_TYPE` hatası verdi. Bu hata, Cloudinary'ye yüklemenin veya dosyanın bozuk olduğunu göstermiyordu.
-- Çözüm olarak `render_relay/server.js` içine isteğe bağlı `?format=base64` inceleme yolu eklendi. Bu seçenek normal PNG/JPEG indirme yolunu değiştirmez; yalnızca JSON üzerinden inceleme gerektiğinde devreye girer. Gerçek görüntü indirme ve Base64'ten tekrar baytlara çözme kontrolleri `render_relay/test/cloudinary-images.test.js` regresyon testine eklendi.
-- **İnceleme yolu sınırı:** güvenli metin yanıtı için görüntü baytları 512 KiB ile sınırlıdır. Bu sınır aşılırsa yanıt `413` döner; bu, görüntünün bulutta olmadığı anlamına gelmez. Büyük görüntüleri incelemek için parçalı aktarım gibi ayrı bir çözüm gerekir. Orijinal yükleme sınırı ise 15 MiB/görüntü olarak kalır.
-- ChatGPT tarafında başarılı görüntü okuma yöntemi: manifestten UUID'yi bul → `?format=base64` JSON yanıtını al → `data` alanını data URI'ya dönüştür → görseli görsel okuma aracına ver. Sadece manifest başlıklarına veya arama sonucunda görünen küçük önizlemeye dayanarak “görseli açtım” denmez.
+### Sorumluluk haritası
 
-### 28 Ekim 2026 — uçtan uca doğrulama kaydı
+| Bileşen | Görevi |
+|---|---|
+| Windows Fırsat Kontrol Paneli | Kullanıcının dosya seçmesi ve yüklemeyi başlatması |
+| `analysis_report.py` | Görüntüyü doğrulama, yükleme akışını yürütme, manifesti ve görüntü baytlarını alma |
+| Render test hizmeti / `render_relay/server.js` | HTTPS API, Cloudinary aktarımı, üç görüntülük etkin liste ve Base64 okuma yanıtı |
+| Cloudinary | Görüntü dosyalarını saklama |
+| Exa web-fetch bağlantısı | Manifest ve Base64 JSON yanıtlarını ChatGPT'ye getirme |
+| ChatGPT görsel algılama | Base64 data URI ile açılan görüntünün içeriğini okuma ve açıklama |
+| GitHub / GitHub Actions | Kaynak kodunun sürüm kontrolü, regresyon testleri ve dağıtım doğrulaması |
 
-- Kullanıcı Windows programından üç görüntü yükledi. Manifest üç etkin görüntüyü listeledi; üçü de Base64 inceleme yolu ile alınıp gerçekten açıldı.
-- İlk üçlü içindeki iki eski PNG (31.799 ve 33.405 bayt) ve daha sonra yüklenen ekran görüntüsü (467.105 bayt) görüntü olarak açıldı. Yeni ekran görüntüsünün TradingView Binance BTCUSDT günlük grafiği olduğu, fiyat/günlük değişim/RSI etiketleri ve grafik üzerindeki işaretlemeler okunabildiği doğrulandı; diğer iki görüntünün akış şemaları da okunabildi.
-- Yeni bir görüntü yüklendiğinde etkin listenin üç görüntüyle sınırlı kaldığı ve en eski görüntünün döngüden çıkarıldığı ayrıca kontrol edildi.
-- Otomatik doğrulama çalışması [#40698725467](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40698725467) başarılı oldu. Yeni görüntü inceleme yolu yalnızca **test** Render hizmetine (`firsat-kontrol-test-relay`) dağıtıldı. Üretim piyasa geçidi `firsat-kontrol-market-relay` üzerinde bu çalışma için değişiklik yapılmadı.
+### Doğrulanmış durum
 
-### Render ayarları ve güvenlik
-
-Render test hizmetinin **Ortam Değişkenleri** bölümünde şu değerler bulunmalıdır:
-- `CLOUDINARY_CLOUD_NAME` — Cloudinary'deki Bulut Adı
-- `CLOUDINARY_API_KEY` — Cloudinary API anahtarı
-- `CLOUDINARY_API_SECRET` — Cloudinary API gizli anahtarı
-
-API Secret yalnızca Render'da saklanmalıdır; masaüstü programına, GitHub'a, kayıtlara veya sohbet mesajlarına eklenmemelidir. Görüntüler bağlantıyı bilen kişilerce açılabilir; parola, API anahtarı, hesap bilgisi veya diğer gizli bilgiler içeren ekran görüntüleri yüklenmemelidir.
+- 28 Ekim 2026'da üç bulut görseli açılıp içeriği okundu; daha sonra gönderilen TradingView BTCUSDT ekran görüntüsü de aynı yöntemle açıldı.
+- Base64 okuma yolunu ve ilgili regresyon testini içeren GitHub Actions çalışması [#40698725467](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40698725467) başarılı oldu.
+- Bu görüntü okuma yolu yalnızca Render test hizmetine dağıtıldı. Üretim piyasa geçidi `firsat-kontrol-market-relay` bu çalışma sırasında değiştirilmedi.
