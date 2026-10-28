@@ -19,7 +19,7 @@ on:
 # ZIP creation, artifact publication, and Release writes require explicit manual approval.
 concurrency:
   group: s01-validation-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
