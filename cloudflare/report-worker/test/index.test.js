@@ -12,6 +12,7 @@ function makeR2Bucket() {
   return {
     failImageCopies: false,
     failManifestWrites: false,
+    failDeleteKeys: new Set(),
     _store: store,
     async put(key, value, options = {}) {
       if (this.failImageCopies && key.startsWith("images/")) throw new Error("injected image-copy failure");
@@ -60,7 +61,10 @@ function makeR2Bucket() {
         customMetadata: stored.customMetadata, httpMetadata: stored.httpMetadata } : null;
     },
     async delete(keys) {
-      for (const key of Array.isArray(keys) ? keys : [keys]) store.delete(key);
+      for (const key of Array.isArray(keys) ? keys : [keys]) {
+        if (this.failDeleteKeys.has(key)) throw new Error("injected delete failure");
+        store.delete(key);
+      }
     },
     async list({ prefix = "", limit = 1000 } = {}) {
       const objects = [...store.values()].filter((item) => item.key.startsWith(prefix)).slice(0, limit)
@@ -425,4 +429,56 @@ test("image write routes require auth and existing report uploads still use ANAL
   assert.equal(latest.status, 200);
   assert.deepEqual(await latest.json(), report);
   assert.equal(env.IMAGES_BUCKET._store.has("latest"), false);
+});
+
+
+test("manifest-write failure preserves the previous active image set and removes new copies", async () => {
+  const env = makeEnv();
+  const firstId = await stagePng(env, "first.png");
+  assert.equal((await commitImages(env, [firstId])).status, 201);
+  const before = await (await worker.fetch(new Request("https://reports.test/images/manifest"), env)).json();
+
+  const secondId = await stagePng(env, "second.png");
+  env.IMAGES_BUCKET.failManifestWrites = true;
+  const failed = await commitImages(env, [secondId]);
+  assert.equal(failed.status, 502);
+  env.IMAGES_BUCKET.failManifestWrites = false;
+
+  const after = await (await worker.fetch(new Request("https://reports.test/images/manifest"), env)).json();
+  assert.deepEqual(after.images.map((item) => item.id), before.images.map((item) => item.id));
+  assert.equal(await env.IMAGES_BUCKET.get("images/" + secondId), null);
+  assert.equal(await env.IMAGES_BUCKET.get("staging/" + secondId), null);
+});
+
+test("failed deletion of a replaced image is queued privately and retried on a later request", async () => {
+  const env = makeEnv();
+  const firstIds = [];
+  for (const name of ["one.png", "two.png", "three.png"]) firstIds.push(await stagePng(env, name));
+  assert.equal((await commitImages(env, firstIds)).status, 201);
+  const before = await (await worker.fetch(new Request("https://reports.test/images/manifest"), env)).json();
+  const oldestId = [...before.images].sort((a, b) => Date.parse(a.uploaded_at) - Date.parse(b.uploaded_at))[0].id;
+  env.IMAGES_BUCKET.failDeleteKeys.add("images/" + oldestId);
+
+  const replacementId = await stagePng(env, "replacement.png");
+  assert.equal((await commitImages(env, [replacementId])).status, 201);
+  const replacementManifest = await env.IMAGES_BUCKET.get("meta/active-images.json");
+  const queued = JSON.parse(await replacementManifest.text());
+  assert.ok(queued.cleanup_ids.includes(oldestId));
+  assert.equal(queued.images.length, 3);
+  assert.ok(!queued.images.some((item) => item.id === oldestId));
+  assert.ok(await env.IMAGES_BUCKET.get("images/" + oldestId));
+
+  const publicResponse = await worker.fetch(new Request("https://reports.test/images/manifest"), env);
+  const publicBody = await publicResponse.json();
+  assert.equal(publicBody.images.length, 3);
+  assert.equal(Object.hasOwn(publicBody, "cleanup_ids"), false);
+
+  env.IMAGES_BUCKET.failDeleteKeys.delete("images/" + oldestId);
+  const retryResponse = await worker.fetch(new Request("https://reports.test/images/manifest"), env);
+  const retriedBody = await retryResponse.json();
+  assert.equal(retriedBody.images.length, 3);
+  assert.ok(!retriedBody.images.some((item) => item.id === oldestId));
+  assert.equal(await env.IMAGES_BUCKET.get("images/" + oldestId), null);
+  const cleanedManifest = JSON.parse(await (await env.IMAGES_BUCKET.get("meta/active-images.json")).text());
+  assert.ok(!cleanedManifest.cleanup_ids.includes(oldestId));
 });
