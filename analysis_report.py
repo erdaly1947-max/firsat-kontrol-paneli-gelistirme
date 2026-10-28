@@ -6,8 +6,11 @@ metrics, BTC context, and conditional entry/stop/target plans.
 """
 from __future__ import annotations
 
+import base64
 import ctypes
 import gzip
+import io
+import re
 import hmac
 import json
 import os
@@ -480,3 +483,327 @@ def upload_troubleshooting_zip(config: dict[str, str], archive: bytes) -> dict[s
         "read_url": body_json.get("read_url", ""),
         "compressed_bytes": len(archive),
     }
+
+
+# Screenshot image uploads are deliberately separate from the legacy 8 MiB report API.
+MAX_IMAGE_BYTES = 15 * 1024 * 1024
+MAX_IMAGE_COUNT = 3
+MAX_IMAGE_CONTROL_BYTES = 64 * 1024
+_IMAGE_ID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_IMAGE_TYPES = {".png": ("PNG", "image/png"), ".jpg": ("JPEG", "image/jpeg"), ".jpeg": ("JPEG", "image/jpeg")}
+
+
+def validate_image_selection_count(count: int) -> int:
+    """Return the supported selection count or reject 0 and selections above three."""
+    if not isinstance(count, int) or isinstance(count, bool):
+        raise ValueError("Görüntü seçimi sayısı geçersiz.")
+    if count < 1:
+        raise ValueError("En az bir görüntü seçilmelidir.")
+    if count > MAX_IMAGE_COUNT:
+        raise ValueError("En fazla üç görüntü seçilebilir.")
+    return count
+
+
+def _safe_image_filename(filename: str) -> str:
+    if not isinstance(filename, str) or not filename:
+        raise ValueError("Görüntü dosya adı geçersiz.")
+    name = filename
+    if "/" in name or "\\" in name or ":" in name or any(ord(char) < 32 or ord(char) == 127 for char in name):
+        raise ValueError("Görüntü dosya adı yalnızca dosya adını içermelidir.")
+    if len(name.encode("utf-8")) > 255 or name in {".", ".."}:
+        raise ValueError("Görüntü dosya adı çok uzun veya geçersiz.")
+    return name
+
+
+def validate_image_bytes(data: bytes, filename: str) -> dict[str, Any]:
+    """Validate image size, extension, file signature and a full Pillow decode."""
+    if not isinstance(data, bytes):
+        raise ValueError("Görüntü içeriği bayt biçiminde olmalıdır.")
+    if not data:
+        raise ValueError("Görüntü dosyası boş.")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise ValueError("Görüntü 15 MiB sınırını aşıyor.")
+
+    name = _safe_image_filename(filename)
+    suffix = Path(name).suffix.lower()
+    expected = _IMAGE_TYPES.get(suffix)
+    if expected is None:
+        raise ValueError("Yalnızca PNG, JPG ve JPEG dosyaları kabul edilir.")
+    expected_format, content_type = expected
+    if expected_format == "PNG":
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("PNG dosya imzası geçersiz.")
+    elif not data.startswith(b"\xff\xd8\xff"):
+        raise ValueError("JPEG dosya imzası geçersiz.")
+
+    try:
+        from PIL import Image, UnidentifiedImageError
+
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(data)) as image:
+                detected_format = image.format
+                image.verify()
+            with Image.open(io.BytesIO(data)) as image:
+                image.load()
+        if detected_format != expected_format:
+            raise ValueError("Dosya uzantısı ve gerçek görüntü biçimi eşleşmiyor.")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"Görüntü bozuk veya açılamıyor: {name}") from exc
+
+    return {
+        "filename": name,
+        "format": expected_format,
+        "content_type": content_type,
+        "size_bytes": len(data),
+    }
+
+
+def validate_image_file(path: str | Path) -> dict[str, Any]:
+    """Validate a local file without modifying or recompressing it."""
+    file_path = Path(path)
+    try:
+        if file_path.stat().st_size > MAX_IMAGE_BYTES:
+            raise ValueError(f"{file_path.name}: görüntü 15 MiB sınırını aşıyor.")
+        raw = file_path.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"Görüntü dosyası okunamadı: {file_path.name}") from exc
+    result = validate_image_bytes(raw, file_path.name)
+    result["path"] = str(file_path)
+    return result
+
+
+def make_image_thumbnail(data: bytes, size: tuple[int, int] = (160, 110)) -> bytes:
+    """Create PNG bytes for UI preview only; uploaded source bytes remain untouched."""
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as original:
+            preview = original.copy()
+        preview.thumbnail(size)
+        output = io.BytesIO()
+        preview.save(output, format="PNG")
+        return output.getvalue()
+    except Exception as exc:
+        raise ValueError("Görüntü önizlemesi oluşturulamadı.") from exc
+
+
+def build_image_replacement_plan(existing_images: list[dict[str, Any]], new_count: int) -> dict[str, list[dict[str, Any]]]:
+    """Keep the newest current images and mark the oldest entries for replacement."""
+    validate_image_selection_count(new_count)
+    if not isinstance(existing_images, list) or len(existing_images) > MAX_IMAGE_COUNT:
+        raise ValueError("Buluttaki etkin görüntü listesi geçersiz.")
+    for image in existing_images:
+        if not isinstance(image, dict):
+            raise ValueError("Buluttaki etkin görüntü kaydı geçersiz.")
+
+    def uploaded_time(image: dict[str, Any]) -> float:
+        value = image.get("uploaded_at")
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        except (TypeError, ValueError, OverflowError):
+            return 0.0
+
+    newest_first = sorted(existing_images, key=uploaded_time, reverse=True)
+    keep_count = min(len(newest_first), max(0, MAX_IMAGE_COUNT - new_count))
+    return {
+        "keep": newest_first[:keep_count],
+        "replace": newest_first[keep_count:],
+    }
+
+
+def _validate_image_id(value: Any) -> str:
+    if not isinstance(value, str) or not _IMAGE_ID_PATTERN.fullmatch(value):
+        raise ValueError("Görüntü kimliği geçersiz.")
+    return value
+
+
+def _image_upload_endpoint(config: dict[str, str], route: str) -> str:
+    if route not in {"stage", "commit", "abort"}:
+        raise ValueError("Bilinmeyen görüntü aktarım rotası.")
+    # Reuse the strict validation of the already configured fixed relay endpoint.
+    base = _report_endpoint(config, "")
+    parsed = urllib.parse.urlsplit(base)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, f"/api/images/{route}", "", ""))
+
+
+def _image_api_request(
+    config: dict[str, str], route: str, body: bytes, *, content_type: str,
+    filename: str | None = None,
+) -> dict[str, Any]:
+    max_bytes = MAX_IMAGE_BYTES if route == "stage" else MAX_IMAGE_CONTROL_BYTES
+    if not isinstance(body, bytes) or not body or len(body) > max_bytes:
+        raise ValueError("Görüntü aktarım gövdesi boş veya boyut sınırını aşıyor.")
+    token = config.get("upload_token", "")
+    if not isinstance(token, str) or not token.strip():
+        raise ValueError("Görüntü aktarım anahtarı yapılandırılmamış.")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": content_type,
+        "Accept": "application/json",
+        "User-Agent": "Firsat-Kontrol-Paneli/01",
+    }
+    if filename is not None:
+        safe_name = _safe_image_filename(filename)
+        encoded_name = base64.urlsafe_b64encode(safe_name.encode("utf-8")).decode("ascii").rstrip("=")
+        headers["X-Image-Name-B64"] = encoded_name
+    request = urllib.request.Request(
+        _image_upload_endpoint(config, route), data=body, method="POST", headers=headers
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90 if route == "stage" else 30) as response:
+            raw = response.read(64 * 1024 + 1)
+            status = response.status
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(2048).decode("utf-8", errors="replace")
+        raise RuntimeError(f"Görüntü sunucusu HTTP {exc.code}: {detail}") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise RuntimeError(f"Görüntü sunucusuna bağlantı başarısız: {exc}") from exc
+    if len(raw) > 64 * 1024:
+        raise RuntimeError("Görüntü sunucusundan beklenmeyen büyüklükte yanıt geldi.")
+    try:
+        result = json.loads(raw.decode("utf-8")) if raw else {}
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        result = {}
+    if status < 200 or status >= 300 or result.get("ok") is not True:
+        raise RuntimeError(result.get("error") or f"Görüntü sunucusu beklenmeyen yanıt verdi (HTTP {status}).")
+    return result
+
+
+def fetch_image_manifest() -> list[dict[str, Any]]:
+    """Fetch the public manifest; construct each image URL from the fixed Worker host."""
+    url = f"{WORKER_BASE_URL}/images/manifest"
+    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "Firsat-Kontrol-Paneli/01"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read(128 * 1024 + 1)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(2048).decode("utf-8", errors="replace")
+        raise RuntimeError(f"Buluttaki görüntü listesi HTTP {exc.code}: {detail}") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise RuntimeError(f"Buluttaki görüntü listesi alınamadı: {exc}") from exc
+    if len(raw) > 128 * 1024:
+        raise RuntimeError("Buluttaki görüntü listesi beklenenden büyük.")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Buluttaki görüntü listesi geçerli JSON değil.") from exc
+    images = payload.get("images") if isinstance(payload, dict) and payload.get("ok") is True else None
+    if not isinstance(images, list) or len(images) > MAX_IMAGE_COUNT:
+        raise RuntimeError("Buluttaki etkin görüntü listesi geçersiz.")
+    validated = []
+    for image in images:
+        if not isinstance(image, dict):
+            raise RuntimeError("Buluttaki görüntü kaydı geçersiz.")
+        image_id = _validate_image_id(image.get("id"))
+        filename = _safe_image_filename(image.get("filename", ""))
+        content_type = image.get("content_type")
+        if content_type not in {"image/png", "image/jpeg"}:
+            raise RuntimeError("Buluttaki görüntünün içerik türü geçersiz.")
+        if Path(filename).suffix.lower() not in _IMAGE_TYPES or _IMAGE_TYPES[Path(filename).suffix.lower()][1] != content_type:
+            raise RuntimeError("Buluttaki görüntünün adı ve içerik türü eşleşmiyor.")
+        size_bytes = image.get("size_bytes")
+        if not isinstance(size_bytes, int) or not 1 <= size_bytes <= MAX_IMAGE_BYTES:
+            raise RuntimeError("Buluttaki görüntünün boyut bilgisi geçersiz.")
+        uploaded_at = image.get("uploaded_at")
+        if not isinstance(uploaded_at, str) or not uploaded_at:
+            raise RuntimeError("Buluttaki görüntünün yükleme zamanı eksik.")
+        validated.append({
+            "id": image_id,
+            "filename": filename,
+            "content_type": content_type,
+            "size_bytes": size_bytes,
+            "uploaded_at": uploaded_at,
+            "url": f"{WORKER_BASE_URL}/images/{image_id}",
+        })
+    return validated
+
+
+def download_active_image(image_id: str, filename: str, expected_content_type: str) -> bytes:
+    """Download an image only through the fixed Worker route and validate it before preview."""
+    image_id = _validate_image_id(image_id)
+    if expected_content_type not in {"image/png", "image/jpeg"}:
+        raise ValueError("Buluttaki görüntü içerik türü geçersiz.")
+    url = f"{WORKER_BASE_URL}/images/{image_id}"
+    request = urllib.request.Request(url, headers={"Accept": expected_content_type, "User-Agent": "Firsat-Kontrol-Paneli/01"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            raw = response.read(MAX_IMAGE_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"Buluttaki görüntü HTTP {exc.code} durumunda okunamadı.") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise RuntimeError(f"Buluttaki görüntü indirilemedi: {exc}") from exc
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise RuntimeError("Buluttaki görüntü 15 MiB sınırını aşıyor.")
+    if content_type != expected_content_type:
+        raise RuntimeError("Buluttaki görüntünün içerik türü beklenen biçimde değil.")
+    validate_image_bytes(raw, filename)
+    return raw
+
+
+def upload_image_stage(config: dict[str, str], data: bytes, filename: str) -> dict[str, Any]:
+    """Upload one fully validated original image into private temporary R2 storage."""
+    metadata = validate_image_bytes(data, filename)
+    result = _image_api_request(
+        config, "stage", data, content_type=metadata["content_type"], filename=metadata["filename"]
+    )
+    _validate_image_id(result.get("staged_id"))
+    return result
+
+
+def commit_image_uploads(config: dict[str, str], staged_ids: list[str]) -> dict[str, Any]:
+    if not isinstance(staged_ids, list) or not 1 <= len(staged_ids) <= MAX_IMAGE_COUNT:
+        raise ValueError("1–3 geçici görüntü kimliği gereklidir.")
+    ids = [_validate_image_id(item) for item in staged_ids]
+    if len(set(ids)) != len(ids):
+        raise ValueError("Geçici görüntü kimlikleri benzersiz olmalıdır.")
+    body = json.dumps({"staged_ids": ids}, separators=(",", ":")).encode("utf-8")
+    return _image_api_request(config, "commit", body, content_type="application/json")
+
+
+def abort_image_uploads(config: dict[str, str], staged_ids: list[str]) -> dict[str, Any]:
+    if not staged_ids:
+        return {"ok": True, "aborted_count": 0}
+    if not isinstance(staged_ids, list) or len(staged_ids) > MAX_IMAGE_COUNT:
+        raise ValueError("Geçici görüntü kimlikleri geçersiz.")
+    ids = [_validate_image_id(item) for item in staged_ids]
+    body = json.dumps({"staged_ids": ids}, separators=(",", ":")).encode("utf-8")
+    return _image_api_request(config, "abort", body, content_type="application/json")
+
+
+def upload_image_batch(config: dict[str, str], paths: list[str | Path]) -> dict[str, Any]:
+    """Stage all selected files separately, then atomically commit them as one group."""
+    if not isinstance(paths, (list, tuple)):
+        raise ValueError("Görüntü yolu listesi geçersiz.")
+    validate_image_selection_count(len(paths))
+    staged_ids: list[str] = []
+    try:
+        for path in paths:
+            file_path = Path(path)
+            validate_image_file(file_path)
+            data = file_path.read_bytes()
+            validate_image_bytes(data, file_path.name)
+            result = upload_image_stage(config, data, file_path.name)
+            staged_id = _validate_image_id(result.get("staged_id"))
+            staged_ids.append(staged_id)
+        return commit_image_uploads(config, staged_ids)
+    except Exception:
+        # If the commit response was lost after the server published the manifest, confirm first.
+        if len(staged_ids) == len(paths):
+            try:
+                active = fetch_image_manifest()
+                active_ids = {image["id"] for image in active}
+                if all(image_id in active_ids for image_id in staged_ids):
+                    return {"ok": True, "idempotent": True, "images": active}
+            except Exception:
+                pass
+        if staged_ids:
+            try:
+                abort_image_uploads(config, staged_ids)
+            except Exception:
+                pass
+        raise
