@@ -678,29 +678,47 @@ async function handleCloudinaryImageDownload(request,response,imageId) {
     if (!contentType || assetUrl.protocol!=="https:" || assetUrl.hostname!=="res.cloudinary.com" || !assetUrl.pathname.includes(expectedPath)) {
       jsonResponse(response,502,{ok:false,error:"Cloudinary görüntü adresi doğrulanamadı."}); return;
     }
+    const requestUrl = new URL(request.url || "/", "https://relay.invalid");
+    const base64Requested = requestUrl.searchParams.get("format") === "base64";
+    const previewRequested = base64Requested && requestUrl.searchParams.get("preview") === "1";
+    let responseContentType=contentType;
+    if (previewRequested) {
+      // Cloudinary serves a reduced JPEG only for the text-based inspection route.
+      // The original image endpoint and stored source bytes remain unchanged.
+      const uploadMarker="/image/upload/";
+      const markerIndex=assetUrl.pathname.indexOf(uploadMarker);
+      if (markerIndex<0) {
+        jsonResponse(response,502,{ok:false,error:"Cloudinary görüntü önizleme yolu doğrulanamadı."}); return;
+      }
+      const prefix=assetUrl.pathname.slice(0,markerIndex+uploadMarker.length);
+      let publicPath=assetUrl.pathname.slice(markerIndex+uploadMarker.length);
+      publicPath=publicPath.replace(/\.(?:png|jpe?g)$/i,".jpg");
+      assetUrl.pathname=prefix+"c_limit,w_1280,f_jpg,q_75/"+publicPath;
+      responseContentType="image/jpeg";
+    }
     let upstream;
-    try { upstream=await fetch(assetUrl,{headers:{Accept:contentType},signal:AbortSignal.timeout(30_000)}); }
+    try { upstream=await fetch(assetUrl,{headers:{Accept:responseContentType},signal:AbortSignal.timeout(30_000)}); }
     catch { jsonResponse(response,502,{ok:false,error:"Cloudinary görüntüsü indirilemedi."}); return; }
     if (!upstream.ok) { jsonResponse(response,502,{ok:false,error:"Cloudinary görüntüsüne erişilemedi."}); return; }
     const upstreamType=String(upstream.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
     const bytes=Buffer.from(await upstream.arrayBuffer());
-    if (upstreamType!==contentType || bytes.length<1 || bytes.length>IMAGE_MAX_BODY_BYTES || !imageBodyMatchesType(bytes,contentType)) {
+    if (upstreamType!==responseContentType || bytes.length<1 || bytes.length>IMAGE_MAX_BODY_BYTES || !imageBodyMatchesType(bytes,responseContentType)) {
       jsonResponse(response,502,{ok:false,error:"Cloudinary görüntü içeriği doğrulanamadı."}); return;
     }
-    const requestUrl = new URL(request.url || "/", "https://relay.invalid");
-    if (requestUrl.searchParams.get("format") === "base64") {
-      // Text-only inspection path for clients that cannot consume image/png or image/jpeg responses.
-      // Keep this convenience path small; normal image downloads remain binary and unchanged.
+    if (base64Requested) {
+      // Text-based preview is used only when the original exceeds the safe response size.
+      // Request preview=1 to fetch a bounded Cloudinary-rendered JPEG for large screenshots.
       if (bytes.length > 512 * 1024) {
-        jsonResponse(response, 413, { ok:false, error:"Görüntü inceleme çıktısı 512 KiB sınırını aşıyor." });
+        jsonResponse(response, 413, { ok:false, error:"Görüntü inceleme çıktısı 512 KiB sınırını aşıyor.", preview_url:new URL("/images/"+imageId.toLowerCase()+"?format=base64&preview=1", requestUrl.origin).toString() });
         return;
       }
       jsonResponse(response, 200, {
         ok:true,
         id:imageId.toLowerCase(),
-        content_type:contentType,
+        content_type:responseContentType,
         size_bytes:bytes.length,
         encoding:"base64",
+        preview:previewRequested,
         data:bytes.toString("base64"),
       });
       return;
