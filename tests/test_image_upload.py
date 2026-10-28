@@ -49,6 +49,18 @@ class ImageValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "yalnızca|Yalnızca"):
             analysis_report.validate_image_bytes(png, "chart.gif")
 
+    def test_missing_pillow_reports_dependency_problem_not_corrupt_image(self) -> None:
+        real_import = __import__
+
+        def import_without_pillow(name, *args, **kwargs):
+            if name == "PIL" or name.startswith("PIL."):
+                raise ModuleNotFoundError("No module named 'PIL'", name="PIL")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=import_without_pillow):
+            with self.assertRaisesRegex(ValueError, "Pillow kurulu değil"):
+                analysis_report.validate_image_bytes(image_bytes("PNG"), "chart.png")
+
     def test_per_image_size_limit_is_checked_before_decode(self) -> None:
         too_large = b"\x89PNG\r\n\x1a\n" + b"x" * analysis_report.MAX_IMAGE_BYTES
         with self.assertRaisesRegex(ValueError, "15 MiB"):
