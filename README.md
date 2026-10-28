@@ -124,9 +124,13 @@ Aşağıdaki CI sonucu, bulut raporu zamanları ve Windows anlık görüntüleri
 - Daha eski 16:00:55 durum anlık görüntüsü canlı akışı eski/eksik, 537/1.248 tamamlanma ve 17 hata olarak göstermişti. Raporların farklı zaman damgaları nedeniyle bu sayılar tek bir eşzamanlı durum gibi birleştirilmez; daha sonraki sorun giderme anlık görüntüsü 16:02:05 durumunu kaydeder.
 - Sorun giderme JSON'u `firsat_kontrol_devir.zip` için dosya boyutu ve SHA-256 metaverisi içeriyordu. Bu incelemede ZIP'in ikili içeriği açılıp tek tek doğrulanmadı; burada doğrulanan şey JSON raporunun okunabilirliği ve raporda ZIP metaverisinin bulunmasıdır.
 
-## Dağıtım paketi kuralı
+## Dağıtım paketi ve kullanıcıya teslim kuralı
 
-Her `main` gönderiminde derleme, birim testleri, bulut Worker testleri ve canlı piyasa geçidi doğrulamaları çalışır. Bu adımların tamamı başarılı olursa Sürüm 01 program ZIP'i, SHA-256 dosyası ve 14 gün saklanan GitHub Actions deneme artefaktı otomatik oluşturulur; paket Windows'ta denenmek üzere indirilir. Olağan gönderimler kalıcı GitHub Release indirme dosyalarını değiştirmez. Kullanıcı son paketlemeyi açıkça `workflow_dispatch` ile başlatırsa veya onaylı commit mesajına `[package]` eklenirse aynı ZIP ve SHA-256 ayrıca `surum-01` Release dosyalarına yüklenir. Programı kurup denemek için yalnızca ZIP gerekir. Herhangi bir test başarısız olursa ZIP ve artefakt adımlarına geçilmez.
+1. `main` gönderimleri ve pull request'ler otomatik test/doğrulama yapar; tek başına ZIP yayımlama onayı sayılmaz. Kalıcı `surum-01` paketi, kullanıcı açıkça `workflow_dispatch` üzerinden `publish_package=true` seçerek paketlemeyi başlattığında oluşturulur. Bütün zorunlu testler geçmeden paket oluşturma/yayımlama adımlarına geçilmez.
+2. Paketleme çalışması başarılı tamamlandığında Sürüm 01 program ZIP'i, SHA-256 doğrulama dosyası, kalıcı GitHub Release dosyaları ve 14 gün saklanan Actions artefaktı doğrulanır. ZIP gerçek dosya olarak indirilir; arşiv bütünlüğü (`testzip`), gerekli masaüstü dosyaları ve üretilen SHA-256 özeti kontrol edilir. Eski Release ZIP'i güncel paket yerine kullanılmaz.
+3. **Kullanıcıya teslim yöntemi sabittir:** doğrulanmış ZIP dosyası doğrudan sohbet içinde tıklanabilir indirme bağlantısı olarak `sandbox:/mnt/data/Firsat-Kontrol-Paneli-Surum-01.zip` yolundan gönderilir. SHA-256 dosyası da ayrı bağlantı olarak verilir. Kullanıcıya ZIP'i almak için GitHub Actions sayfasına gitmesi, Actions artefaktı bulması veya Release sayfasından elle indirmesi söylenmez; o sayfalar yalnızca ek kaynak/izleme bağlantısı olarak paylaşılabilir.
+4. Sohbette verilecek dosya, paketleme çalışmasının oluşturduğu gerçek ZIP olmalıdır; Actions artefaktının dış kapsayıcı ZIP'i ya da daha önceki bir sürüm yanlışlıkla program ZIP'i olarak sunulmaz. İndirme veya yerel dosya yolu doğrulanamıyorsa bu açıkça belirtilir; bozuk/eski dosya hazırmış gibi paylaşılmaz.
+5. Programı kurup denemek için yalnızca program ZIP'i gerekir. SHA-256 dosyası bütünlüğü bağımsız doğrulamak içindir.
 
 ## [Tarihsel kayıt] 26 Ekim 2026 — Bulut rapor aktarımının ilk doğrulaması
 
@@ -476,14 +480,14 @@ Bu tarihsel sonuç, bulut sunucusunun ilgili uç noktalara o test anında erişe
 
 ### Program ZIP'ini indirme ve paketleme
 
-- **Sürüm 1 Windows deneme ZIP'i:** [Yeni deponun Actions çalıştırmaları](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/workflows/validate-and-package.yml?query=branch%3Amain). En son başarılı `main` çalıştırmasını açıp `Artifacts` bölümünden `Firsat-Kontrol-Paneli-Surum-01-<çalıştırma numarası>` paketini indir.
-- **Sürüm 00 başlangıç tabanının sabit ZIP'i:** [Firsat-Kontrol-Paneli-Surum-00.zip](https://github.com/erdaly1947-max/matrix/releases/download/surum-00/Firsat-Kontrol-Paneli-Surum-00.zip). Bu eski başlangıç paketidir; Sürüm 1 deneme paketinin yerine geçmez.
-- Sürüm 00 Release sayfası: https://github.com/erdaly1947-max/matrix/releases/tag/surum-00
-- Sürüm 1 otomatik doğrulama geçmişi: https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/workflows/validate-and-package.yml?query=branch%3Amain
+- **Sürüm 01 Windows deneme ZIP'i:** [Kalıcı Release indirme bağlantısı](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/releases/download/surum-01/Firsat-Kontrol-Paneli-Surum-01.zip). Bu bağlantı, en son başarılı ve açıkça onaylanmış paketleme işleminde güncellenir.
+- **Sürüm 01 SHA-256 doğrulama dosyası:** [Firsat-Kontrol-Paneli-Surum-01.zip.sha256](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/releases/download/surum-01/Firsat-Kontrol-Paneli-Surum-01.zip.sha256).
+- **Sürüm 00 başlangıç tabanının sabit ZIP'i:** [Firsat-Kontrol-Paneli-Surum-00.zip](https://github.com/erdaly1947-max/matrix/releases/download/surum-00/Firsat-Kontrol-Paneli-Surum-00.zip). Bu eski başlangıç paketidir; Sürüm 01 deneme paketinin yerine geçmez.
+- Sürüm 01 [Actions doğrulama ve paketleme geçmişi](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/workflows/validate-and-package.yml?query=branch%3Amain).
 
-Her `main` gönderiminde GitHub Actions Python 3.14.8 ortamında kaynak derlemesini ve otomatik testleri, Node.js 22 ortamında geçit testlerini ve canlı Render/Binance/BtcTurk REST + WebSocket kontrollerini çalıştırır. Hepsi başarılı olursa `Firsat-Kontrol-Paneli-Surum-01.zip`, SHA-256 doğrulaması ve 14 gün saklanan Actions deneme artefaktı otomatik üretilir. Başarısız testlerde paket oluşturulmaz. Olağan gönderimler sabit Release indirme dosyalarını değiştirmez; kalıcı `surum-01` Release dosyaları yalnızca `workflow_dispatch` veya `[package]` işaretiyle yapılan açık paketleme çalıştırmasında güncellenir. Windows denemesi için en son başarılı çalıştırmanın `Artifacts` bölümünden Sürüm 01 paketini indirmen yeterlidir.
+GitHub Actions Python 3.14.8 ortamında kaynak derlemesini ve otomatik testleri, Node.js 22 ortamında geçit testlerini ve canlı Render/Binance/BtcTurk REST + WebSocket kontrollerini çalıştırır. Açık `workflow_dispatch` çalışmasında `publish_package=true` seçilmelidir; zorunlu testler başarılıysa Sürüm 01 ZIP'i, SHA-256 doğrulama dosyası ve 14 gün saklanan Actions artefaktı oluşturulur ve kalıcı `surum-01` Release dosyaları güncellenir. Başarısız testlerde paket yayımlanmaz. **Normal teslimde kullanıcıya program ZIP'i doğrudan sohbet içinde indirilebilir dosya bağlantısı olarak verilir; kullanıcının GitHub Actions artefaktını elle bulup indirmesi istenmez.**
 
-Programa ait dağıtım ZIP'ine gerekli masaüstü dosyaları ve `market_data_relay.json` eklenir. Sunucunun Node.js kaynakları (`render_relay/`) masaüstü ZIP'ine konmaz; Render bunları GitHub deposundan kendisi oluşturur. Paket içindeki `market_data_relay.json` aktif Render adresini göstermelidir. ZIP'in bütünlüğü paketleme sırasında kontrol edilir; ayrıca indirilecek bir özet dosyasına gerek yoktur.
+Programa ait dağıtım ZIP'ine gerekli masaüstü dosyaları ve `market_data_relay.json` eklenir. Sunucunun Node.js kaynakları (`render_relay/`) masaüstü ZIP'ine konmaz; Render bunları GitHub deposundan kendisi oluşturur. Paket içindeki `market_data_relay.json` aktif Render adresini göstermelidir. ZIP'in bütünlüğü paketleme sırasında kontrol edilir; SHA-256 dosyası ayrıca üretilir.
 
 ### Tekrarlanabilir çözüm / gelecekteki bakım
 
