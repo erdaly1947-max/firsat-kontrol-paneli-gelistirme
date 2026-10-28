@@ -131,7 +131,7 @@ function validManifestImage(image) {
 
 async function readActiveImageManifest(env) {
   const object = await env.IMAGES_BUCKET.get(IMAGE_MANIFEST_KEY);
-  if (!object) return { exists: false, etag: null, images: [] };
+  if (!object) return { exists: false, etag: null, images: [], cleanupIds: [] };
   let parsed;
   try {
     parsed = JSON.parse(await object.text());
