@@ -138,15 +138,20 @@ async function readActiveImageManifest(env) {
   } catch {
     throw new Error("Etkin görüntü manifesti okunamıyor.");
   }
+  const activeIds = Array.isArray(parsed?.images) ? parsed.images.map((image) => image?.id) : [];
+  const cleanupIds = parsed?.cleanup_ids === undefined ? [] : parsed.cleanup_ids;
   if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.images) || parsed.images.length > 3 ||
-      !parsed.images.every(validManifestImage) ||
-      new Set(parsed.images.map((image) => image.id)).size !== parsed.images.length) {
+      !parsed.images.every(validManifestImage) || new Set(activeIds).size !== activeIds.length ||
+      !Array.isArray(cleanupIds) || cleanupIds.some((id) => !isImageId(id)) ||
+      new Set(cleanupIds).size !== cleanupIds.length ||
+      cleanupIds.some((id) => activeIds.includes(id))) {
     throw new Error("Etkin görüntü manifesti geçersiz.");
   }
   return {
     exists: true,
     etag: object.etag,
     images: [...parsed.images].sort((a, b) => Date.parse(b.uploaded_at) - Date.parse(a.uploaded_at)),
+    cleanupIds,
   };
 }
 
@@ -164,16 +169,40 @@ async function readBoundedImageBytes(request, maxBytes) {
       throw error;
     }
   }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (!bytes.length) {
+  if (!request.body) {
     const error = new Error("İstek gövdesi boş.");
     error.status = 400;
     throw error;
   }
-  if (bytes.length > maxBytes) {
-    const error = new Error("Görüntü boyut sınırını aşıyor.");
-    error.status = 413;
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch { /* request is already oversized */ }
+        const error = new Error("Görüntü boyut sınırını aşıyor.");
+        error.status = 413;
+        throw error;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (!total) {
+    const error = new Error("İstek gövdesi boş.");
+    error.status = 400;
     throw error;
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
   }
   return bytes;
 }
@@ -197,6 +226,38 @@ async function deleteKeysBestEffort(bucket, keys) {
     await bucket.delete(keys);
   } catch {
     // Inactive objects are retried by a later cleanup pass.
+  }
+}
+
+async function cleanupPendingImageDeletes(env) {
+  let manifest;
+  try {
+    manifest = await readActiveImageManifest(env);
+  } catch {
+    return;
+  }
+  if (!manifest.exists || !manifest.cleanupIds.length) return;
+  const pending = [];
+  for (const id of manifest.cleanupIds) {
+    try {
+      await env.IMAGES_BUCKET.delete("images/" + id);
+    } catch {
+      pending.push(id);
+    }
+  }
+  if (pending.length === manifest.cleanupIds.length) return;
+  try {
+    await env.IMAGES_BUCKET.put(IMAGE_MANIFEST_KEY, JSON.stringify({
+      version: 1,
+      updated_at: new Date().toISOString(),
+      images: manifest.images,
+      cleanup_ids: pending,
+    }), {
+      onlyIf: { etagMatches: manifest.etag },
+      httpMetadata: { contentType: "application/json; charset=utf-8", cacheControl: "no-store" },
+    });
+  } catch {
+    // Successful deletes may remain queued; the next retry is idempotent.
   }
 }
 
@@ -242,6 +303,7 @@ async function deleteUncommittedImageObjects(env, ids) {
 async function handleImageStage(request, env) {
   if (!env.IMAGES_BUCKET) return jsonResponse({ ok: false, error: "R2 görüntü deposu yapılandırılmamış." }, 503);
   if (!requestTokenIsValid(request, env)) return jsonResponse({ ok: false, error: "Yetkisiz görüntü yüklemesi." }, 401);
+  await cleanupPendingImageDeletes(env);
   if ((request.headers.get("Content-Encoding") || "").trim()) {
     return jsonResponse({ ok: false, error: "Görüntüler ayrıca sıkıştırılmamalıdır." }, 415);
   }
@@ -279,6 +341,9 @@ async function handleImageStage(request, env) {
 async function handleImageAbort(request, env) {
   if (!env.IMAGES_BUCKET) return jsonResponse({ ok: false, error: "R2 görüntü deposu yapılandırılmamış." }, 503);
   if (!requestTokenIsValid(request, env)) return jsonResponse({ ok: false, error: "Yetkisiz görüntü işlemi." }, 401);
+  if ((request.headers.get("Content-Encoding") || "").trim()) return jsonResponse({ ok: false, error: "Görüntü işlem JSON'u ayrıca sıkıştırılmamalıdır." }, 415);
+  if ((request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase() !== "application/json") return jsonResponse({ ok: false, error: "Görüntü işlemi application/json olmalıdır." }, 415);
+  await cleanupPendingImageDeletes(env);
   let payload;
   try {
     payload = await readBoundedImageJson(request);
@@ -297,6 +362,7 @@ async function handleImageAbort(request, env) {
 async function handleImageCommit(request, env) {
   if (!env.IMAGES_BUCKET) return jsonResponse({ ok: false, error: "R2 görüntü deposu yapılandırılmamış." }, 503);
   if (!requestTokenIsValid(request, env)) return jsonResponse({ ok: false, error: "Yetkisiz görüntü işlemi." }, 401);
+  await cleanupPendingImageDeletes(env);
   if ((request.headers.get("Content-Encoding") || "").trim()) {
     return jsonResponse({ ok: false, error: "Görüntü işlem JSON'u ayrıca sıkıştırılmamalıdır." }, 415);
   }
@@ -371,8 +437,11 @@ async function handleImageCommit(request, env) {
     }
     const keep = active.images.slice(0, Math.max(0, 3 - stages.length));
     nextImages = [...stages.map((item) => item.entry), ...keep].slice(0, 3);
+    const keptIds = new Set(nextImages.map((image) => image.id));
+    const obsoleteIds = active.images.filter((image) => !keptIds.has(image.id)).map((image) => image.id);
+    const cleanupIds = [...new Set([...active.cleanupIds, ...obsoleteIds])];
     const published = await env.IMAGES_BUCKET.put(IMAGE_MANIFEST_KEY, JSON.stringify({
-      version: 1, updated_at: new Date().toISOString(), images: nextImages,
+      version: 1, updated_at: new Date().toISOString(), images: nextImages, cleanup_ids: cleanupIds,
     }), {
       onlyIf: active.exists ? { etagMatches: active.etag } : { etagDoesNotMatch: "*" },
       httpMetadata: { contentType: "application/json; charset=utf-8", cacheControl: "no-store" },
@@ -389,9 +458,7 @@ async function handleImageCommit(request, env) {
   }
 
   await deleteKeysBestEffort(env.IMAGES_BUCKET, ids.map((id) => "staging/" + id));
-  const keptIds = new Set(nextImages.map((image) => image.id));
-  const obsoleteIds = active.images.filter((image) => !keptIds.has(image.id)).map((image) => image.id);
-  await deleteKeysBestEffort(env.IMAGES_BUCKET, obsoleteIds.map((id) => "images/" + id));
+  await cleanupPendingImageDeletes(env);
   await cleanupStaleImageObjects(env, nextImages);
   const origin = new URL(request.url).origin;
   return jsonResponse({ ok: true, idempotent: false,
@@ -404,6 +471,7 @@ async function handleImageManifest(request, env) {
   try { active = await readActiveImageManifest(env); } catch {
     return jsonResponse({ ok: false, error: "Etkin görüntü listesi okunamıyor." }, 500);
   }
+  await cleanupPendingImageDeletes(env);
   await cleanupStaleImageObjects(env, active.images);
   const origin = new URL(request.url).origin;
   return jsonResponse({ ok: true,
@@ -416,11 +484,13 @@ async function handleImageRead(request, env, imageId) {
   try { active = await readActiveImageManifest(env); } catch {
     return jsonResponse({ ok: false, error: "Etkin görüntü listesi okunamıyor." }, 500);
   }
+  await cleanupPendingImageDeletes(env);
   const entry = active.images.find((image) => image.id === imageId);
   if (!entry) return jsonResponse({ ok: false, error: "Etkin görüntü bulunamadı." }, 404);
   let object;
   try { object = await env.IMAGES_BUCKET.get("images/" + imageId); } catch { object = null; }
   if (!object) return jsonResponse({ ok: false, error: "Görüntü içeriği bulunamadı." }, 404);
+  if (object.size !== entry.size_bytes) return jsonResponse({ ok: false, error: "Görüntü boyutu etkin manifest ile eşleşmiyor." }, 500);
   const headers = new Headers({
     "Content-Type": entry.content_type,
     "Cache-Control": "no-store, max-age=0",
