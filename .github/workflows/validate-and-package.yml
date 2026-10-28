@@ -112,9 +112,9 @@ jobs:
           RELAY_URL: https://firsat-kontrol-market-relay.onrender.com
         run: npm run smoke --prefix render_relay
 
-      - name: Canlı ekran görüntüsü test geçidi ve Cloudinary listeleme doğrulaması
+      - name: Canlı ekran görüntüsü geçidi ve Cloudinary listeleme doğrulaması
         env:
-          IMAGE_RELAY_URL: https://firsat-kontrol-test-relay.onrender.com
+          IMAGE_RELAY_URL: https://firsat-kontrol-market-relay.onrender.com
         run: |
           node --input-type=module <<'JS'
           const base = String(process.env.IMAGE_RELAY_URL || "").replace(/\/+$/, "");
@@ -165,7 +165,7 @@ jobs:
 
           const health = await getJson("/healthz");
           if (health.ok !== true || health.version !== 2) {
-            throw new Error("Görüntü test geçidinin sağlık yanıtı beklenen biçimde değil: " + JSON.stringify(health));
+            throw new Error("Canlı görüntü geçidinin sağlık yanıtı beklenen biçimde değil: " + JSON.stringify(health));
           }
           console.log("IMAGE_RELAY_HEALTH_OK version=" + health.version);
 
