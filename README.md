@@ -135,6 +135,14 @@ Bu bölüm, eski ve çelişen dal/test/paket kurallarının yerine geçer.
 - Masaüstü Windows programını çalıştırmak için gereken bütün dosyalar ZIP içinde bulunmalıdır. Render/Cloudflare sunucu hizmetleri kendi depo ve dağıtım düzenleriyle ayrıca çalışır; masaüstü ZIP'ine sunucunun çalıştırma ortamının konması zorunlu değildir.
 - Kullanıcıya teslim edilirken yalnızca program ZIP'inin doğrudan sohbet içi indirme bağlantısı verilir. Kullanıcıdan GitHub Actions arşivini veya başka bir yan dosyayı bulup indirmesi istenmez. Paket oluşturulamadıysa bu açıkça bildirilir; eski ZIP güncelmiş gibi paylaşılmaz.
 
+### 5. Kullanıcının bilgisayarındaki son doğrulama ve sürüm onayı
+
+- Asistan kendi tarafındaki aşama testlerini, otomatik testleri, gerekli entegrasyon kontrollerini ve paket doğrulamasını tamamladıktan sonra program ZIP'ini kullanıcıya gönderir. Kullanıcıya teslim edilecek bağlantı yalnızca program ZIP'ine ait olur.
+- Kullanıcı ZIP'i kendi Windows bilgisayarında çalıştırıp programın bütün işlevlerini kontrol eder; gördüğü sonuçları ve eksikleri rapor olarak gönderir.
+- Kullanıcının yerel test raporu incelenir. Bildirilen eksikler düzeltilir ve bunları kapsayan testler tekrarlanır; gerekiyorsa güncellenmiş ZIP yeniden hazırlanıp kullanıcıya gönderilir.
+- **Bir sonraki sürüme ancak kullanıcı kendi bilgisayarındaki kontrol sonuçlarını raporladıktan ve bu sürümü onayladıktan sonra geçilir.** Kullanıcı onayı gelmeden bir sonraki sürümün geliştirme çalışmasına başlanmaz. Bu, dal açmak için genel izin verilmiş olmasını değil, sürümün kullanıcı tarafından kabul edilmiş olmasını bekleyen ayrı bir sürüm geçiş şartıdır.
+- Her sürümün kabulü, önceki sürümdeki bütün işlevlerin korunduğu ve yeni değişikliklerin kullanıcının bilgisayarında kontrol edildiği anlamına gelir. Kullanıcının raporundaki başarısızlıklar çözülmeden sürüm kabul edilmiş sayılmaz.
+
 ### 5. Kayıtların doğruluğu ve gereksiz tekrarlar
 
 - Bu README güncel kaynak durumu, kabul edilmiş tasarım ve bu iş akışını taşıyan ana kayıttır. Kod, çalışma raporu ve test kanıtı olmadan bir özellik tamamlandı sayılmaz.
