@@ -76,7 +76,13 @@ test("Cloudinary screenshot commit replaces oldest image and exposes only three 
       }
       return new Response(JSON.stringify({error:{message:"unexpected endpoint"}}),{status:404,headers:{"Content-Type":"application/json"}});
     }
-    if(url.hostname==="res.cloudinary.com")return new Response(PNG,{status:200,headers:{"Content-Type":"image/png"}});
+    if(url.hostname==="res.cloudinary.com"){
+      if(url.pathname.includes("/c_limit,w_1280,f_jpg,q_75/")){
+        const JPEG=Buffer.from([0xff,0xd8,0xff,0xd9]);
+        return new Response(JPEG,{status:200,headers:{"Content-Type":"image/jpeg"}});
+      }
+      return new Response(PNG,{status:200,headers:{"Content-Type":"image/png"}});
+    }
     return originalFetch(input,init);
   };
   const server=createRelayServer();
@@ -126,4 +132,20 @@ test("Cloudinary screenshot commit replaces oldest image and exposes only three 
   assert.equal(inspected.size_bytes,PNG.length);
   assert.equal(inspected.encoding,"base64");
   assert.deepEqual(Buffer.from(inspected.data,"base64"), PNG);
+
+  const largeImageId="44444444-4444-4444-8444-444444444444";
+  resources.push({
+    ...seededResource(largeImageId,0,"large-screen.png"),
+    bytes:600*1024, format:"png",
+  });
+  const largeOriginal = await originalFetch(base+"/images/"+largeImageId+"?format=base64");
+  assert.equal(largeOriginal.status,413);
+  const largePreview = await originalFetch(base+"/images/"+largeImageId+"?format=base64&preview=1");
+  assert.equal(largePreview.status,200);
+  const preview = await largePreview.json();
+  assert.equal(preview.ok,true);
+  assert.equal(preview.preview,true);
+  assert.equal(preview.content_type,"image/jpeg");
+  assert.ok(preview.size_bytes < 512*1024);
+  assert.deepEqual(Buffer.from(preview.data,"base64"),Buffer.from([0xff,0xd8,0xff,0xd9]));
 });
