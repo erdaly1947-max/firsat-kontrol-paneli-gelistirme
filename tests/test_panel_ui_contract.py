@@ -181,8 +181,8 @@ class PanelUIContractTests(unittest.TestCase):
         )
         opened_options = []
         file_results = iter([
-            r"C:\\Users\\erdal\\OneDrive\\Resimler\\Screenshots\\first screen.png",
-            r"C:\\Users\\erdal\\OneDrive\\Resimler\\Screenshots\\second chart.jpg",
+            "/screenshots/first screen.png",
+            "/screenshots/second chart.jpg",
             "",
         ])
         confirm_results = iter([True, False])
@@ -203,13 +203,13 @@ class PanelUIContractTests(unittest.TestCase):
         extracted = ast.Module(body=[function], type_ignores=[])
         exec(compile(extracted, str(PANEL_PATH), "exec"), namespace)
         chosen = namespace["_choose_screenshot_paths"](
-            parent, Path(r"C:\\Users\\erdal\\OneDrive\\Resimler\\Screenshots"),
+            parent, Path("/screenshots"),
             open_dialog=open_dialog, ask_more=ask_more,
         )
 
         self.assertEqual(len(chosen), 2)
-        self.assertEqual(chosen[0].split("\\\\")[-1], "first screen.png")
-        self.assertEqual(chosen[1].split("\\\\")[-1], "second chart.jpg")
+        self.assertEqual(Path(chosen[0]).name, "first screen.png")
+        self.assertEqual(Path(chosen[1]).name, "second chart.jpg")
         self.assertEqual(len(opened_options), 2)
         self.assertEqual(opened_options[0]["parent"], parent)
         self.assertEqual(
