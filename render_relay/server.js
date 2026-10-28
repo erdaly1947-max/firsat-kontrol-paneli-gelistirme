@@ -378,7 +378,7 @@ function cloudinaryHeaders(config, extra = {}) {
     ...extra,
   };
 }
-async function cloudinaryRequest(config, path, options = {}) {
+export async function cloudinaryRequest(config, path, options = {}) {
   const init = {
     method: options.method || "GET",
     headers: cloudinaryHeaders(config, options.headers || {}),
@@ -414,7 +414,7 @@ async function cloudinaryRequest(config, path, options = {}) {
     for (const secret of [config.apiKey, config.apiSecret]) {
       if (secret) detail = detail.split(secret).join("[gizli değer gizlendi]");
     }
-    detail = detail.replace(/[\\r\\n\\t]+/g, " ").trim().slice(0, 240);
+    detail = detail.replace(/[\r\n\t]+/g, " ").trim().slice(0, 240);
     const suffix = detail ? ": " + detail : ".";
     const error = new Error("Cloudinary isteği başarısız oldu (HTTP " + response.status + ")" + suffix);
     error.status = response.status === 429 || response.status === 420 ? 503 : 502;
