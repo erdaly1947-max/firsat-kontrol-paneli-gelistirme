@@ -238,5 +238,14 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn("uses: actions/upload-artifact@v7", workflow)
 
 
+    def test_selected_coin_details_distinguish_alarm_permission_from_strong_opportunity(self):
+        source = ast.unparse(_method("_selection_changed"))
+        self.assertIn("strong_opportunity_gate_reasons", source)
+        self.assertIn("Güçlü alarm uygunluk filtresi (izin):", source)
+        self.assertIn("Gerçek güçlü fırsat koşulları:", source)
+        self.assertIn("Engel gerekçesi raporda bulunmuyor.", source)
+        self.assertNotIn("Güçlü alarm koşulu:", source)
+
+
 if __name__ == "__main__":
     unittest.main()
