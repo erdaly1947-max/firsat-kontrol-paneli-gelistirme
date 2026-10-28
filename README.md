@@ -16,11 +16,14 @@ Bu README, projenin güncel teknik özeti, gerçek çalışma durumu, kabul edil
 - CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY ve CLOUDINARY_API_SECRET değerleri Render ortam değişkenlerine girildi; gizli değerler bu README'ye, masaüstü paketine veya sohbete yazılmaz.
 - Dağıtım sonrası canlı /images/manifest uç noktasından JSON biçiminde ok: true yanıtı ve görüntü kayıtları alındı. Bu, canlı hizmetin Cloudinary'den mevcut görüntü listesini okuyabildiğini doğrular; masaüstü programından canlı hizmete tam yükleme akışının uçtan uca çalıştığını tek başına kanıtlamaz.
 
-### Şu anki belirgin açık iş
+### Görüntü aktarımını canlıya geçirme — mevcut durum
 
-Masaüstü kaynak kodundaki analysis_report.py dosyasında rapor aktarımının RELAY_BASE_URL değeri canlı market-relay hizmetini kullanıyor; görüntü aktarımının IMAGE_RELAY_BASE_URL değeri ise hâlâ firsat-kontrol-test-relay.onrender.com adresini gösteriyor. Programın ekran görüntüsü gönderme akışının canlı hizmete alınması için bu hedef ve ilgili testler düzeltilmeli. Test hizmeti şimdilik kalabilir; yalnızca canlıda doğrulanmış işlevler tamamlandı olarak işaretlenmelidir.
+- Masaüstündeki analysis_report.py artık görüntü yükleme, manifest ve görüntü indirme işlemleri için https://firsat-kontrol-market-relay.onrender.com adresini kullanacak şekilde değiştirildi.
+- tests/test_image_upload.py canlı geçidi bekleyecek şekilde güncellendi; .github/workflows/validate-and-package.yml içindeki canlı görüntü sağlık/manifest kontrolü de aynı üretim adresini kullanır.
+- Bu kod değişikliklerinin otomatik test sonucu ve Render otomatik dağıtımının durumu ayrıca doğrulanmalıdır. Ardından gerçek Windows programından bir ekran görüntüsü yüklenip canlı manifestten okunarak tam akış doğrulanmalıdır.
+- firsat-kontrol-test-relay test amacıyla durur; masaüstü programının normal görüntü aktarım adresi değildir.
 
-Canlı görüntü manifestinin okunması doğrulandı. Görüntü stage/commit, listeleme ve indirip açma akışının masaüstü istemcisinden canlı hizmete uçtan uca testi ayrıca yapılmalıdır. Rapor yüklemesinin güncelliği ve üretim ortamındaki rapor kimlik doğrulaması da güncel telemetriyle doğrulanmadan başarılı kabul edilmez.
+Canlı manifestten görüntü listesini okuyabilmek, görüntü stage/commit, listeleme ve indirme akışının masaüstü programından uçtan uca çalıştığını tek başına kanıtlamaz. Bu doğrulama yapılmadan görüntü aktarımı tamamlandı sayılmaz.
 
 ### Görsel gönderme ve doğrudan inceleme — başarıyla doğrulanmış yöntem
 
@@ -65,6 +68,87 @@ Kodda işlevin bulunması, o işlevin tarihsel piyasa koşullarında kârlı ça
 - cloudflare/report-worker/src/index.js — rapor Worker'ı.
 - tests/ — Python ve sunucu işlevlerinin otomatik testleri.
 - .github/workflows/validate-and-package.yml — kaynak doğrulama, test ve açıkça istenen son paketleme akışı.
+
+## Bağlantılar ve entegrasyon kullanım haritası
+
+Bu bölüm, bir hizmet/eklenti bağlantısı yeniden kurulacağı veya bir işlev taşınacağı zaman başvuru kaydıdır. Programın kullandığı bağlantılar ile ChatGPT'nin inceleme sırasında kullandığı bağlantılar ayrıdır. URL veya gizli anahtarı değiştirmeden önce ilgili kod ve bu harita kontrol edilir.
+
+### GitHub — kaynak kod ve testler
+
+- Ana depo: https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme
+- Güncel dal: main. Kabul edilmiş sürüm zinciri, main tamamlanıp sabitlendikten sonra yeni sürüm dallarına bir önceki sürümün eksiksiz kopyalanması esasına dayanır.
+- .github/workflows/validate-and-package.yml Python derlemesini/birim testlerini, Worker testlerini, Render hizmet testlerini ve canlı piyasa/görüntü manifesti kontrollerini çalıştırır.
+- Render canlı hizmeti aynı depodaki main dalına bağlıdır ve otomatik dağıtım açıktır.
+- Gizli değerler koda, README'ye, commit mesajlarına veya loglara yazılmaz.
+- Paketleme tamamlandığında kullanıcıya Actions kapsayıcı arşivi değil yalnızca doğrulanmış program ZIP'i teslim edilir.
+
+### Render — canlı piyasa ve görüntü geçidi
+
+**Canlı hizmet**
+- Ad: firsat-kontrol-market-relay
+- URL: https://firsat-kontrol-market-relay.onrender.com
+- Yönetim: https://dashboard.render.com/web/srv-dbf3n80n74is73beeeog
+- Kaynak depo/branch: ana GitHub deposu / main; otomatik dağıtım açık.
+- Build: npm install --prefix render_relay --omit=dev --no-package-lock
+- Start: npm start --prefix render_relay
+
+**Test hizmeti**
+- Ad: firsat-kontrol-test-relay
+- URL: https://firsat-kontrol-test-relay.onrender.com
+- Yönetim: https://dashboard.render.com/web/srv-dbgr3mdg1s2s73c48iu0
+- Ayrı test hizmetidir; otomatik dağıtımı kapalıdır ve masaüstü programının normal hedefi olmamalıdır.
+
+**Kullanılan canlı uçlar**
+- GET /healthz: sunucu sağlığı ve sürüm bilgisi.
+- /binance/api/v3/... ve /btcturk/api/v2/...: izin listesinde bulunan halka açık piyasa REST verisi.
+- /ws/binance/stream?streams=...: Binance genel WebSocket mum akışı.
+- POST /api/report, /api/report/daily, /api/report/troubleshooting, /api/report/troubleshooting-zip: raporları Cloudflare rapor Worker'ına iletir.
+- POST /api/images/stage, /api/images/commit, /api/images/abort: görüntü yükleme grubu.
+- GET /images/manifest: etkin Cloudinary görüntü listesi.
+- GET /images/{UUID}?format=base64: seçilen görüntü baytlarını JSON içinde Base64 biçiminde döndürür.
+
+Sunucu kodu render_relay/server.js, sınırlı REST önbelleği render_relay/rest_cache.js, sunucu testleri render_relay/test/, canlı piyasa kontrolü render_relay/smoke-check.mjs içindedir. Canlı piyasa kontrolü sağlık, Binance mum verisi, BtcTurk USDT ticker'ı ve gerçek WebSocket mesajını ayrı ayrı doğrular; yalnızca hizmetin live görünmesi yeterli değildir.
+
+### Cloudinary — görüntü dosyası saklama
+
+- Görüntü dosyalarını Cloudinary saklar; istemci Cloudinary'ye doğrudan bağlanmaz, Render geçidini kullanır.
+- Canlı Render Environment bölümünde CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY ve CLOUDINARY_API_SECRET değişkenleri bulunmalıdır. Gerçek değerler README'ye, sohbete veya masaüstü ZIP'ine yazılmaz.
+- Render tarafındaki stage/commit/abort ve en fazla üç etkin görüntü mantığı render_relay/server.js ile render_relay/test/cloudinary-images.test.js içindedir.
+- Görüntü listesi çalışmıyorsa önce canlı Render /healthz, sonra Cloudinary değişken adları/değerlerinin doğruluğu kontrol edilir. API Secret paylaşılmaz.
+
+### Cloudflare — rapor saklama ve okuma
+
+- Worker: https://firsat-kontrol-analysis-report.erdaly1947.workers.dev
+- Kaynak: cloudflare/report-worker/src/index.js
+- Kılavuz: cloudflare/report-worker/README.md
+- Sağlık: GET /health
+- Analiz: POST /api/report, oku GET /latest
+- Günlük: POST /api/report/daily, oku GET /daily
+- Sorun giderme JSON: POST /api/report/troubleshooting, oku GET /troubleshooting
+- Devir ZIP: POST /api/report/troubleshooting-zip, indir GET /troubleshooting.zip
+
+Masaüstü analiz/durum raporlarını yerelde reports klasöründe üretir. analysis_report.py raporları canlı Render geçidine yollar; Render bunları Cloudflare Worker'a aktarır. Okuma URL'leri WORKER_BASE_URL / READ_URL üzerinden doğrudan Worker'a gider. Yükleme Bearer token ile doğrulanır. Render'daki REPORT_RELAY_TOKEN ve CLOUDFLARE_REPORT_TOKEN değerleri, sunucu/Worker tarafındaki ilgili gizli ayarlarla uyumlu tutulur. Anahtarlar koda ve README'ye yazılmaz; raporlara gizli bilgi konmaz.
+
+Depodaki cloudflare_worker klasörü tarihsel piyasa-verisi denemesidir; aktif piyasa REST/WebSocket geçidi Render'dır. Rapor saklama Worker'ı ile eski piyasa veri denemesi aynı işlev değildir.
+
+### Exa — ChatGPT'nin buluttaki ekran görüntüsünü açması
+
+- Exa, Windows programının çalışma zamanı bağımlılığı değildir. ChatGPT tarafında ekran görüntüsünü Render üzerinden bulup, görüntünün gerçek baytlarını sohbete getirerek görsel incelemeyi sağlayan bağlı web-fetch bağlantısıdır.
+- Kullanıcı “fotoğraf gönderdim”, “görsel gönderdim” veya “ekran görüntüsü gönderdim” dediğinde ilk adım canlı Render hizmetinden güncel manifesti almaktır: GET /images/manifest adresine benzersiz bir check sorgusu eklenir; bu önbellek kaynaklı eski yanıt riskini azaltır.
+- Manifestten en yeni görüntünün UUID'si alınır. Ardından GET /images/{UUID}?format=base64 adresine yine benzersiz check sorgusu eklenir. Gelen JSON içindeki content_type ve Base64 data gerçek PNG/JPEG verisine dönüştürülerek ChatGPT'nin görsel algılamasına verilir. Sadece dosya adını görmek görüntüyü okumak sayılmaz.
+- Görüntü açılmazsa sırayla manifest erişimi, UUID, indirme yanıtı, HTTP/önbellek hatası, Render durumu ve Cloudinary yapılandırması kontrol edilir. Kullanıcıdan görüntüyü yeniden sohbete yüklemesi istenmez; açılmadan görüldüğü iddia edilmez.
+- Exa görüntünün saklandığı yer değildir; depolama Cloudinary, dosya API'si Render, görüntüyü ChatGPT'ye getiren erişim Exa'dır.
+
+### Arıza durumunda ilk kontrol noktası
+
+| Belirti | İlk kontrol |
+|---|---|
+| Piyasa verisi gelmiyor | market_data_relay.json, Render /healthz, render_relay/smoke-check.mjs ve Render logları |
+| Görüntü yüklenmiyor | analysis_report.py içindeki IMAGE_RELAY_BASE_URL, canlı Render /healthz, CLOUDINARY_ değişkenleri, tests/test_image_upload.py |
+| Yüklenen görüntü ChatGPT'de görünmüyor | Exa ile güncel /images/manifest, UUID ve /images/{UUID}?format=base64 yanıtı |
+| Rapor yüklenmiyor | analysis_report.py içindeki RELAY_BASE_URL, Windows Kimlik Bilgileri Yöneticisi'ndeki Firsat-Kontrol-Paneli/ReportUploadToken, Render REPORT_RELAY_TOKEN/CLOUDFLARE_REPORT_TOKEN ve Worker durumu |
+| Rapor eski | /latest, /daily ve /troubleshooting içindeki zaman damgalarını ayrı karşılaştır; farklı raporlar farklı çalışma anları olabilir |
+| Kod canlıya ulaşmamış | GitHub Actions sonucu, Render repo/branch/auto-deploy ayarı ve canlı deploy commit SHA'sı |
 
 ## Kabul edilmiş teknik analiz ve karar gereksinimleri
 
