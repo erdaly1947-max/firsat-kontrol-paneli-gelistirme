@@ -574,3 +574,12 @@ Render geçidi yazma rotalarını doğrulayıp mevcut Worker'a iletir. Dosya adl
 
 - Başlangıçta: gereksinimler kayda geçirildi; bu kayıt tek başına kodlama, test veya dağıtım kanıtı değildir.
 - Kodlama, birim testleri, CI ve canlı R2 doğrulaması tamamlandıkça tarih, commit, test komutu ve gerçek sonuç buraya eklenir. R2 engeli sürüyorsa açık engel olarak kalır; tamamlanmış gibi işaretlenmez.
+
+### Uygulama ve doğrulama kaydı — 28 Ekim 2026
+
+- Görüntü yükleme özelliği ve testleri `main` dalına işlendi. Son kod commit'i: `872e7885f2649892108716ce6de212e3e952228b`.
+- [GitHub Actions doğrulama koşusu #26](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40606961212) başarılı tamamlandı. Python derleme ve 98 birim testi, mevcut bulut geçidi JavaScript testleri, görüntü Worker testleri, Render geçidi testleri, canlı Render/WebSocket kontrolü ve BtcTurk USDT fiyat kontrolü geçti.
+- Görüntü Worker'ı gerçek R2 hesabında dağıtılmadı. Cloudflare R2 API'si hâlâ `403 — Please enable R2 through the Cloudflare Dashboard.` yanıtını veriyor. Gerçek R2 yükleme, manifestin canlı doğrulanması, görüntü URL'si üzerinden asistanın görsel incelemesi ve uçtan uca test **tamamlanmış değildir**. Bunun için R2'nin Dashboard üzerinden etkinleştirilmesi ve `firsat-kontrol-paneli-images` kovasının hazırlanması gerekir.
+- `.github/workflows/validate-and-package.yml` güncellendi. Normal `main` gönderimleri ve PR'lar yalnızca doğrulama çalıştırır. ZIP oluşturma, CI artefaktı yayımlama ve kalıcı GitHub Release'i değiştirme adımları yalnızca `workflow_dispatch` elle başlatılıp `publish_package=true` açıkça seçildiğinde çalışır.
+- Paketleme koruması eklenmeden önceki [CI koşusu #20](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40606039024), mevcut otomatik iş akışı nedeniyle geçici bir Sürüm 01 deneme ZIP artefaktı oluşturdu. Bu kalıcı GitHub Release güncellemesi değildir; artefaktın saklama süresi 14 gündür ve 11 Kasım 2026'da sona erer. Bu eski artefaktı yeni kod gönderimleri yeniden üretmez.
+
