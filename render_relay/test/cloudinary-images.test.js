@@ -114,4 +114,16 @@ test("Cloudinary screenshot commit replaces oldest image and exposes only three 
   const imageResponse=await originalFetch(base+"/images/"+stage.staged_id);
   assert.equal(imageResponse.status,200);
   assert.equal(imageResponse.headers.get("content-type"),"image/png");
+  assert.deepEqual(Buffer.from(await imageResponse.arrayBuffer()), PNG);
+
+  const inspectResponse=await originalFetch(base+"/images/"+stage.staged_id+"?format=base64");
+  assert.equal(inspectResponse.status,200);
+  assert.match(inspectResponse.headers.get("content-type") || "", /^application\\/json/);
+  const inspected=await inspectResponse.json();
+  assert.equal(inspected.ok,true);
+  assert.equal(inspected.id,stage.staged_id);
+  assert.equal(inspected.content_type,"image/png");
+  assert.equal(inspected.size_bytes,PNG.length);
+  assert.equal(inspected.encoding,"base64");
+  assert.deepEqual(Buffer.from(inspected.data,"base64"), PNG);
 });

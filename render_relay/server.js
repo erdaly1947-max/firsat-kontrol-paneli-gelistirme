@@ -687,6 +687,24 @@ async function handleCloudinaryImageDownload(request,response,imageId) {
     if (upstreamType!==contentType || bytes.length<1 || bytes.length>IMAGE_MAX_BODY_BYTES || !imageBodyMatchesType(bytes,contentType)) {
       jsonResponse(response,502,{ok:false,error:"Cloudinary görüntü içeriği doğrulanamadı."}); return;
     }
+    const requestUrl = new URL(request.url || "/", "https://relay.invalid");
+    if (requestUrl.searchParams.get("format") === "base64") {
+      // Text-only inspection path for clients that cannot consume image/png or image/jpeg responses.
+      // Keep this convenience path small; normal image downloads remain binary and unchanged.
+      if (bytes.length > 512 * 1024) {
+        jsonResponse(response, 413, { ok:false, error:"Görüntü inceleme çıktısı 512 KiB sınırını aşıyor." });
+        return;
+      }
+      jsonResponse(response, 200, {
+        ok:true,
+        id:imageId.toLowerCase(),
+        content_type:contentType,
+        size_bytes:bytes.length,
+        encoding:"base64",
+        data:bytes.toString("base64"),
+      });
+      return;
+    }
     response.writeHead(200,{"Content-Type":contentType,"Content-Length":String(bytes.length),"Cache-Control":"no-store","X-Content-Type-Options":"nosniff","Access-Control-Allow-Origin":"*"});
     response.end(bytes);
   } catch(error) {
