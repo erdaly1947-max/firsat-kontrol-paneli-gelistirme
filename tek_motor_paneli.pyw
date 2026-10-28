@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import gzip
 import hashlib
+import io
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -31,10 +32,17 @@ import zipfile
 
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from analysis_report import (
     build_analysis_report,
+    build_image_replacement_plan,
+    download_active_image,
+    fetch_image_manifest,
+    make_image_thumbnail,
+    upload_image_batch,
+    validate_image_bytes,
+    validate_image_file,
     compress_analysis_report,
     gzip_compress_bytes,
     load_connection_config,
@@ -57,6 +65,7 @@ STOP_FILE = RUN_DIR / "stop_radar.flag"
 PANEL_LOG_PATH = LOG_DIR / "tek_motor_paneli.log"
 ENGINE_LOG_PATH = LOG_DIR / "binance_radar.log"
 APP_TITLE = "FIRSAT-KONTROL PANELİ"
+SCREENSHOTS_DIR = Path(r"C:\Users\erdal\OneDrive\Resimler\Screenshots")
 
 for _directory in (DATA_DIR, LOG_DIR, REPORT_DIR, RUN_DIR):
     _directory.mkdir(parents=True, exist_ok=True)
@@ -750,6 +759,9 @@ class ControlPanel(tk.Tk):
         self.font_size_label = ttk.Label(font_group, text=f"{self.font_size} punto", anchor="center")
         self.font_size_label.pack(fill="x", pady=(0, 13))
         self.toolbar_items.append(font_group)
+        camera_group = ttk.Frame(self.controls_inner)
+        PillButton(camera_group, text="📷", command=self.open_screenshot_upload, role="accent", width=5).pack(fill="x")
+        self.toolbar_items.append(camera_group)
         self.controls_inner.bind("<Configure>", self._layout_toolbar, add="+")
         self.after(120, self._layout_toolbar)
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
@@ -1890,6 +1902,260 @@ class ControlPanel(tk.Tk):
             "candidate_count": len(self.current_candidates),
             "note": "Tanı özeti ayarların tam içeriğini içermez. Komisyon ve kayma hesaplanmaz; teknik risk/getiri oranı brüt olarak değerlendirilir.",
         }
+
+    def open_screenshot_upload(self) -> None:
+        """Choose and preview up to three screenshots before any upload begins."""
+        if not SCREENSHOTS_DIR.is_dir():
+            messagebox.showerror(
+                "Ekran görüntüsü klasörü bulunamadı",
+                f"Belirtilen klasör mevcut değil:\n{SCREENSHOTS_DIR}",
+                parent=self,
+            )
+            return
+        selected_paths = filedialog.askopenfilenames(
+            parent=self,
+            title="Ekran görüntülerini seç",
+            initialdir=str(SCREENSHOTS_DIR),
+            filetypes=[("PNG / JPG / JPEG görüntüleri", "*.png *.jpg *.jpeg")],
+        )
+        if not selected_paths:
+            return
+        if len(selected_paths) > 3:
+            messagebox.showwarning(
+                "En fazla üç görüntü",
+                "Bir seferde en fazla 3 görüntü seçebilirsiniz. Hiçbir dosya yüklenmedi.",
+                parent=self,
+            )
+            return
+        try:
+            local_images = [validate_image_file(path) for path in selected_paths]
+        except Exception as exc:
+            messagebox.showerror(
+                "Görüntü doğrulanamadı",
+                str(exc),
+                parent=self,
+            )
+            return
+        config = load_connection_config(ROOT)
+        if not config:
+            messagebox.showerror(
+                "Bulut bağlantısı yapılandırılmamış",
+                "Mevcut Windows Credential Manager içinde Firsat-Kontrol-Paneli/ReportUploadToken bulunamadı.",
+                parent=self,
+            )
+            return
+
+        self.status_var.set("Görüntü önizlemesi hazırlanıyor…")
+
+        def _load_preview() -> None:
+            try:
+                previews: list[dict[str, Any]] = []
+                for item in local_images:
+                    path = Path(item["path"])
+                    raw = path.read_bytes()
+                    validate_image_bytes(raw, path.name)
+                    prepared = dict(item)
+                    prepared["size_bytes"] = len(raw)
+                    prepared["thumbnail_bytes"] = make_image_thumbnail(raw)
+                    previews.append(prepared)
+
+                cloud_images = fetch_image_manifest()
+                for item in cloud_images:
+                    raw = download_active_image(
+                        item["id"], item["filename"], item["content_type"]
+                    )
+                    item["thumbnail_bytes"] = make_image_thumbnail(raw)
+
+                self.after(
+                    0,
+                    lambda: self._show_image_upload_preview(previews, cloud_images, config),
+                )
+            except Exception as exc:
+                error_text = f"{type(exc).__name__}: {exc}"
+                try:
+                    self.after(0, lambda: self._screenshot_preview_failed(error_text))
+                except tk.TclError:
+                    pass
+
+        threading.Thread(
+            target=_load_preview,
+            name="screenshot-preview-fetch",
+            daemon=True,
+        ).start()
+
+    def _screenshot_preview_failed(self, error: str) -> None:
+        self.status_var.set("Ekran görüntüsü önizlemesi alınamadı")
+        self._log_line(f"Ekran görüntüsü önizlemesi başarısız: {error}")
+        messagebox.showerror(
+            "Önizleme hazırlanamadı",
+            f"Bulut görüntüleri veya seçilen dosyalar doğrulanamadı.\n\n{error}",
+            parent=self,
+        )
+
+    def _show_image_upload_preview(
+        self,
+        local_images: list[dict[str, Any]],
+        cloud_images: list[dict[str, Any]],
+        config: dict[str, str],
+    ) -> None:
+        from PIL import Image, ImageTk
+
+        plan = build_image_replacement_plan(cloud_images, len(local_images))
+        replaced_ids = {item["id"] for item in plan["replace"]}
+        dialog = tk.Toplevel(self)
+        dialog.title("Ekran görüntülerini buluta yükle")
+        dialog.transient(self)
+        dialog.geometry("900x590")
+        dialog.minsize(760, 500)
+        dialog.columnconfigure(0, weight=1)
+        dialog.rowconfigure(0, weight=1)
+
+        body = ttk.Frame(dialog, padding=10)
+        body.grid(row=0, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        local_frame = ttk.LabelFrame(
+            body, text=f"Yeni seçilen görüntüler ({len(local_images)}/3)", padding=8
+        )
+        local_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        cloud_frame = ttk.LabelFrame(
+            body, text=f"Buluttaki etkin görüntüler ({len(cloud_images)}/3)", padding=8
+        )
+        cloud_frame.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        dialog._preview_photo_refs = []
+
+        for index, item in enumerate(local_images):
+            card = ttk.Frame(local_frame, padding=5, relief="groove")
+            card.grid(row=index // 2, column=index % 2, sticky="n", padx=4, pady=4)
+            with Image.open(io.BytesIO(item["thumbnail_bytes"])) as preview:
+                photo = ImageTk.PhotoImage(preview.copy(), master=dialog)
+            dialog._preview_photo_refs.append(photo)
+            ttk.Label(card, image=photo).pack(pady=(0, 5))
+            size_mib = item["size_bytes"] / (1024 * 1024)
+            ttk.Label(
+                card,
+                text=f"{item['filename']}\n{size_mib:.2f} MiB\nYENİ",
+                justify="center",
+                wraplength=215,
+            ).pack()
+
+        for index, item in enumerate(cloud_images):
+            card = ttk.Frame(cloud_frame, padding=5, relief="groove")
+            card.grid(row=index // 2, column=index % 2, sticky="n", padx=4, pady=4)
+            with Image.open(io.BytesIO(item["thumbnail_bytes"])) as preview:
+                photo = ImageTk.PhotoImage(preview.copy(), master=dialog)
+            dialog._preview_photo_refs.append(photo)
+            ttk.Label(card, image=photo).pack(pady=(0, 5))
+            state = "DEĞİŞTİRİLECEK" if item["id"] in replaced_ids else "KORUNACAK"
+            size_mib = item["size_bytes"] / (1024 * 1024)
+            ttk.Label(
+                card,
+                text=f"{item['filename']}\n{size_mib:.2f} MiB\n{state}",
+                justify="center",
+                wraplength=215,
+            ).pack()
+
+        status_var = tk.StringVar(
+            value="Yükleme başlamadı. Dosyaları aktarmak için Buluta Yükle düğmesine basın."
+        )
+        status_label = ttk.Label(
+            body, textvariable=status_var, wraplength=850, justify="left"
+        )
+        status_label.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 6))
+
+        actions = ttk.Frame(body)
+        actions.grid(row=2, column=0, columnspan=2, sticky="e")
+        ttk.Button(actions, text="Vazgeç", command=dialog.destroy).pack(side="right", padx=(6, 0))
+        upload_button = ttk.Button(
+            actions,
+            text="Buluta Yükle",
+            command=lambda: self._begin_image_upload(
+                dialog, local_images, config, upload_button, status_label
+            ),
+        )
+        upload_button.pack(side="right")
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        dialog.grab_set()
+        self.status_var.set("Ekran görüntüsü önizlemesi hazır; aktarım için onay bekleniyor.")
+
+    def _begin_image_upload(
+        self,
+        dialog: tk.Toplevel,
+        local_images: list[dict[str, Any]],
+        config: dict[str, str],
+        upload_button: ttk.Button,
+        status_label: ttk.Label,
+    ) -> None:
+        upload_button.configure(state="disabled")
+        status_label.configure(text="Seçilen görüntüler ayrı isteklerle yükleniyor…")
+        paths = [item["path"] for item in local_images]
+
+        def _upload() -> None:
+            try:
+                result = upload_image_batch(config, paths)
+                error_text = None
+            except Exception as exc:
+                result = None
+                error_text = f"{type(exc).__name__}: {exc}"
+            try:
+                self.after(
+                    0,
+                    lambda: self._image_upload_finished(
+                        dialog, upload_button, status_label, result, error_text
+                    ),
+                )
+            except tk.TclError:
+                pass
+
+        threading.Thread(
+            target=_upload,
+            name="screenshot-image-upload",
+            daemon=True,
+        ).start()
+
+    def _image_upload_finished(
+        self,
+        dialog: tk.Toplevel,
+        upload_button: ttk.Button,
+        status_label: ttk.Label,
+        result: dict[str, Any] | None,
+        error: str | None,
+    ) -> None:
+        if error or not result:
+            detail = error or "Sunucudan başarılı sonuç alınamadı."
+            self.status_var.set("Ekran görüntüsü aktarımı başarısız")
+            self._log_line(f"Ekran görüntüsü aktarımı başarısız: {detail}")
+            try:
+                status_label.configure(text=f"Yükleme başarısız: {detail}")
+                upload_button.configure(state="normal")
+                messagebox.showerror(
+                    "Görüntüler yüklenemedi",
+                    f"Mevcut etkin görüntü listesi korunmalıdır. Ayrıntı:\n\n{detail}",
+                    parent=dialog,
+                )
+            except tk.TclError:
+                pass
+            return
+
+        images = result.get("images") if isinstance(result.get("images"), list) else []
+        self.status_var.set(f"Bulutta {len(images)} etkin görüntü var")
+        self._log_line(f"Ekran görüntüsü grubu buluta yüklendi; etkin görüntü sayısı: {len(images)}")
+        try:
+            if dialog.winfo_exists():
+                dialog.destroy()
+        except tk.TclError:
+            pass
+        links = "\n".join(
+            f"{item.get('filename', item.get('id', 'Görüntü'))}: {item.get('url', '')}"
+            for item in images
+        )
+        messagebox.showinfo(
+            "Görüntüler buluta yüklendi",
+            f"Etkin görüntü sayısı: {len(images)}\n\n{links}",
+            parent=self,
+        )
 
     def _make_report(self) -> tuple[Path, Path, Path, str]:
         REPORT_DIR.mkdir(parents=True, exist_ok=True)
