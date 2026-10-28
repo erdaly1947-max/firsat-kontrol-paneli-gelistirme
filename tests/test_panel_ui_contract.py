@@ -179,8 +179,11 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn("Firsat-Kontrol-Paneli-Surum-01.zip", workflow)
         self.assertIn('tag = "surum-01"', workflow)
         self.assertNotIn("Firsat-Kontrol-Paneli-Surum-00.zip", workflow)
-        condition = "if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[package]')))"
-        self.assertIn(condition, workflow)
+        self.assertIn("publish_package:", workflow)
+        self.assertIn("default: false", workflow)
+        self.assertIn("Main pushes and pull requests run validation only.", workflow)
+        self.assertEqual(workflow.count("inputs.publish_package == true"), 3)
+        self.assertNotIn("contains(github.event.head_commit.message, '[package]')", workflow)
         self.assertIn("checksum_path.write_text", workflow)
         self.assertIn("uses: actions/upload-artifact@v7", workflow)
 
