@@ -2,6 +2,7 @@ import http from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
+import { BoundedRestCache } from "./rest_cache.js";
 
 const PORT = Number.parseInt(process.env.PORT || "10000", 10);
 const REST_WINDOW_MS = 60_000;
@@ -31,7 +32,7 @@ const CLOUDINARY_STAGE_TAG = "fkp-staged";
 const CLOUDINARY_ACTIVE_TAG = "fkp-active";
 const CLOUDINARY_IMAGE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REST_BUCKETS = new Map();
-const REST_CACHE = new Map();
+const REST_CACHE = new BoundedRestCache();
 const ACTIVE_WS_BY_IP = new Map();
 let activeWebSocketCount = 0;
 
@@ -214,20 +215,10 @@ export function cacheTtlMs(route, params) {
 }
 
 function readCache(key, now = Date.now()) {
-  const entry = REST_CACHE.get(key);
-  if (!entry) return null;
-  if (entry.expiresAt <= now) {
-    REST_CACHE.delete(key);
-    return null;
-  }
-  return entry;
+  return REST_CACHE.get(key, now);
 }
 
 function writeCache(key, entry) {
-  if (REST_CACHE.size >= 2_000) {
-    const firstKey = REST_CACHE.keys().next().value;
-    if (firstKey !== undefined) REST_CACHE.delete(firstKey);
-  }
   REST_CACHE.set(key, entry);
 }
 
