@@ -34,16 +34,16 @@ def _mock_http_error(url: str, status: int, payload: str):
 
 class ImageRelayRoutingTests(unittest.TestCase):
     def test_manifest_and_image_upload_routes_use_production_relay(self) -> None:
-        test_base = "https://firsat-kontrol-market-relay.onrender.com"
+        production_base = "https://firsat-kontrol-market-relay.onrender.com"
         config = {"upload_url": analysis_report.UPLOAD_URL, "upload_token": "test-token"}
 
-        self.assertEqual(analysis_report.IMAGE_RELAY_BASE_URL, test_base)
-        self.assertEqual(analysis_report.IMAGE_BASE_URL, test_base)
+        self.assertEqual(analysis_report.IMAGE_RELAY_BASE_URL, production_base)
+        self.assertEqual(analysis_report.IMAGE_BASE_URL, production_base)
         for route in ("stage", "commit", "abort"):
             with self.subTest(route=route):
                 self.assertEqual(
                     analysis_report._image_upload_endpoint(config, route),
-                    f"{test_base}/api/images/{route}",
+                    f"{production_base}/api/images/{route}",
                 )
         with self.assertRaises(ValueError):
             analysis_report._image_upload_endpoint(config, "unknown")
@@ -54,8 +54,8 @@ class ImageRelayRoutingTests(unittest.TestCase):
         ]) as urlopen:
             self.assertEqual(analysis_report.fetch_image_manifest(), [])
         self.assertEqual(urlopen.call_count, 2)
-        self.assertEqual(urlopen.call_args_list[0].args[0].full_url, f"{test_base}/healthz")
-        self.assertEqual(urlopen.call_args_list[1].args[0].full_url, f"{test_base}/images/manifest")
+        self.assertEqual(urlopen.call_args_list[0].args[0].full_url, f"{production_base}/healthz")
+        self.assertEqual(urlopen.call_args_list[1].args[0].full_url, f"{production_base}/images/manifest")
 
 
 class ImageRelayColdStartTests(unittest.TestCase):
