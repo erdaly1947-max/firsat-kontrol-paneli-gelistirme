@@ -112,6 +112,83 @@ jobs:
           RELAY_URL: https://firsat-kontrol-market-relay.onrender.com
         run: npm run smoke --prefix render_relay
 
+      - name: Canlı ekran görüntüsü test geçidi ve Cloudinary listeleme doğrulaması
+        env:
+          IMAGE_RELAY_URL: https://firsat-kontrol-test-relay.onrender.com
+        run: |
+          node --input-type=module <<'JS'
+          const base = String(process.env.IMAGE_RELAY_URL || "").replace(/\\/+$/, "");
+          if (!base.startsWith("https://")) throw new Error("IMAGE_RELAY_URL HTTPS adresi olmalıdır.");
+          const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const retryDelays = [2000, 5000, 8000];
+          const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+          async function getJson(path) {
+            let lastError = "yanıt alınamadı";
+            for (let attempt = 0; attempt < retryDelays.length + 1; attempt += 1) {
+              let retry = false;
+              try {
+                const response = await fetch(base + path, {
+                  headers: { Accept: "application/json" },
+                  signal: AbortSignal.timeout(25_000),
+                });
+                const raw = await response.text();
+                let payload = null;
+                try { payload = raw ? JSON.parse(raw) : null; } catch {}
+                if (!response.ok) {
+                  const detail = payload?.error || raw.slice(0, 240) || "yanıt gövdesi boş";
+                  lastError = "HTTP " + response.status + ": " + detail;
+                  const error = String(payload?.error || "").toLowerCase();
+                  const permanentConfigError = error.includes("cloudinary bağlantısı ayarlanmadı")
+                    || error.includes("cloudinary bağlantı ayarları geçersiz");
+                  retry = retryableStatuses.has(response.status)
+                    && !permanentConfigError
+                    && attempt < retryDelays.length;
+                  if (!retry) throw Object.assign(new Error(lastError), { permanent: true });
+                } else if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+                  lastError = "HTTP " + response.status + ": yanıt geçerli JSON değil";
+                  retry = attempt < retryDelays.length;
+                  if (!retry) throw Object.assign(new Error(lastError), { permanent: true });
+                } else {
+                  return payload;
+                }
+              } catch (error) {
+                if (error?.permanent) throw error;
+                lastError = (error?.name || "Error") + ": " + (error?.message || String(error));
+                retry = attempt < retryDelays.length;
+              }
+              if (!retry || attempt >= retryDelays.length) break;
+              await wait(retryDelays[attempt]);
+            }
+            throw new Error(path + " 4 denemede alınamadı. Son hata: " + lastError);
+          }
+
+          const health = await getJson("/healthz");
+          if (health.ok !== true || health.version !== 2) {
+            throw new Error("Görüntü test geçidinin sağlık yanıtı beklenen biçimde değil: " + JSON.stringify(health));
+          }
+          console.log("IMAGE_RELAY_HEALTH_OK version=" + health.version);
+
+          const manifest = await getJson("/images/manifest");
+          if (manifest.ok !== true || !Array.isArray(manifest.images) || manifest.images.length > 3) {
+            throw new Error("Cloudinary görüntü manifesti geçersiz: " + JSON.stringify(manifest).slice(0, 500));
+          }
+          const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          for (const image of manifest.images) {
+            const extension = String(image.filename || "").split(".").pop().toLowerCase();
+            const expectedType = extension === "png" ? "image/png"
+              : ["jpg", "jpeg"].includes(extension) ? "image/jpeg" : "";
+            if (!idPattern.test(String(image.id || "")) || !expectedType
+              || image.content_type !== expectedType
+              || !Number.isSafeInteger(image.size_bytes)
+              || image.size_bytes < 1 || image.size_bytes > 15 * 1024 * 1024
+              || typeof image.uploaded_at !== "string" || !image.uploaded_at) {
+              throw new Error("Cloudinary manifestinde geçersiz görüntü kaydı: " + JSON.stringify(image).slice(0, 400));
+            }
+          }
+          console.log("IMAGE_RELAY_MANIFEST_OK activeImages=" + manifest.images.length);
+          JS
+
       - name: Canlı BtcTurk USDT fiyat doğrulaması
         run: |
           python - <<'PY'

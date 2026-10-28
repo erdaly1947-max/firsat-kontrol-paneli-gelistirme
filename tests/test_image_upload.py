@@ -4,6 +4,7 @@ import io
 import json
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -16,6 +17,19 @@ def image_bytes(image_format: str = "PNG") -> bytes:
     output = io.BytesIO()
     Image.new("RGB", (5, 4), (25, 60, 120)).save(output, format=image_format)
     return output.getvalue()
+
+
+def _mock_http_response(payload, content_type: str = "application/json"):
+    response = mock.MagicMock()
+    response.__enter__.return_value = response
+    response.status = 200
+    response.headers = {"Content-Type": content_type}
+    response.read.return_value = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
+    return response
+
+
+def _mock_http_error(url: str, status: int, payload: str):
+    return urllib.error.HTTPError(url, status, "mock error", {}, io.BytesIO(payload.encode("utf-8")))
 
 
 class ImageRelayRoutingTests(unittest.TestCase):
@@ -34,13 +48,81 @@ class ImageRelayRoutingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             analysis_report._image_upload_endpoint(config, "unknown")
 
-        response = mock.MagicMock()
-        response.read.return_value = json.dumps({"ok": True, "images": []}).encode("utf-8")
-        response_context = mock.MagicMock()
-        response_context.__enter__.return_value = response
-        with mock.patch("analysis_report.urllib.request.urlopen", return_value=response_context) as urlopen:
+        with mock.patch("analysis_report.urllib.request.urlopen", side_effect=[
+            _mock_http_response({"ok": True, "service": "firsat-kontrol-market-relay", "version": 2}),
+            _mock_http_response({"ok": True, "images": []}),
+        ]) as urlopen:
             self.assertEqual(analysis_report.fetch_image_manifest(), [])
-        self.assertEqual(urlopen.call_args.args[0].full_url, f"{test_base}/images/manifest")
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(urlopen.call_args_list[0].args[0].full_url, f"{test_base}/healthz")
+        self.assertEqual(urlopen.call_args_list[1].args[0].full_url, f"{test_base}/images/manifest")
+
+
+class ImageRelayColdStartTests(unittest.TestCase):
+    def test_manifest_retries_transient_connection_failure(self) -> None:
+        with (
+            mock.patch("analysis_report.urllib.request.urlopen", side_effect=[
+                urllib.error.URLError("cold start connection refused"),
+                _mock_http_response({"ok": True, "service": "firsat-kontrol-market-relay", "version": 2}),
+                _mock_http_response({"ok": True, "images": []}),
+            ]) as urlopen,
+            mock.patch("analysis_report.time.sleep") as sleep,
+        ):
+            self.assertEqual(analysis_report.fetch_image_manifest(), [])
+        self.assertEqual(urlopen.call_count, 3)
+        sleep.assert_called_once_with(analysis_report.IMAGE_RELAY_RETRY_DELAYS[0])
+
+    def test_manifest_retries_transient_gateway_error(self) -> None:
+        route = analysis_report.IMAGE_BASE_URL + "/images/manifest"
+        with (
+            mock.patch("analysis_report.urllib.request.urlopen", side_effect=[
+                _mock_http_response({"ok": True, "version": 2}),
+                _mock_http_error(route, 502, "temporary gateway startup"),
+                _mock_http_response({"ok": True, "images": []}),
+            ]) as urlopen,
+            mock.patch("analysis_report.time.sleep") as sleep,
+        ):
+            self.assertEqual(analysis_report.fetch_image_manifest(), [])
+        self.assertEqual(urlopen.call_count, 3)
+        sleep.assert_called_once_with(analysis_report.IMAGE_RELAY_RETRY_DELAYS[0])
+
+    def test_manifest_404_is_not_hidden_or_retried(self) -> None:
+        route = analysis_report.IMAGE_BASE_URL + "/images/manifest"
+        with (
+            mock.patch("analysis_report.urllib.request.urlopen", side_effect=[
+                _mock_http_response({"ok": True, "version": 2}),
+                _mock_http_error(route, 404, '{"error":"Endpoint izin listesinde değil."}'),
+            ]) as urlopen,
+            mock.patch("analysis_report.time.sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "HTTP 404.*Endpoint izin listesinde değil"):
+                analysis_report.fetch_image_manifest()
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_not_called()
+
+    def test_missing_cloudinary_configuration_is_reported_without_retries(self) -> None:
+        route = analysis_report.IMAGE_BASE_URL + "/images/manifest"
+        with (
+            mock.patch("analysis_report.urllib.request.urlopen", side_effect=[
+                _mock_http_response({"ok": True, "version": 2}),
+                _mock_http_error(route, 503, '{"ok":false,"error":"Cloudinary bağlantısı ayarlanmadı."}'),
+            ]) as urlopen,
+            mock.patch("analysis_report.time.sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Cloudinary bağlantısı ayarlanmadı"):
+                analysis_report.fetch_image_manifest()
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_not_called()
+
+    def test_repeated_network_failure_reports_attempt_count_and_last_error(self) -> None:
+        with (
+            mock.patch("analysis_report.urllib.request.urlopen", side_effect=urllib.error.URLError("DNS failure")) as urlopen,
+            mock.patch("analysis_report.time.sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "4 denemede alınamadı.*DNS failure"):
+                analysis_report.fetch_image_manifest()
+        self.assertEqual(urlopen.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
 
 
 class ImageValidationTests(unittest.TestCase):

@@ -12,6 +12,7 @@ import gzip
 import io
 import re
 import hmac
+import time
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,9 @@ RELAY_BASE_URL = "https://firsat-kontrol-market-relay.onrender.com"
 # Screenshot testing is isolated from the production relay until the image flow is verified.
 IMAGE_RELAY_BASE_URL = "https://firsat-kontrol-test-relay.onrender.com"
 IMAGE_BASE_URL = IMAGE_RELAY_BASE_URL
+IMAGE_RELAY_HEALTH_URL = f"{IMAGE_RELAY_BASE_URL}/healthz"
+IMAGE_RELAY_RETRY_DELAYS = (2.0, 5.0, 8.0)
+IMAGE_RELAY_REQUEST_TIMEOUT = 25.0
 UPLOAD_URL = f"{RELAY_BASE_URL}/api/report"
 READ_URL = f"{WORKER_BASE_URL}/latest"
 CREDENTIAL_TARGET = "Firsat-Kontrol-Paneli/ReportUploadToken"
@@ -670,6 +674,8 @@ def _image_api_request(
         safe_name = _safe_image_filename(filename)
         encoded_name = base64.urlsafe_b64encode(safe_name.encode("utf-8")).decode("ascii").rstrip("=")
         headers["X-Image-Name-B64"] = encoded_name
+    # Wake the free Render service before a side-effectful POST; never blindly replay POST bodies.
+    _ensure_image_relay_ready()
     request = urllib.request.Request(
         _image_upload_endpoint(config, route), data=body, method="POST", headers=headers
     )
@@ -693,26 +699,99 @@ def _image_api_request(
     return result
 
 
-def fetch_image_manifest() -> list[dict[str, Any]]:
-    """Fetch the public manifest; construct each image URL from the fixed Worker host."""
-    url = f"{IMAGE_BASE_URL}/images/manifest"
-    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "Firsat-Kontrol-Paneli/01"})
+def _image_relay_get_bytes(
+    url: str,
+    *,
+    label: str,
+    headers: dict[str, str],
+    max_bytes: int,
+    timeout: float = IMAGE_RELAY_REQUEST_TIMEOUT,
+    expected_content_type: str | None = None,
+) -> bytes:
+    """GET from the isolated Render relay, retrying transient cold-start/network failures."""
+    retryable_statuses = {408, 425, 429, 500, 502, 503, 504}
+    last_problem = "belirsiz bağlantı hatası"
+    attempts = len(IMAGE_RELAY_RETRY_DELAYS) + 1
+
+    for attempt in range(attempts):
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read(max_bytes + 1)
+                status = response.status
+                response_content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read(2048).decode("utf-8", errors="replace")
+            lower_detail = detail.casefold()
+            # These are configuration errors, not a sleeping relay; retrying cannot fix them.
+            permanent_cloudinary_error = (
+                "cloudinary bağlantısı ayarlanmadı" in lower_detail
+                or "cloudinary bağlantı ayarları geçersiz" in lower_detail
+            )
+            last_problem = f"HTTP {exc.code}: {detail or exc.reason}"
+            if (
+                exc.code not in retryable_statuses
+                or permanent_cloudinary_error
+                or attempt >= attempts - 1
+            ):
+                raise RuntimeError(f"{label} HTTP {exc.code}: {detail or exc.reason}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_problem = f"{type(exc).__name__}: {exc}"
+            if attempt >= attempts - 1:
+                break
+        else:
+            if status < 200 or status >= 300:
+                raise RuntimeError(f"{label} beklenmeyen HTTP durumu: {status}.")
+            if len(raw) > max_bytes:
+                raise RuntimeError(f"{label} beklenenden büyük.")
+            if expected_content_type and response_content_type != expected_content_type:
+                raise RuntimeError(f"{label} içerik türü beklenen biçimde değil.")
+            return raw
+
+        if attempt < attempts - 1:
+            time.sleep(IMAGE_RELAY_RETRY_DELAYS[attempt])
+
+    raise RuntimeError(
+        f"{label} {attempts} denemede alınamadı. Adres: {url}. Son hata: {last_problem}. "
+        "Render hizmeti uyanıyor veya ağa erişilemiyor olabilir; tekrar deneyin."
+    )
+
+
+def _ensure_image_relay_ready() -> None:
+    """Warm and validate the Render relay before manifest reads or image mutations."""
+    raw = _image_relay_get_bytes(
+        IMAGE_RELAY_HEALTH_URL,
+        label="Görüntü test sunucusu sağlık kontrolü",
+        headers={"Accept": "application/json", "User-Agent": "Firsat-Kontrol-Paneli/01"},
+        max_bytes=8 * 1024,
+    )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            raw = response.read(128 * 1024 + 1)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read(2048).decode("utf-8", errors="replace")
-        raise RuntimeError(f"Buluttaki görüntü listesi HTTP {exc.code}: {detail}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(f"Buluttaki görüntü listesi alınamadı: {exc}") from exc
-    if len(raw) > 128 * 1024:
-        raise RuntimeError("Buluttaki görüntü listesi beklenenden büyük.")
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Görüntü test sunucusunun sağlık yanıtı geçerli JSON değil.") from exc
+    if not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("version") != 2:
+        raise RuntimeError("Görüntü test sunucusu beklenen sürümde değil; /healthz yanıtı doğrulanamadı.")
+
+
+def fetch_image_manifest() -> list[dict[str, Any]]:
+    """Warm the test relay and fetch its public manifest with transient-error retries."""
+    _ensure_image_relay_ready()
+    url = f"{IMAGE_BASE_URL}/images/manifest"
+    raw = _image_relay_get_bytes(
+        url,
+        label="Buluttaki görüntü listesi",
+        headers={"Accept": "application/json", "User-Agent": "Firsat-Kontrol-Paneli/01"},
+        max_bytes=128 * 1024,
+    )
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError("Buluttaki görüntü listesi geçerli JSON değil.") from exc
     images = payload.get("images") if isinstance(payload, dict) and payload.get("ok") is True else None
     if not isinstance(images, list) or len(images) > MAX_IMAGE_COUNT:
+        error_text = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(error_text, str) and error_text:
+            raise RuntimeError(f"Buluttaki görüntü listesi alınamadı: {error_text}")
         raise RuntimeError("Buluttaki etkin görüntü listesi geçersiz.")
     validated = []
     for image in images:
@@ -741,26 +820,21 @@ def fetch_image_manifest() -> list[dict[str, Any]]:
         })
     return validated
 
-
 def download_active_image(image_id: str, filename: str, expected_content_type: str) -> bytes:
-    """Download an image only through the fixed Worker route and validate it before preview."""
+    """Download an image only through the fixed test relay and validate it before preview."""
     image_id = _validate_image_id(image_id)
     if expected_content_type not in {"image/png", "image/jpeg"}:
         raise ValueError("Buluttaki görüntü içerik türü geçersiz.")
+    _ensure_image_relay_ready()
     url = f"{IMAGE_BASE_URL}/images/{image_id}"
-    request = urllib.request.Request(url, headers={"Accept": expected_content_type, "User-Agent": "Firsat-Kontrol-Paneli/01"})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
-            raw = response.read(MAX_IMAGE_BYTES + 1)
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"Buluttaki görüntü HTTP {exc.code} durumunda okunamadı.") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(f"Buluttaki görüntü indirilemedi: {exc}") from exc
-    if len(raw) > MAX_IMAGE_BYTES:
-        raise RuntimeError("Buluttaki görüntü 15 MiB sınırını aşıyor.")
-    if content_type != expected_content_type:
-        raise RuntimeError("Buluttaki görüntünün içerik türü beklenen biçimde değil.")
+    raw = _image_relay_get_bytes(
+        url,
+        label=f"Buluttaki görüntü {image_id}",
+        headers={"Accept": expected_content_type, "User-Agent": "Firsat-Kontrol-Paneli/01"},
+        max_bytes=MAX_IMAGE_BYTES,
+        timeout=30.0,
+        expected_content_type=expected_content_type,
+    )
     validate_image_bytes(raw, filename)
     return raw
 
