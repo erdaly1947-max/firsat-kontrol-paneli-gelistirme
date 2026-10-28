@@ -26,8 +26,8 @@ from typing import Any
 CONFIG_NAME = "chatgpt_baglanti.local.json"
 WORKER_BASE_URL = "https://firsat-kontrol-analysis-report.erdaly1947.workers.dev"
 RELAY_BASE_URL = "https://firsat-kontrol-market-relay.onrender.com"
-# Screenshot testing is isolated from the production relay until the image flow is verified.
-IMAGE_RELAY_BASE_URL = "https://firsat-kontrol-test-relay.onrender.com"
+# User screenshot uploads and reads use the live relay; CI checks the same production endpoint.
+IMAGE_RELAY_BASE_URL = "https://firsat-kontrol-market-relay.onrender.com"
 IMAGE_BASE_URL = IMAGE_RELAY_BASE_URL
 IMAGE_RELAY_HEALTH_URL = f"{IMAGE_RELAY_BASE_URL}/healthz"
 IMAGE_RELAY_RETRY_DELAYS = (2.0, 5.0, 8.0)
