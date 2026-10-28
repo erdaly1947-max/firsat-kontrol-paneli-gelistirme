@@ -128,7 +128,7 @@ def _choose_screenshot_paths(
             break
         if not ask_more(
             "Başka görüntü seçilsin mi?",
-            f"{Path(selected_path).name} seçildi.\\n\\nBir görüntü daha eklemek ister misiniz? (En fazla 3 görüntü.)",
+            f"{Path(selected_path).name} seçildi.\n\nBir görüntü daha eklemek ister misiniz? (En fazla 3 görüntü.)",
             parent=parent,
         ):
             break
