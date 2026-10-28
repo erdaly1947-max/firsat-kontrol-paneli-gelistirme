@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+import io
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from PIL import Image
+
+import analysis_report
+
+
+def image_bytes(image_format: str = "PNG") -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (5, 4), (25, 60, 120)).save(output, format=image_format)
+    return output.getvalue()
+
+
+class ImageValidationTests(unittest.TestCase):
+    def test_selection_count_is_limited_to_one_through_three(self) -> None:
+        for count in (1, 2, 3):
+            self.assertEqual(analysis_report.validate_image_selection_count(count), count)
+        for count in (0, 4):
+            with self.subTest(count=count), self.assertRaises(ValueError):
+                analysis_report.validate_image_selection_count(count)
+
+    def test_valid_png_jpg_and_jpeg_are_accepted(self) -> None:
+        for filename, format_name, mime in (
+            ("chart.png", "PNG", "image/png"),
+            ("chart.jpg", "JPEG", "image/jpeg"),
+            ("chart.jpeg", "JPEG", "image/jpeg"),
+        ):
+            with self.subTest(filename=filename):
+                result = analysis_report.validate_image_bytes(image_bytes(format_name), filename)
+                self.assertEqual(result["format"], format_name)
+                self.assertEqual(result["content_type"], mime)
+                self.assertGreater(result["size_bytes"], 0)
+
+    def test_extension_signature_and_actual_decode_must_match(self) -> None:
+        png = image_bytes("PNG")
+        jpeg = image_bytes("JPEG")
+        with self.assertRaisesRegex(ValueError, "imzası"):
+            analysis_report.validate_image_bytes(png, "chart.jpg")
+        with self.assertRaisesRegex(ValueError, "imzası"):
+            analysis_report.validate_image_bytes(jpeg, "chart.png")
+        with self.assertRaisesRegex(ValueError, "bozuk|açılamıyor"):
+            analysis_report.validate_image_bytes(b"\x89PNG\r\n\x1a\nnot-an-image", "broken.png")
+        with self.assertRaisesRegex(ValueError, "yalnızca|Yalnızca"):
+            analysis_report.validate_image_bytes(png, "chart.gif")
+
+    def test_per_image_size_limit_is_checked_before_decode(self) -> None:
+        too_large = b"\x89PNG\r\n\x1a\n" + b"x" * analysis_report.MAX_IMAGE_BYTES
+        with self.assertRaisesRegex(ValueError, "15 MiB"):
+            analysis_report.validate_image_bytes(too_large, "large.png")
+
+    def test_local_file_validation_and_preview_do_not_change_the_source(self) -> None:
+        raw = image_bytes("PNG")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "screen.png"
+            path.write_bytes(raw)
+            metadata = analysis_report.validate_image_file(path)
+            thumbnail = analysis_report.make_image_thumbnail(raw)
+            self.assertEqual(metadata["size_bytes"], len(raw))
+            self.assertTrue(thumbnail.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertEqual(path.read_bytes(), raw)
+
+    def test_replacement_plan_keeps_newest_current_images(self) -> None:
+        images = [
+            {"id": "old", "uploaded_at": "2026-10-01T10:00:00+00:00"},
+            {"id": "middle", "uploaded_at": "2026-10-02T10:00:00+00:00"},
+            {"id": "newest", "uploaded_at": "2026-10-03T10:00:00+00:00"},
+        ]
+        one = analysis_report.build_image_replacement_plan(images, 1)
+        self.assertEqual([item["id"] for item in one["keep"]], ["newest", "middle"])
+        self.assertEqual([item["id"] for item in one["replace"]], ["old"])
+
+        two = analysis_report.build_image_replacement_plan(images, 2)
+        self.assertEqual([item["id"] for item in two["keep"]], ["newest"])
+        self.assertEqual({item["id"] for item in two["replace"]}, {"old", "middle"})
+
+        three = analysis_report.build_image_replacement_plan(images, 3)
+        self.assertEqual(three["keep"], [])
+        self.assertEqual({item["id"] for item in three["replace"]}, {"old", "middle", "newest"})
+
+    def test_under_capacity_keeps_all_current_images(self) -> None:
+        current = [{"id": "only", "uploaded_at": "2026-10-01T10:00:00+00:00"}]
+        plan = analysis_report.build_image_replacement_plan(current, 1)
+        self.assertEqual(plan["keep"], current)
+        self.assertEqual(plan["replace"], [])
+
+
+class ImageBatchUploadTests(unittest.TestCase):
+    def _temporary_png(self, directory: str, name: str) -> Path:
+        path = Path(directory) / name
+        path.write_bytes(image_bytes("PNG"))
+        return path
+
+    def test_each_image_is_staged_separately_then_committed_once(self) -> None:
+        first_id = "11111111-1111-4111-8111-111111111111"
+        second_id = "22222222-2222-4222-8222-222222222222"
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [
+                self._temporary_png(directory, "first.png"),
+                self._temporary_png(directory, "second.png"),
+            ]
+            with (
+                mock.patch("analysis_report.upload_image_stage", side_effect=[
+                    {"staged_id": first_id}, {"staged_id": second_id},
+                ]) as stage,
+                mock.patch("analysis_report.commit_image_uploads", return_value={
+                    "ok": True, "images": [{"id": first_id}, {"id": second_id}],
+                }) as commit,
+                mock.patch("analysis_report.abort_image_uploads") as abort,
+            ):
+                result = analysis_report.upload_image_batch({"upload_url": analysis_report.UPLOAD_URL, "upload_token": "test"}, paths)
+        self.assertTrue(result["ok"])
+        self.assertEqual(stage.call_count, 2)
+        self.assertEqual(commit.call_args.args[1], [first_id, second_id])
+        abort.assert_not_called()
+
+    def test_a_failed_stage_aborts_previously_staged_images_and_skips_commit(self) -> None:
+        first_id = "11111111-1111-4111-8111-111111111111"
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [
+                self._temporary_png(directory, "first.png"),
+                self._temporary_png(directory, "second.png"),
+            ]
+            with (
+                mock.patch("analysis_report.upload_image_stage", side_effect=[
+                    {"staged_id": first_id}, RuntimeError("stage failed"),
+                ]),
+                mock.patch("analysis_report.commit_image_uploads") as commit,
+                mock.patch("analysis_report.abort_image_uploads") as abort,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "stage failed"):
+                    analysis_report.upload_image_batch({"upload_url": analysis_report.UPLOAD_URL, "upload_token": "test"}, paths)
+        commit.assert_not_called()
+        abort.assert_called_once_with(
+            {"upload_url": analysis_report.UPLOAD_URL, "upload_token": "test"}, [first_id]
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
