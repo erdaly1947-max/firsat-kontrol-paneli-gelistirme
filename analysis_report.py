@@ -429,15 +429,27 @@ def _post_report(
     if content_encoding:
         headers["Content-Encoding"] = content_encoding
     request = urllib.request.Request(endpoint, data=body, method="POST", headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=25) as response:
-            response_body = response.read(256 * 1024).decode("utf-8", errors="replace")
-            status = response.status
-    except urllib.error.HTTPError as exc:
-        response_body = exc.read(2048).decode("utf-8", errors="replace")
-        raise RuntimeError(f"Sunucu HTTP {exc.code}: {response_body}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(f"Sunucu bağlantısı başarısız: {exc}") from exc
+    # A report upload replaces the same "latest" record, so retrying a transient
+    # connection/server failure is safe and avoids losing a report during relay restarts.
+    retry_delays = (1.0, 2.0)
+    transient_http_codes = {408, 429, 500, 502, 503, 504}
+    for attempt in range(len(retry_delays) + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                response_body = response.read(256 * 1024).decode("utf-8", errors="replace")
+                status = response.status
+            break
+        except urllib.error.HTTPError as exc:
+            response_body = exc.read(2048).decode("utf-8", errors="replace")
+            if exc.code in transient_http_codes and attempt < len(retry_delays):
+                time.sleep(retry_delays[attempt])
+                continue
+            raise RuntimeError(f"Sunucu HTTP {exc.code}: {response_body}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            if attempt < len(retry_delays):
+                time.sleep(retry_delays[attempt])
+                continue
+            raise RuntimeError(f"Sunucu bağlantısı başarısız: {exc}") from exc
     try:
         body_json = json.loads(response_body) if response_body else {}
     except json.JSONDecodeError:
