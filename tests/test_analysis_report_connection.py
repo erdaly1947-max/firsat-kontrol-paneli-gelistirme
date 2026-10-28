@@ -1,8 +1,16 @@
 import gzip
 import json
 import unittest
+from unittest import mock
 
-from analysis_report import build_analysis_report, compress_analysis_report, gzip_compress_bytes
+from analysis_report import (
+    READ_URL,
+    UPLOAD_URL,
+    build_analysis_report,
+    compress_analysis_report,
+    gzip_compress_bytes,
+    upload_analysis_report,
+)
 
 
 class AnalysisReportTests(unittest.TestCase):
@@ -67,6 +75,42 @@ class AnalysisReportTests(unittest.TestCase):
         self.assertEqual(gzip.decompress(compressed), raw)
         self.assertLess(len(compressed), len(raw))
         self.assertEqual(compressed, gzip_compress_bytes(raw))
+
+    def test_analysis_upload_posts_gzip_json_to_the_fixed_relay(self):
+        payload = {
+            "report_type": "analysis",
+            "schema_version": 1,
+            "candidate_count": 1,
+            "candidates": [{"symbol": "ABCUSDT", "final_decision": "İZLE"}],
+        }
+        raw_json = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        compressed = gzip.compress(raw_json)
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.status = 201
+        response.read.return_value = json.dumps({
+            "ok": True,
+            "report_type": "analysis",
+            "candidate_count": 1,
+            "read_url": READ_URL,
+        }).encode("utf-8")
+        config = {"upload_url": UPLOAD_URL, "upload_token": "test-upload-token", "read_url": READ_URL}
+
+        with mock.patch("analysis_report.urllib.request.urlopen", return_value=response) as urlopen:
+            result = upload_analysis_report(config, compressed)
+
+        request = urlopen.call_args.args[0]
+        headers = {name.lower(): value for name, value in request.header_items()}
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.full_url, UPLOAD_URL)
+        self.assertEqual(headers["authorization"], "Bearer test-upload-token")
+        self.assertEqual(headers["content-encoding"], "gzip")
+        self.assertEqual(headers["content-type"], "application/json; charset=utf-8")
+        self.assertEqual(gzip.decompress(request.data), raw_json)
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 25)
+        self.assertEqual(result["report_kind"], "analysis")
+        self.assertEqual(result["read_url"], READ_URL)
+        self.assertEqual(result["candidate_count"], 1)
 
     def test_invalid_nan_is_not_silently_serialized(self):
         with self.assertRaises(ValueError):
