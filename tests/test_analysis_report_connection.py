@@ -1,5 +1,7 @@
 import gzip
+import io
 import json
+import urllib.error
 import unittest
 from unittest import mock
 
@@ -111,6 +113,51 @@ class AnalysisReportTests(unittest.TestCase):
         self.assertEqual(result["report_kind"], "analysis")
         self.assertEqual(result["read_url"], READ_URL)
         self.assertEqual(result["candidate_count"], 1)
+
+    def test_analysis_upload_retries_transient_connection_failure(self):
+        payload = {
+            "report_type": "analysis",
+            "schema_version": 1,
+            "candidate_count": 1,
+            "candidates": [{"symbol": "ABCUSDT"}],
+        }
+        compressed = gzip.compress(json.dumps(payload).encode("utf-8"))
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.status = 200
+        response.read.return_value = json.dumps({"ok": True, "candidate_count": 1}).encode("utf-8")
+        config = {"upload_url": UPLOAD_URL, "upload_token": "test-upload-token", "read_url": READ_URL}
+
+        with mock.patch(
+            "analysis_report.urllib.request.urlopen",
+            side_effect=[urllib.error.URLError("connection reset"), response],
+        ) as urlopen, mock.patch("analysis_report.time.sleep") as sleep:
+            result = upload_analysis_report(config, compressed)
+
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(1.0)
+        self.assertTrue(result["ok"])
+
+    def test_analysis_upload_does_not_retry_permanent_http_401(self):
+        payload = {
+            "report_type": "analysis",
+            "schema_version": 1,
+            "candidate_count": 1,
+            "candidates": [{"symbol": "ABCUSDT"}],
+        }
+        compressed = gzip.compress(json.dumps(payload).encode("utf-8"))
+        config = {"upload_url": UPLOAD_URL, "upload_token": "test-upload-token", "read_url": READ_URL}
+        denied = urllib.error.HTTPError(
+            UPLOAD_URL, 401, "Unauthorized", {}, io.BytesIO(b'{"ok":false,"error":"denied"}'),
+        )
+
+        with mock.patch("analysis_report.urllib.request.urlopen", side_effect=denied) as urlopen, \
+             mock.patch("analysis_report.time.sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "Sunucu HTTP 401"):
+                upload_analysis_report(config, compressed)
+
+        urlopen.assert_called_once()
+        sleep.assert_not_called()
 
     def test_invalid_nan_is_not_silently_serialized(self):
         with self.assertRaises(ValueError):
