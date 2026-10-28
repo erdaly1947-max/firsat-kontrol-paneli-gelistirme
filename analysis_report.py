@@ -25,7 +25,9 @@ from typing import Any
 CONFIG_NAME = "chatgpt_baglanti.local.json"
 WORKER_BASE_URL = "https://firsat-kontrol-analysis-report.erdaly1947.workers.dev"
 RELAY_BASE_URL = "https://firsat-kontrol-market-relay.onrender.com"
-IMAGE_BASE_URL = RELAY_BASE_URL
+# Screenshot testing is isolated from the production relay until the image flow is verified.
+IMAGE_RELAY_BASE_URL = "https://firsat-kontrol-test-relay.onrender.com"
+IMAGE_BASE_URL = IMAGE_RELAY_BASE_URL
 UPLOAD_URL = f"{RELAY_BASE_URL}/api/report"
 READ_URL = f"{WORKER_BASE_URL}/latest"
 CREDENTIAL_TARGET = "Firsat-Kontrol-Paneli/ReportUploadToken"
@@ -632,9 +634,19 @@ def _validate_image_id(value: Any) -> str:
 def _image_upload_endpoint(config: dict[str, str], route: str) -> str:
     if route not in {"stage", "commit", "abort"}:
         raise ValueError("Bilinmeyen görüntü aktarım rotası.")
-    # Reuse the strict validation of the already configured fixed relay endpoint.
-    base = _report_endpoint(config, "")
-    parsed = urllib.parse.urlsplit(base)
+    # Keep screenshot stage/commit/abort requests on the isolated test relay,
+    # not on the legacy production report relay.
+    parsed = urllib.parse.urlsplit(IMAGE_RELAY_BASE_URL)
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("Görüntü adresi sabit test geçidine ait olmalıdır.")
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, f"/api/images/{route}", "", ""))
 
 
