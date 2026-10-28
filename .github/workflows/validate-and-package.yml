@@ -203,7 +203,7 @@ jobs:
           PY
 
       - name: Başarılı testlerden sonra Sürüm 01 ZIP ve SHA-256 oluştur
-        if: success() && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_package == true) || (github.event_name == 'push' && github.event.head_commit.message == 'package: create user test ZIP'))
+        if: success() && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_package == true) || (github.event_name == 'push' && github.event.head_commit.message == 'package-create-user-test-ZIP'))
         run: |
           python - <<'PY'
           import hashlib
@@ -264,7 +264,7 @@ jobs:
           PY
 
       - name: Kalıcı GitHub Release indirme dosyalarını otomatik güncelle
-        if: success() && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_package == true) || (github.event_name == 'push' && github.event.head_commit.message == 'package: create user test ZIP'))
+        if: success() && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_package == true) || (github.event_name == 'push' && github.event.head_commit.message == 'package-create-user-test-ZIP'))
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_SHA: ${{ github.sha }}
@@ -364,7 +364,7 @@ jobs:
           PY
 
       - name: Sürüm 01 Windows deneme paketini indirilebilir artefakt olarak yayımla
-        if: success() && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_package == true) || (github.event_name == 'push' && github.event.head_commit.message == 'package: create user test ZIP'))
+        if: success() && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_package == true) || (github.event_name == 'push' && github.event.head_commit.message == 'package-create-user-test-ZIP'))
         uses: actions/upload-artifact@v7
         with:
           name: Firsat-Kontrol-Paneli-Surum-01-${{ github.run_number }}
