@@ -650,8 +650,8 @@ def _validate_image_id(value: Any) -> str:
 def _image_upload_endpoint(config: dict[str, str], route: str) -> str:
     if route not in {"stage", "commit", "abort"}:
         raise ValueError("Bilinmeyen görüntü aktarım rotası.")
-    # Keep screenshot stage/commit/abort requests on the isolated test relay,
-    # not on the legacy production report relay.
+    # Route screenshot stage/commit/abort requests through the live image relay,
+    # separate from the legacy report-upload endpoint.
     parsed = urllib.parse.urlsplit(IMAGE_RELAY_BASE_URL)
     if (
         parsed.scheme.lower() != "https"
@@ -786,7 +786,7 @@ def _ensure_image_relay_ready() -> None:
 
 
 def fetch_image_manifest() -> list[dict[str, Any]]:
-    """Warm the test relay and fetch its public manifest with transient-error retries."""
+    """Warm the live image relay and fetch its public manifest with transient-error retries."""
     _ensure_image_relay_ready()
     url = f"{IMAGE_BASE_URL}/images/manifest"
     raw = _image_relay_get_bytes(
@@ -833,7 +833,7 @@ def fetch_image_manifest() -> list[dict[str, Any]]:
     return validated
 
 def download_active_image(image_id: str, filename: str, expected_content_type: str) -> bytes:
-    """Download an image only through the fixed test relay and validate it before preview."""
+    """Download an image through the fixed live relay and validate it before preview."""
     image_id = _validate_image_id(image_id)
     if expected_content_type not in {"image/png", "image/jpeg"}:
         raise ValueError("Buluttaki görüntü içerik türü geçersiz.")
