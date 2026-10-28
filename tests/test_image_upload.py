@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,31 @@ def image_bytes(image_format: str = "PNG") -> bytes:
     output = io.BytesIO()
     Image.new("RGB", (5, 4), (25, 60, 120)).save(output, format=image_format)
     return output.getvalue()
+
+
+class ImageRelayRoutingTests(unittest.TestCase):
+    def test_manifest_and_image_upload_routes_use_isolated_test_relay(self) -> None:
+        test_base = "https://firsat-kontrol-test-relay.onrender.com"
+        config = {"upload_url": analysis_report.UPLOAD_URL, "upload_token": "test-token"}
+
+        self.assertEqual(analysis_report.IMAGE_RELAY_BASE_URL, test_base)
+        self.assertEqual(analysis_report.IMAGE_BASE_URL, test_base)
+        for route in ("stage", "commit", "abort"):
+            with self.subTest(route=route):
+                self.assertEqual(
+                    analysis_report._image_upload_endpoint(config, route),
+                    f"{test_base}/api/images/{route}",
+                )
+        with self.assertRaises(ValueError):
+            analysis_report._image_upload_endpoint(config, "unknown")
+
+        response = mock.MagicMock()
+        response.read.return_value = json.dumps({"ok": True, "images": []}).encode("utf-8")
+        response_context = mock.MagicMock()
+        response_context.__enter__.return_value = response
+        with mock.patch("analysis_report.urllib.request.urlopen", return_value=response_context) as urlopen:
+            self.assertEqual(analysis_report.fetch_image_manifest(), [])
+        self.assertEqual(urlopen.call_args.args[0].full_url, f"{test_base}/images/manifest")
 
 
 class ImageValidationTests(unittest.TestCase):
