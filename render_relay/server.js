@@ -349,10 +349,12 @@ function imageFilenameMatchesType(filename, contentType) {
 }
 
 
-function cloudinaryConfiguration() {
+export function cloudinaryConfiguration() {
   const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim();
   const apiKey = String(process.env.CLOUDINARY_API_KEY || "").trim();
-  const apiSecret = String(process.env.CLOUDINARY_API_SECRET || "");
+  // Copy/paste in dashboard fields can preserve invisible outer whitespace;
+  // Cloudinary secrets do not require leading or trailing whitespace.
+  const apiSecret = String(process.env.CLOUDINARY_API_SECRET || "").trim();
   if (!cloudName || !apiKey || !apiSecret.trim()) {
     const error = new Error("Cloudinary bağlantısı ayarlanmadı. Render ortamına CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY ve CLOUDINARY_API_SECRET ekleyin.");
     error.status = 503;
@@ -405,7 +407,16 @@ async function cloudinaryRequest(config, path, options = {}) {
     throw error;
   }
   if (!response.ok || payload.error) {
-    const error = new Error("Cloudinary isteği başarısız oldu (HTTP " + response.status + ").");
+    let detail = "";
+    if (typeof payload.error === "string") detail = payload.error;
+    else if (payload.error && typeof payload.error.message === "string") detail = payload.error.message;
+    // Surface Cloudinary's useful diagnosis while never echoing credentials.
+    for (const secret of [config.apiKey, config.apiSecret]) {
+      if (secret) detail = detail.split(secret).join("[gizli değer gizlendi]");
+    }
+    detail = detail.replace(/[\\r\\n\\t]+/g, " ").trim().slice(0, 240);
+    const suffix = detail ? ": " + detail : ".";
+    const error = new Error("Cloudinary isteği başarısız oldu (HTTP " + response.status + ")" + suffix);
     error.status = response.status === 429 || response.status === 420 ? 503 : 502;
     throw error;
   }

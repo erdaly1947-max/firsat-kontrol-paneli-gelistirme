@@ -4,12 +4,35 @@ import {
   BINANCE_REST_ORIGINS,
   cacheTtlMs,
   createRelayServer,
+  cloudinaryConfiguration,
   resolveImageUploadRoute,
   resolveReportUploadRoute,
   resolveRestRoute,
   validateRestQuery,
   validateWebSocketStreams,
 } from "../server.js";
+
+
+
+test("Cloudinary configuration trims invisible outer whitespace from copied credentials", () => {
+  const names = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  process.env.CLOUDINARY_CLOUD_NAME = "  CCY85JMZ  ";
+  process.env.CLOUDINARY_API_KEY = "  test-api-key  ";
+  process.env.CLOUDINARY_API_SECRET = "  test-api-secret  ";
+  try {
+    assert.deepEqual(cloudinaryConfiguration(), {
+      cloudName: "CCY85JMZ",
+      apiKey: "test-api-key",
+      apiSecret: "test-api-secret",
+    });
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
 
 test("only explicitly allowlisted public-market endpoints resolve", () => {
   assert.ok(resolveRestRoute("/binance/api/v3/exchangeInfo"));
