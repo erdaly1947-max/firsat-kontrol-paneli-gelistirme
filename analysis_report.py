@@ -25,6 +25,7 @@ from typing import Any
 CONFIG_NAME = "chatgpt_baglanti.local.json"
 WORKER_BASE_URL = "https://firsat-kontrol-analysis-report.erdaly1947.workers.dev"
 RELAY_BASE_URL = "https://firsat-kontrol-market-relay.onrender.com"
+IMAGE_BASE_URL = RELAY_BASE_URL
 UPLOAD_URL = f"{RELAY_BASE_URL}/api/report"
 READ_URL = f"{WORKER_BASE_URL}/latest"
 CREDENTIAL_TARGET = "Firsat-Kontrol-Paneli/ReportUploadToken"
@@ -675,7 +676,7 @@ def _image_api_request(
 
 def fetch_image_manifest() -> list[dict[str, Any]]:
     """Fetch the public manifest; construct each image URL from the fixed Worker host."""
-    url = f"{WORKER_BASE_URL}/images/manifest"
+    url = f"{IMAGE_BASE_URL}/images/manifest"
     request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "Firsat-Kontrol-Paneli/01"})
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
@@ -717,7 +718,7 @@ def fetch_image_manifest() -> list[dict[str, Any]]:
             "content_type": content_type,
             "size_bytes": size_bytes,
             "uploaded_at": uploaded_at,
-            "url": f"{WORKER_BASE_URL}/images/{image_id}",
+            "url": f"{IMAGE_BASE_URL}/images/{image_id}",
         })
     return validated
 
@@ -727,7 +728,7 @@ def download_active_image(image_id: str, filename: str, expected_content_type: s
     image_id = _validate_image_id(image_id)
     if expected_content_type not in {"image/png", "image/jpeg"}:
         raise ValueError("Buluttaki görüntü içerik türü geçersiz.")
-    url = f"{WORKER_BASE_URL}/images/{image_id}"
+    url = f"{IMAGE_BASE_URL}/images/{image_id}"
     request = urllib.request.Request(url, headers={"Accept": expected_content_type, "User-Agent": "Firsat-Kontrol-Paneli/01"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -746,7 +747,7 @@ def download_active_image(image_id: str, filename: str, expected_content_type: s
 
 
 def upload_image_stage(config: dict[str, str], data: bytes, filename: str) -> dict[str, Any]:
-    """Upload one fully validated original image into private temporary R2 storage."""
+    """Upload one fully validated original image into temporary Cloudinary storage."""
     metadata = validate_image_bytes(data, filename)
     result = _image_api_request(
         config, "stage", data, content_type=metadata["content_type"], filename=metadata["filename"]

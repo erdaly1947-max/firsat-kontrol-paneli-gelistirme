@@ -4,6 +4,7 @@ import {
   BINANCE_REST_ORIGINS,
   cacheTtlMs,
   createRelayServer,
+  resolveImageUploadRoute,
   resolveReportUploadRoute,
   resolveRestRoute,
   validateRestQuery,
@@ -62,14 +63,14 @@ test("official Binance REST fallback hosts are fixed, and cache TTLs vary by end
 
 
 test("image relay routes have a separate 15 MiB limit while report uploads remain at 8 MiB", () => {
-  const stage = resolveReportUploadRoute("/api/images/stage");
-  const commit = resolveReportUploadRoute("/api/images/commit");
-  const abort = resolveReportUploadRoute("/api/images/abort");
+  const stage = resolveImageUploadRoute("/api/images/stage");
+  const commit = resolveImageUploadRoute("/api/images/commit");
+  const abort = resolveImageUploadRoute("/api/images/abort");
   const report = resolveReportUploadRoute("/api/report");
   assert.equal(stage.kind, "image_stage");
   assert.deepEqual(stage.acceptedContentTypes, ["image/png", "image/jpeg"]);
   assert.equal(stage.maxBodyBytes, 15 * 1024 * 1024);
-  assert.equal(stage.workerPath, "/api/images/stage");
+  assert.equal(resolveReportUploadRoute("/api/images/stage"), null);
   assert.equal(commit.maxBodyBytes, 64 * 1024);
   assert.equal(abort.maxBodyBytes, 64 * 1024);
   assert.equal(report.maxBodyBytes, undefined);

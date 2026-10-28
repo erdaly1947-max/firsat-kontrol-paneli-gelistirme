@@ -52,3 +52,9 @@ Raporlar ve çalışma kayıtları uygulama klasöründeki reports ve logs klas�
 
 BULUT ANAHTARININ GÜVENLİ TAŞINMASI
 Güncelleme sırasında eski chatgpt_baglanti.local.json dosyasını önceden silmeyin. Program anahtarı Windows Kimlik Bilgileri Yöneticisi'ne taşıma akışında önce yeni kaydı doğrular; doğrulama başarısızsa eski dosya korunur. Anahtarı sohbetlere veya GitHub'a koymayın.
+
+EKRAN GÖRÜNTÜLERİNİ BULUTA YÜKLEME
+• Araç çubuğundaki 📷 düğmesiyle Screenshots klasöründen 1–3 PNG/JPG/JPEG görüntüsü seçin.
+• Önizleme ekranındaki “Buluta Yükle” düğmesine basmadan görüntü gönderilmez.
+• Bulutta en fazla 3 etkin görüntü tutulur; başarılı yeni yüklemede en eski görüntüler otomatik değiştirilir.
+• Cloudinary API gizli anahtarını sohbetlere, programa veya GitHub'a yazmayın. Bu anahtar yalnızca Render hizmetinin ortam değişkeninde tutulmalıdır.

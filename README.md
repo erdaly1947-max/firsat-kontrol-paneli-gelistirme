@@ -517,69 +517,20 @@ Aday tablosu Binance fiyatının yanında BtcTurk fiyatını, puanı, zaman dili
 
 Bu üç düğme farklı amaçlara hizmet eder; birbirlerinin yerine geçmez.
 
-## Sürüm 01 — Ekran görüntülerini buluta yükleme
+## Sürüm 01 — Ekran görüntülerini buluta yükleme (Cloudinary)
 
-Bu bölüm, kullanıcının onayladığı yeni özelliğin gereksinim kaydıdır. Gereksinimlerin README'ye kaydedilmesi, kodun tamamlandığı veya canlı testlerin geçtiği anlamına gelmez. Her sonuç, aşağıdaki doğrulama durumuna göre ayrıca raporlanır.
+### İşleyiş
+- Araç çubuğundaki 📷 düğmesi, `C:\Users\erdal\OneDrive\Resimler\Screenshots` klasörünü seçim penceresinin başlangıcı yapar. Dosyaları kullanıcı seçer; klasör topluca yüklenmez.
+- Tek seferde 1–3 PNG/JPG/JPEG görüntüsü seçilebilir. Her görüntü için 15 MiB sınırı vardır. Dosya türü ve imzası doğrulanır; kaynak görüntü küçültülmez veya yeniden sıkıştırılmaz.
+- Yeni görüntüler ve buluttaki mevcut görüntüler önizlemede gösterilir. Aktarım ancak kullanıcı **Buluta Yükle** düğmesine bastığında başlar.
+- Görüntüler önce Cloudinary'ye geçici olarak yüklenir. Yeni seçilenlerin tamamı başarıyla yüklenmeden mevcut etkin görüntüler değiştirilmez. Yeni yükleme etkinleştirildikten sonra toplam etkin görüntü sayısı en fazla 3 tutulur; en eski görüntüler silinerek yenilerine yer açılır.
+- Başarısız veya yarım kalan geçici yüklemeler etkin görüntü listesine girmez; geçici kalıntılar sonraki listeleme sırasında temizlenmeye çalışılır.
+- Rapor JSON/ZIP aktarımı aynı Cloudflare Worker üzerinden devam eder. Yalnızca görüntü depolama ve görüntü okuma uçları Cloudinary'ye geçirilir.
 
-### Arayüz ve seçim
+### Render ayarları
+Render hizmetinin **Ortam Değişkenleri** bölümünde şu değerler tanımlanmalıdır:
+- `CLOUDINARY_CLOUD_NAME` — Cloudinary'deki Bulut Adı
+- `CLOUDINARY_API_KEY` — Cloudinary API anahtarı
+- `CLOUDINARY_API_SECRET` — Cloudinary API gizli anahtarı
 
-- Mevcut araç çubuğunun en sağına yalnızca `📷` içeren bir düğme eklenir; açıklama metni eklenmez.
-- Düğme, yalnızca `C:\\Users\\erdal\\OneDrive\\Resimler\\Screenshots` klasörünü seçim penceresinin başlangıç konumu olarak açar. Klasör yoksa hata gösterilir; başka klasöre kendiliğinden geçilmez.
-- Kullanıcı görüntüleri kendisi seçer; klasör içeriği topluca veya kendiliğinden yüklenmez. İptal/0 seçim yükleme başlatmaz. 1–3 görüntü kabul edilir; 4 veya daha fazlası reddedilir.
-- Seçimler ve buluttaki mevcut etkin görüntüler önizlemede gösterilir. Her mevcut görüntü için korunacak/değiştirilecek durumu, yerel seçimler için de küçük önizleme gösterilir. Ağ üzerinden aktarım ancak kullanıcı **Buluta Yükle** düğmesine bastığında başlar.
-
-### Dosya doğrulama
-
-- Yalnızca PNG, JPG ve JPEG kabul edilir. Her dosyanın üst sınırı 15 MiB (15.728.640 bayt) ve bu sınır görüntü başına uygulanır.
-- Dosya uzantısı, bildirilen içerik türü ve gerçek dosya imzası birbiriyle eşleşmelidir. Bozuk veya desteklenmeyen dosya reddedilir.
-- Pillow ile gerçek görüntü açılabilirliği doğrulanır; Pillow yalnızca doğrulama ve önizleme için kullanılır. Görüntü otomatik küçültülmez, yeniden boyutlandırılmaz veya sıkıştırılmaz.
-- CI Python sürümü 3.14.8'dir. Pillow 13.0.0 Python 3.14 desteği bulunan sürüm olarak kullanılabilir; bağımlılığın CI ortamında kurulması ayrıca doğrulanır. Kaynak: [Pillow 13.0.0 — PyPI](https://pypi.org/project/pillow/13.0.0/) ve [Python sürüm desteği](https://pillow.readthedocs.io/en/stable/installation/python-support.html).
-
-### Etkin görüntü listesi ve değiştirme
-
-- R2'de aynı anda en fazla 3 etkin görüntü bulunur.
-- Yeni seçim mevcut boş yuvaları doldurur. Liste doluysa, gerekli sayıda en eski etkin görüntü sunucudaki yüklenme zamanına göre değiştirilir; en yeni mevcut görüntüler mümkün oldukça korunur.
-- Her yeni görüntü önce geçici bir R2 nesnesi olarak ayrı istekle yüklenir. Seçimdeki bütün görüntüler geçici olarak başarıyla yüklenmeden etkin manifest değiştirilmez.
-- Başarılı toplu yüklemenin etkinleştiği tek nokta, etkin manifestin koşullu/atomik nesne yazımıdır. Manifest yazımı başarısızsa önceki etkin liste korunur ve yeni geçici/etkin olmayan nesneler temizlenmeye çalışılır.
-- Yeni manifest yayımlandıktan sonra eski ve artık etkin olmayan nesneler silinir. Silinemeyen nesnelerin temizliği sonraki işlemlerde yeniden denenir. Manifest üçten fazla etkin görüntü yayımlamaz.
-
-### Bulut arayüzü ve güvenlik
-
-- Görüntüler yalnızca Cloudflare R2'de tutulur; mevcut `ANALYSIS_REPORTS` KV alanı görüntü deposu olarak kullanılmaz. R2 kovası herkese açık yapılmaz.
-- Yalnızca etkin manifestte bulunan görüntüler Worker'ın herkese açık okuma rotasından sunulur. Manifest dışında kalan nesneler doğrudan görüntü rotasından okunamaz.
-- Yazma uçları mevcut Windows Credential Manager hedefi `Firsat-Kontrol-Paneli/ReportUploadToken` üzerinden kimlik doğrular.
-- Görüntü yükleme için Render geçidinde ayrı 15 MiB sınırı kullanılır; mevcut JSON raporları ve sorun giderme ZIP aktarımındaki 8 MiB sınırı değişmez.
-- Günlüklerde erişim anahtarı veya görüntünün ikili içeriği yazılmaz. Görüntüler tek tek aktarılır; birden fazla büyük görüntü tek istekte birleştirilmez.
-
-### Uygulama rotaları
-
-- `POST /api/images/stage` — bir dosyayı geçici yükleme.
-- `POST /api/images/commit` — geçici görüntü grubunu etkin manifestte tek geçişle yayımlama.
-- `POST /api/images/abort` — başarısız/iptal edilmiş geçici yüklemeyi temizleme.
-- `GET /images/manifest` — en fazla üç etkin görüntünün listesini ve URL'lerini döndürme.
-- `GET /images/{id}` — yalnızca etkin manifestteki görüntüyü okuma.
-
-Render geçidi yazma rotalarını doğrulayıp mevcut Worker'a iletir. Dosya adları ve içerik türü ayrı metadata olarak taşınır; görüntü verisi tek tek ikili gövde olarak gönderilir.
-
-### Zorunlu doğrulamalar ve sonuçların raporlanması
-
-- Masaüstü: klasör yok; iptal/0 seçim; 1, 2, 3 ve 4+ seçim; boyut sınırı; PNG/JPG/JPEG; uzantı-imza uyuşmazlığı; bozuk dosya; önizleme hatası; boş yuva ve en eski görüntü değiştirme sırası; kimlik doğrulama, ağ ve sunucu hataları.
-- Worker/R2: kimlik doğrulama; medya türü, imza ve boyut; stage/commit/abort; en fazla üç etkin görüntü; manifestte olmayan nesnenin okunamaması; başarısız toplu yüklemede eski manifestin korunması; manifest geçişinden sonra temizleme ve silinemeyen nesnelerin sonraki işlemde tekrar temizlenmesi.
-- Render: her görüntü için 15 MiB; eski rapor uçları için 8 MiB sınırının korunması; kimlik doğrulama, istek sınırı ve metadata; içerik veya sırların günlüklere yazılmaması.
-- Uçtan uca: gerçek R2 yüklemesi, manifest, değiştirme/temizlik, görüntü URL'sinin açılması ve asistanın URL üzerinden görsel inceleme yapabildiğinin doğrulanması gerekir. HTTP 200 tek başına görsel inceleme kanıtı sayılmaz.
-- **Canlı ortam engeli:** önceki kontrolde R2 henüz etkin değildi ve Cloudflare API `403 — Please enable R2 through the Cloudflare Dashboard.` yanıtını verdi. R2 Dashboard üzerinden etkinleştirilip kova ve binding hazırlanmadıkça gerçek R2 ve uçtan uca testler başarılı olarak raporlanamaz. KV'ye alternatif geçiş yapılmaz.
-- Yeni özellik için son ZIP/nihai paket ayrıca açık kullanıcı onayı olmadan hazırlanmamalı veya yayımlanmamalıdır.
-
-### Değişiklik ve test günlüğü
-
-- Başlangıçta: gereksinimler kayda geçirildi; bu kayıt tek başına kodlama, test veya dağıtım kanıtı değildir.
-- Kodlama, birim testleri, CI ve canlı R2 doğrulaması tamamlandıkça tarih, commit, test komutu ve gerçek sonuç buraya eklenir. R2 engeli sürüyorsa açık engel olarak kalır; tamamlanmış gibi işaretlenmez.
-
-### Uygulama ve doğrulama kaydı — 28 Ekim 2026
-
-- Görüntü yükleme özelliği ve testleri `main` dalına işlendi. Son kod commit'i: `872e7885f2649892108716ce6de212e3e952228b`.
-- [GitHub Actions doğrulama koşusu #26](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40606961212) başarılı tamamlandı. Python derleme ve 98 birim testi, mevcut bulut geçidi JavaScript testleri, görüntü Worker testleri, Render geçidi testleri, canlı Render/WebSocket kontrolü ve BtcTurk USDT fiyat kontrolü geçti.
-- Görüntü Worker'ı gerçek R2 hesabında dağıtılmadı. Cloudflare R2 API'si hâlâ `403 — Please enable R2 through the Cloudflare Dashboard.` yanıtını veriyor. Gerçek R2 yükleme, manifestin canlı doğrulanması, görüntü URL'si üzerinden asistanın görsel incelemesi ve uçtan uca test **tamamlanmış değildir**. Bunun için R2'nin Dashboard üzerinden etkinleştirilmesi ve `firsat-kontrol-paneli-images` kovasının hazırlanması gerekir.
-- `.github/workflows/validate-and-package.yml` güncellendi. Normal `main` gönderimleri ve PR'lar yalnızca doğrulama çalıştırır. ZIP oluşturma, CI artefaktı yayımlama ve kalıcı GitHub Release'i değiştirme adımları yalnızca `workflow_dispatch` elle başlatılıp `publish_package=true` açıkça seçildiğinde çalışır.
-- Paketleme koruması eklenmeden önceki [CI koşusu #20](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40606039024), mevcut otomatik iş akışı nedeniyle geçici bir Sürüm 01 deneme ZIP artefaktı oluşturdu. Bu kalıcı GitHub Release güncellemesi değildir; artefaktın saklama süresi 14 gündür ve 11 Kasım 2026'da sona erer. Bu eski artefaktı yeni kod gönderimleri yeniden üretmez.
-
+API gizli anahtarı yalnızca Render'da saklanmalıdır; masaüstü programına, GitHub'a, kayıtlara veya sohbet mesajlarına konulmamalıdır. Gerçek bulut yüklemesi ve eski görüntüyü silme davranışı, bu değişkenler Render'a eklendikten ve canlı test yapıldıktan sonra doğrulanmış sayılır. Görüntü URL'sini bilen kişiler görüntüyü açabilir; gizli veri içeren ekran görüntülerini yüklemeyin.

@@ -20,10 +20,16 @@ const REPORT_UPLOAD_ROUTES = new Map([
   ["/api/report/daily", { kind: "daily", contentType: "application/json", workerPath: "/api/report/daily", encoding: "gzip" }],
   ["/api/report/troubleshooting", { kind: "troubleshooting", contentType: "application/json", workerPath: "/api/report/troubleshooting", encoding: "gzip" }],
   ["/api/report/troubleshooting-zip", { kind: "troubleshooting_zip", contentType: "application/zip", workerPath: "/api/report/troubleshooting-zip", encoding: null }],
-  ["/api/images/stage", { kind: "image_stage", contentType: null, acceptedContentTypes: ["image/png", "image/jpeg"], workerPath: "/api/images/stage", encoding: null, maxBodyBytes: IMAGE_MAX_BODY_BYTES }],
-  ["/api/images/commit", { kind: "image_commit", contentType: "application/json", workerPath: "/api/images/commit", encoding: null, maxBodyBytes: IMAGE_CONTROL_BODY_BYTES }],
-  ["/api/images/abort", { kind: "image_abort", contentType: "application/json", workerPath: "/api/images/abort", encoding: null, maxBodyBytes: IMAGE_CONTROL_BODY_BYTES }],
 ]);
+const IMAGE_UPLOAD_ROUTES = new Map([
+  ["/api/images/stage", { kind: "image_stage", acceptedContentTypes: ["image/png", "image/jpeg"], maxBodyBytes: IMAGE_MAX_BODY_BYTES }],
+  ["/api/images/commit", { kind: "image_commit", acceptedContentTypes: ["application/json"], maxBodyBytes: IMAGE_CONTROL_BODY_BYTES }],
+  ["/api/images/abort", { kind: "image_abort", acceptedContentTypes: ["application/json"], maxBodyBytes: IMAGE_CONTROL_BODY_BYTES }],
+]);
+const CLOUDINARY_IMAGE_PREFIX = "fkp_screenshot_";
+const CLOUDINARY_STAGE_TAG = "fkp-staged";
+const CLOUDINARY_ACTIVE_TAG = "fkp-active";
+const CLOUDINARY_IMAGE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REST_BUCKETS = new Map();
 const REST_CACHE = new Map();
 const ACTIVE_WS_BY_IP = new Map();
@@ -114,6 +120,10 @@ export function resolveRestRoute(pathname) {
 
 export function resolveReportUploadRoute(pathname) {
   return REPORT_UPLOAD_ROUTES.get(pathname) || null;
+}
+
+export function resolveImageUploadRoute(pathname) {
+  return IMAGE_UPLOAD_ROUTES.get(pathname) || null;
 }
 
 function isSafeSymbol(value) {
@@ -347,6 +357,342 @@ function imageFilenameMatchesType(filename, contentType) {
   return contentType === "image/jpeg" && (lower.endsWith(".jpg") || lower.endsWith(".jpeg"));
 }
 
+
+function cloudinaryConfiguration() {
+  const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim();
+  const apiKey = String(process.env.CLOUDINARY_API_KEY || "").trim();
+  const apiSecret = String(process.env.CLOUDINARY_API_SECRET || "");
+  if (!cloudName || !apiKey || !apiSecret.trim()) {
+    const error = new Error("Cloudinary bağlantısı ayarlanmadı. Render ortamına CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY ve CLOUDINARY_API_SECRET ekleyin.");
+    error.status = 503;
+    throw error;
+  }
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(cloudName) || !/^[A-Za-z0-9_-]{1,128}$/.test(apiKey)) {
+    const error = new Error("Cloudinary bağlantı ayarları geçersiz görünüyor.");
+    error.status = 503;
+    throw error;
+  }
+  return { cloudName, apiKey, apiSecret };
+}
+function cloudinaryApiBase(config) {
+  return "https://api.cloudinary.com/v1_1/" + encodeURIComponent(config.cloudName);
+}
+function cloudinaryHeaders(config, extra = {}) {
+  return {
+    Authorization: "Basic " + Buffer.from(config.apiKey + ":" + config.apiSecret, "utf8").toString("base64"),
+    Accept: "application/json",
+    "User-Agent": "FirsatKontrolCloudinaryRelay/1.0",
+    ...extra,
+  };
+}
+async function cloudinaryRequest(config, path, options = {}) {
+  const init = {
+    method: options.method || "GET",
+    headers: cloudinaryHeaders(config, options.headers || {}),
+    signal: AbortSignal.timeout(options.timeoutMs || 30_000),
+  };
+  if (options.body !== undefined) init.body = options.body;
+  let response;
+  try { response = await fetch(cloudinaryApiBase(config) + path, init); }
+  catch {
+    const error = new Error("Cloudinary bağlantısı başarısız oldu.");
+    error.status = 502;
+    throw error;
+  }
+  let raw = "";
+  try { raw = await response.text(); }
+  catch {
+    const error = new Error("Cloudinary yanıtı okunamadı.");
+    error.status = 502;
+    throw error;
+  }
+  let payload = {};
+  try { payload = raw ? JSON.parse(raw) : {}; }
+  catch {
+    const error = new Error("Cloudinary geçerli bir JSON yanıtı vermedi.");
+    error.status = 502;
+    throw error;
+  }
+  if (!response.ok || payload.error) {
+    const error = new Error("Cloudinary isteği başarısız oldu (HTTP " + response.status + ").");
+    error.status = response.status === 429 || response.status === 420 ? 503 : 502;
+    throw error;
+  }
+  return payload;
+}
+function cloudinaryImageId(publicId) {
+  if (typeof publicId !== "string" || !publicId.startsWith(CLOUDINARY_IMAGE_PREFIX)) return null;
+  const id = publicId.slice(CLOUDINARY_IMAGE_PREFIX.length);
+  return CLOUDINARY_IMAGE_ID_RE.test(id) ? id.toLowerCase() : null;
+}
+function cloudinaryImageMime(resource) {
+  const format = String(resource?.format || "").toLowerCase();
+  if (format === "png") return "image/png";
+  if (format === "jpg" || format === "jpeg") return "image/jpeg";
+  return null;
+}
+function cloudinaryResourceFilename(resource, id, contentType) {
+  const encoded = resource?.context?.custom?.filename_b64;
+  if (typeof encoded === "string" && encoded.length > 0 && encoded.length <= 1024 && /^[A-Za-z0-9_-]+$/.test(encoded)) {
+    try {
+      const bytes = Buffer.from(encoded, "base64url");
+      const filename = bytes.toString("utf8");
+      if (bytes.length && bytes.toString("base64url") === encoded &&
+          Buffer.from(filename, "utf8").equals(bytes) && imageFilenameMatchesType(filename, contentType)) return filename;
+    } catch {
+      // Optional filename metadata is ignored if malformed.
+    }
+  }
+  return id + (contentType === "image/png" ? ".png" : ".jpg");
+}
+function cloudinaryImageRecord(resource) {
+  const id = cloudinaryImageId(resource?.public_id);
+  const contentType = cloudinaryImageMime(resource);
+  const sizeBytes = resource?.bytes;
+  const uploadedAt = resource?.created_at;
+  if (!id || !contentType || !Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > IMAGE_MAX_BODY_BYTES ||
+      typeof uploadedAt !== "string" || !uploadedAt) throw new Error("Cloudinary görüntü kaydı geçersiz.");
+  return { id, filename: cloudinaryResourceFilename(resource, id, contentType), content_type: contentType, size_bytes: sizeBytes, uploaded_at: uploadedAt };
+}
+function cloudinaryTime(resource) {
+  const value = Date.parse(resource?.created_at || "");
+  return Number.isFinite(value) ? value : 0;
+}
+async function cloudinaryListScreenshots(config) {
+  const found = [];
+  let nextCursor = null;
+  let pages = 0;
+  do {
+    const params = new URLSearchParams({
+      prefix: CLOUDINARY_IMAGE_PREFIX,
+      max_results: "500",
+      tags: "true",
+      context: "true",
+      fields: "public_id,asset_id,created_at,bytes,format,secure_url,tags,context",
+    });
+    if (nextCursor) params.set("next_cursor", nextCursor);
+    const payload = await cloudinaryRequest(config, "/resources/image/upload?" + params.toString());
+    if (!Array.isArray(payload.resources)) throw new Error("Cloudinary görüntü listesi geçersiz.");
+    for (const resource of payload.resources) if (cloudinaryImageId(resource?.public_id)) found.push(resource);
+    nextCursor = typeof payload.next_cursor === "string" && payload.next_cursor ? payload.next_cursor : null;
+    pages += 1;
+  } while (nextCursor && pages < 5);
+  if (nextCursor) throw new Error("Cloudinary görüntü listesi beklenenden büyük.");
+  return found;
+}
+function cloudinarySortedActive(resources) {
+  return resources.filter((resource) =>
+    Array.isArray(resource.tags) && resource.tags.includes(CLOUDINARY_ACTIVE_TAG) && cloudinaryImageId(resource.public_id))
+    .sort((a,b) => cloudinaryTime(b) - cloudinaryTime(a));
+}
+async function cloudinaryChangeTag(config, tag, command, publicIds) {
+  if (!publicIds.length) return;
+  const form = new URLSearchParams();
+  form.set("tag", tag);
+  form.set("command", command);
+  for (const publicId of publicIds) form.append("public_ids[]", publicId);
+  await cloudinaryRequest(config, "/image/tags", { method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body:form.toString() });
+}
+async function cloudinaryDeleteResources(config, publicIds) {
+  if (!publicIds.length) return;
+  const form = new URLSearchParams();
+  for (const publicId of publicIds) form.append("public_ids[]", publicId);
+  const payload = await cloudinaryRequest(config, "/resources/image/upload", {
+    method:"DELETE", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body:form.toString(),
+  });
+  if (payload.partial === true ||
+      (payload.deleted && Object.values(payload.deleted).some((status) => status !== "deleted" && status !== "not_found"))) {
+    throw new Error("Cloudinary bazı eski görüntüleri silemedi.");
+  }
+}
+async function cloudinaryStageImage(config, body, filename, contentType) {
+  const id = randomUUID().toLowerCase();
+  const publicId = CLOUDINARY_IMAGE_PREFIX + id;
+  const form = new FormData();
+  form.append("file", new Blob([body], {type:contentType}), filename);
+  form.set("public_id", publicId);
+  form.set("overwrite", "false");
+  form.set("tags", CLOUDINARY_STAGE_TAG);
+  form.set("context", "filename_b64=" + Buffer.from(filename, "utf8").toString("base64url"));
+  const payload = await cloudinaryRequest(config, "/image/upload", {method:"POST",body:form,timeoutMs:90_000});
+  if (payload.public_id !== publicId || typeof payload.secure_url !== "string") throw new Error("Cloudinary görüntüyü beklenen kimlikle kaydetmedi.");
+  return {ok:true,staged_id:id};
+}
+async function cloudinaryCommitImages(config, stagedIds) {
+  if (!Array.isArray(stagedIds) || stagedIds.length < 1 || stagedIds.length > 3 ||
+      !stagedIds.every((id) => typeof id === "string" && CLOUDINARY_IMAGE_ID_RE.test(id)) ||
+      new Set(stagedIds.map((id)=>id.toLowerCase())).size !== stagedIds.length) {
+    const error = new Error("1–3 geçerli görüntü kimliği gereklidir."); error.status = 400; throw error;
+  }
+  const resources = await cloudinaryListScreenshots(config);
+  const byPublicId = new Map(resources.map((item)=>[item.public_id,item]));
+  const staged = stagedIds.map((id)=>byPublicId.get(CLOUDINARY_IMAGE_PREFIX+id.toLowerCase()));
+  if (staged.some((item)=>!item || !Array.isArray(item.tags) || !item.tags.includes(CLOUDINARY_STAGE_TAG))) {
+    const error = new Error("Geçici görüntüler Cloudinary'de bulunamadı; mevcut görüntüler korunuyor."); error.status = 409; throw error;
+  }
+  if (staged.some((item)=>item.tags.includes(CLOUDINARY_ACTIVE_TAG))) {
+    const error = new Error("Görüntü grubu daha önce etkinleştirilmiş."); error.status = 409; throw error;
+  }
+  const active = cloudinarySortedActive(resources);
+  const keepCount = Math.min(active.length, Math.max(0, 3-staged.length));
+  const replace = active.slice(keepCount);
+  const stagedPublicIds = staged.map((item)=>item.public_id);
+  await cloudinaryChangeTag(config,CLOUDINARY_ACTIVE_TAG,"add",stagedPublicIds);
+  if (replace.length) {
+    try { await cloudinaryDeleteResources(config,replace.map((item)=>item.public_id)); }
+    catch {
+      try { await cloudinaryChangeTag(config,CLOUDINARY_ACTIVE_TAG,"remove",replace.map((item)=>item.public_id)); }
+      catch { /* Manifest stays capped at three; later requests retry cleanup. */ }
+    }
+  }
+  try { await cloudinaryChangeTag(config,CLOUDINARY_STAGE_TAG,"remove",stagedPublicIds); }
+  catch { /* Active tag protects committed images from abort cleanup. */ }
+  const finalRecords = [...active.slice(0,keepCount),...staged]
+    .sort((a,b)=>cloudinaryTime(b)-cloudinaryTime(a)).slice(0,3).map(cloudinaryImageRecord);
+  return {ok:true,images:finalRecords};
+}
+async function cloudinaryAbortImages(config, stagedIds) {
+  if (!Array.isArray(stagedIds) || stagedIds.length > 3 ||
+      !stagedIds.every((id)=>typeof id==="string" && CLOUDINARY_IMAGE_ID_RE.test(id))) {
+    const error=new Error("Geçici görüntü kimlikleri geçersiz."); error.status=400; throw error;
+  }
+  if (!stagedIds.length) return {ok:true,aborted_count:0};
+  const resources = await cloudinaryListScreenshots(config);
+  const byPublicId = new Map(resources.map((item)=>[item.public_id,item]));
+  const disposable = stagedIds.map((id)=>byPublicId.get(CLOUDINARY_IMAGE_PREFIX+id.toLowerCase()))
+    .filter((item)=>item && Array.isArray(item.tags) && item.tags.includes(CLOUDINARY_STAGE_TAG) && !item.tags.includes(CLOUDINARY_ACTIVE_TAG));
+  await cloudinaryDeleteResources(config,disposable.map((item)=>item.public_id));
+  return {ok:true,aborted_count:disposable.length};
+}
+async function cloudinaryActiveResources(config) {
+  const resources = await cloudinaryListScreenshots(config);
+  let active = cloudinarySortedActive(resources);
+  const cutoff = Date.now()-24*60*60*1000;
+  const staleStage = resources.filter((item)=>Array.isArray(item.tags) && item.tags.includes(CLOUDINARY_STAGE_TAG) &&
+    !item.tags.includes(CLOUDINARY_ACTIVE_TAG) && cloudinaryTime(item)>0 && cloudinaryTime(item)<cutoff);
+  const staleOrphans = resources.filter((item)=>Array.isArray(item.tags) && !item.tags.includes(CLOUDINARY_ACTIVE_TAG) &&
+    !item.tags.includes(CLOUDINARY_STAGE_TAG) && cloudinaryTime(item)>0 && cloudinaryTime(item)<cutoff);
+  for (const batch of [staleStage,staleOrphans]) if (batch.length) {
+    try { await cloudinaryDeleteResources(config,batch.map((item)=>item.public_id)); }
+    catch { /* Inactive leftovers remain hidden; later reads retry cleanup. */ }
+  }
+  if (active.length>3) {
+    const extra=active.slice(3);
+    try { await cloudinaryDeleteResources(config,extra.map((item)=>item.public_id)); }
+    catch {
+      try { await cloudinaryChangeTag(config,CLOUDINARY_ACTIVE_TAG,"remove",extra.map((item)=>item.public_id)); }
+      catch { /* Response still remains limited to three images. */ }
+    }
+    active=active.slice(0,3);
+  }
+  return active;
+}
+async function handleCloudinaryImageUpload(request,response,route) {
+  if (request.method!=="POST") { jsonResponse(response,405,{ok:false,error:"Yalnızca POST kabul edilir."},{Allow:"POST"}); request.resume(); return; }
+  const token=bearerToken(request);
+  if (!token) { jsonResponse(response,401,{ok:false,error:"Görüntü aktarım kimliği doğrulanamadı."}); request.resume(); return; }
+  const expectedToken=process.env.REPORT_RELAY_TOKEN;
+  if (expectedToken && (expectedToken.length>8192 || Buffer.byteLength(token)!==Buffer.byteLength(expectedToken) ||
+      !timingSafeEqual(Buffer.from(token),Buffer.from(expectedToken)))) {
+    jsonResponse(response,401,{ok:false,error:"Görüntü aktarım kimliği doğrulanamadı."}); request.resume(); return;
+  }
+  const contentType=String(request.headers["content-type"]||"").split(";")[0].trim().toLowerCase();
+  const contentEncoding=String(request.headers["content-encoding"]||"").trim().toLowerCase();
+  if (!route.acceptedContentTypes.includes(contentType)) {
+    jsonResponse(response,415,{ok:false,error:route.kind==="image_stage"?"Görüntü içerik türü PNG/JPEG olmalıdır.":"Görüntü kontrol isteği JSON olmalıdır."});
+    request.resume(); return;
+  }
+  if (contentEncoding!=="") { jsonResponse(response,415,{ok:false,error:"Görüntü aktarımında Content-Encoding kullanılmamalıdır."}); request.resume(); return; }
+  let filename=null;
+  if (route.kind==="image_stage") {
+    filename=decodeImageFilename(request.headers["x-image-name-b64"]);
+    if (!filename || !imageFilenameMatchesType(filename,contentType)) {
+      jsonResponse(response,400,{ok:false,error:"Dosya adı metadata'sı veya uzantısı içerik türüyle eşleşmiyor."}); request.resume(); return;
+    }
+  }
+  const declaredLength=request.headers["content-length"];
+  if (declaredLength!==undefined && (!/^\d+$/.test(String(declaredLength)) || Number(declaredLength)>route.maxBodyBytes)) {
+    jsonResponse(response,413,{ok:false,error:route.kind==="image_stage"?"Görüntü boyut sınırını aşıyor.":"Görüntü kontrol isteği çok büyük."});
+    request.resume(); return;
+  }
+  const retryAfter=checkReportRateLimit(clientIp(request));
+  if (retryAfter>0) { jsonResponse(response,429,{ok:false,error:"Görüntü aktarım istek sınırına ulaşıldı."},{"Retry-After":String(retryAfter)}); request.resume(); return; }
+  let body;
+  try { body=await readLimitedBody(request,route.maxBodyBytes); }
+  catch(error) {
+    request.resume();
+    jsonResponse(response,error.status||400,{ok:false,error:error.status===413
+      ?(route.kind==="image_stage"?"Görüntü boyut sınırını aşıyor.":"Görüntü kontrol isteği çok büyük.")
+      :"Görüntü aktarım gövdesi okunamadı."}); return;
+  }
+  if (route.kind==="image_stage" && !imageBodyMatchesType(body,contentType)) {
+    jsonResponse(response,400,{ok:false,error:"Dosya imzası PNG/JPEG içerik türüyle eşleşmiyor."}); return;
+  }
+  try {
+    const config=cloudinaryConfiguration();
+    let result;
+    if (route.kind==="image_stage") result=await cloudinaryStageImage(config,body,filename,contentType);
+    else {
+      let payload;
+      try { payload=JSON.parse(body.toString("utf8")); }
+      catch { jsonResponse(response,400,{ok:false,error:"Görüntü kontrol isteği geçerli JSON değil."}); return; }
+      if (!payload || typeof payload!=="object" || Array.isArray(payload)) {
+        jsonResponse(response,400,{ok:false,error:"Görüntü kontrol isteği geçersiz."}); return;
+      }
+      result=route.kind==="image_commit" ? await cloudinaryCommitImages(config,payload.staged_ids) : await cloudinaryAbortImages(config,payload.staged_ids);
+    }
+    jsonResponse(response,200,{...result,ok:true,relay:"render"});
+  } catch(error) {
+    jsonResponse(response,Number.isInteger(error?.status)?error.status:502,{ok:false,error:String(error?.message||"Cloudinary aktarımı başarısız.").slice(0,400)});
+  }
+}
+async function handleCloudinaryImageManifest(request,response) {
+  if (request.method!=="GET") { jsonResponse(response,405,{ok:false,error:"Yalnızca GET kabul edilir."},{Allow:"GET"}); return; }
+  const retryAfter=checkRestRateLimit(clientIp(request));
+  if (retryAfter>0) { jsonResponse(response,429,{ok:false,error:"Görüntü listesi için istek sınırına ulaşıldı."},{"Retry-After":String(retryAfter)}); return; }
+  try {
+    const config=cloudinaryConfiguration();
+    const resources=await cloudinaryActiveResources(config);
+    jsonResponse(response,200,{ok:true,images:resources.map(cloudinaryImageRecord)});
+  } catch(error) {
+    jsonResponse(response,Number.isInteger(error?.status)?error.status:502,{ok:false,error:String(error?.message||"Cloudinary görüntü listesi alınamadı.").slice(0,400)});
+  }
+}
+async function handleCloudinaryImageDownload(request,response,imageId) {
+  if (request.method!=="GET") { jsonResponse(response,405,{ok:false,error:"Yalnızca GET kabul edilir."},{Allow:"GET"}); return; }
+  if (!CLOUDINARY_IMAGE_ID_RE.test(imageId)) { jsonResponse(response,400,{ok:false,error:"Görüntü kimliği geçersiz."}); return; }
+  const retryAfter=checkRestRateLimit(clientIp(request));
+  if (retryAfter>0) { jsonResponse(response,429,{ok:false,error:"Görüntü indirme istek sınırına ulaşıldı."},{"Retry-After":String(retryAfter)}); return; }
+  try {
+    const config=cloudinaryConfiguration();
+    const resources=await cloudinaryActiveResources(config);
+    const resource=resources.find((item)=>cloudinaryImageId(item.public_id)===imageId.toLowerCase());
+    if (!resource) { jsonResponse(response,404,{ok:false,error:"Etkin görüntü bulunamadı."}); return; }
+    const contentType=cloudinaryImageMime(resource);
+    let assetUrl;
+    try { assetUrl=new URL(resource.secure_url||""); }
+    catch { jsonResponse(response,502,{ok:false,error:"Cloudinary görüntü adresi doğrulanamadı."}); return; }
+    const expectedPath="/"+config.cloudName+"/image/upload/";
+    if (!contentType || assetUrl.protocol!=="https:" || assetUrl.hostname!=="res.cloudinary.com" || !assetUrl.pathname.includes(expectedPath)) {
+      jsonResponse(response,502,{ok:false,error:"Cloudinary görüntü adresi doğrulanamadı."}); return;
+    }
+    let upstream;
+    try { upstream=await fetch(assetUrl,{headers:{Accept:contentType},signal:AbortSignal.timeout(30_000)}); }
+    catch { jsonResponse(response,502,{ok:false,error:"Cloudinary görüntüsü indirilemedi."}); return; }
+    if (!upstream.ok) { jsonResponse(response,502,{ok:false,error:"Cloudinary görüntüsüne erişilemedi."}); return; }
+    const upstreamType=String(upstream.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
+    const bytes=Buffer.from(await upstream.arrayBuffer());
+    if (upstreamType!==contentType || bytes.length<1 || bytes.length>IMAGE_MAX_BODY_BYTES || !imageBodyMatchesType(bytes,contentType)) {
+      jsonResponse(response,502,{ok:false,error:"Cloudinary görüntü içeriği doğrulanamadı."}); return;
+    }
+    response.writeHead(200,{"Content-Type":contentType,"Content-Length":String(bytes.length),"Cache-Control":"no-store","X-Content-Type-Options":"nosniff","Access-Control-Allow-Origin":"*"});
+    response.end(bytes);
+  } catch(error) {
+    jsonResponse(response,Number.isInteger(error?.status)?error.status:502,{ok:false,error:String(error?.message||"Cloudinary görüntüsü alınamadı.").slice(0,400)});
+  }
+}
+
+
 function bearerToken(request) {
   const value = request.headers.authorization;
   if (typeof value !== "string" || value.length > 8_192) return "";
@@ -538,6 +884,21 @@ async function handleHttp(request, response) {
     jsonResponse(response, 426, { error: "Bu yol yalnızca WebSocket bağlantısı içindir." }, {
       Upgrade: "websocket",
     });
+    return;
+  }
+
+  const imageUploadRoute = resolveImageUploadRoute(url.pathname);
+  if (imageUploadRoute) {
+    await handleCloudinaryImageUpload(request, response, imageUploadRoute);
+    return;
+  }
+  if (url.pathname === "/images/manifest") {
+    await handleCloudinaryImageManifest(request, response);
+    return;
+  }
+  const imageMatch = /^\/images\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(url.pathname);
+  if (imageMatch) {
+    await handleCloudinaryImageDownload(request, response, imageMatch[1]);
     return;
   }
 
