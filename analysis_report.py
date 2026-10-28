@@ -552,6 +552,13 @@ def validate_image_bytes(data: bytes, filename: str) -> dict[str, Any]:
             raise ValueError("Dosya uzantısı ve gerçek görüntü biçimi eşleşmiyor.")
     except ValueError:
         raise
+    except ModuleNotFoundError as exc:
+        if exc.name == "PIL" or (isinstance(exc.name, str) and exc.name.startswith("PIL.")):
+            raise ValueError(
+                "Görüntü doğrulama paketi Pillow kurulu değil. Programı BASLAT.bat ile yeniden açın; "
+                "gerekli paketler otomatik kontrol edilip kurulmalıdır."
+            ) from exc
+        raise ValueError(f"Görüntü bozuk veya açılamıyor: {name}") from exc
     except Exception as exc:
         raise ValueError(f"Görüntü bozuk veya açılamıyor: {name}") from exc
 
