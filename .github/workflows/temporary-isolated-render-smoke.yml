@@ -1,0 +1,28 @@
+name: Temporary isolated Render relay smoke test
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  isolated-render-smoke:
+    if: github.event_name == 'push' && github.event.head_commit.message == 'Run isolated Render relay smoke test'
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - name: Kaynak kodu al
+        uses: actions/checkout@v7
+
+      - name: Node.js hazırla
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Render geçidi bağımlılıklarını hazırla
+        run: npm install --prefix render_relay --no-package-lock
+
+      - name: Ayrı Render test servisinin canlı borsa bağlantılarını doğrula
+        env:
+          RELAY_URL: https://firsat-kontrol-test-relay.onrender.com
+        run: npm run smoke --prefix render_relay
