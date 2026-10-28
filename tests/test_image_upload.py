@@ -33,8 +33,8 @@ def _mock_http_error(url: str, status: int, payload: str):
 
 
 class ImageRelayRoutingTests(unittest.TestCase):
-    def test_manifest_and_image_upload_routes_use_isolated_test_relay(self) -> None:
-        test_base = "https://firsat-kontrol-test-relay.onrender.com"
+    def test_manifest_and_image_upload_routes_use_production_relay(self) -> None:
+        test_base = "https://firsat-kontrol-market-relay.onrender.com"
         config = {"upload_url": analysis_report.UPLOAD_URL, "upload_token": "test-token"}
 
         self.assertEqual(analysis_report.IMAGE_RELAY_BASE_URL, test_base)
