@@ -4,28 +4,34 @@
 
 ## CANLI BAĞLAM — en son doğrulanmış durum
 
-> **Bu bölüm güncel özet içindir; yeni kanıt geldikçe güncellenir.** Eski canlı özetin önemli ayrıntıları tarihsel kayıtta korunur. Aşağıdaki durumun son rapor kanıtı 28 Ekim 2026, 00:51 TRT civarındadır. Bu zamandan sonraki gerçek çalışma durumu yeni rapor/log görülmeden doğrulanmış sayılmaz.
+> **Son doğrulama:** 28 Ekim 2026, 17:55 TRT civarı. Bulut raporlarının durum anı 17:40 TRT; kod ve regresyon testleri ise commit `153a3e400a473ffca201d61611cace1111905d87` üzerinde doğrulandı. Rapor zamanı ile test zamanı birbirinden farklıdır.
 
-### Nerede kaldık?
-Sürüm 01’in son incelenen çalıştırmasında canlı piyasa akışı güncel olarak raporlandı; ancak geçmiş mumların başlangıç hazırlığı tamamlanmamıştı. Günlük ve sorun giderme raporları yeni durum taşıyordu, analiz raporunun yenilenmesi ise doğrulanmamıştı.
+### Bulgular
 
-### Doğrulananlar ve halledilenler
-- README’de son incelemenin bulguları ve açık işler tarihli kayıt olarak saklandı.
-- Günlük raporun gönderimi 00:50:18 TRT’de başarılı olarak loglandı.
-- Sorun giderme ZIP’i üretildi ve bütünlük kontrolü başarılı oldu: 1.983.519 bayt; SHA-256 değeri aşağıdaki tarihsel kayıtta yer alır.
-- Günlük, analiz ve sorun giderme JSON raporları okunabildi; ancak bunların zaman damgaları farklıdır ve aynı anda oluşmuş tek bir durum gibi değerlendirilmemelidir.
+- **Analiz raporu güncel değil.** Buluttaki `latest` kaydı 28 Ekim 2026 02:58 TRT (2026-10-27 23:58:14 UTC) zamanında oluşturulmuş; günlük rapor 17:39 TRT, sorun giderme raporu 17:40 TRT zamanını taşıyor. Son 300 satırlık günlük kesitinde analiz raporu gönderimine yönelik yeni bir deneme veya sonuç satırı görünmüyor; yalnızca günlük rapor üretim/gönderim satırları var. Bu, son analiz raporunun neden yenilenmediğini kesin olarak kanıtlamaz; güncel kesitte analiz gönderiminin başlatıldığına dair kanıt bulunmadığını gösterir.
+- **Analiz raporu istemcisi kodda mevcut ve test edildi.** `create_analysis_report` yerel sıkıştırılmış raporu oluşturuyor, yükleme kimliğini Windows Kimlik Bilgileri Yöneticisi'nden alıyor ve ayar varsa `/api/report` adresine gzip gövdeli, kimlik doğrulamalı POST gönderiyor. Yeni regresyon testi bu istek biçimini (URL, kimlik doğrulama, gzip başlığı ve gövde, zaman aşımı ve yanıt okuma adresi) doğrular. Bu bir istemci testi; son canlı analiz yüklemesinin gerçekleştiğini kanıtlamaz.
+- **Güncel motor durumu:** Günlük/sorun giderme kayıtlarında 156 parite ve WebSocket üzerinden 8/8 anlık veri akışı görünüyor. Geçmiş mum başlangıç hazırlığı 1.248 işin 1.246'sında başarılı; iki hata nedeniyle `bootstrap_ready=false`. Eksikler CVCUSDT ve USDCUSDT için eski 1M mum aralıklarıdır. Kod bu tür doldurulamayan bilinen tarihsel boşluklarda yeniden denemeyi yaklaşık 24 saate erteler; bu gecikme tek başına yeni bir arıza kanıtı değildir.
+- **Likidite geçidi:** Rapor anında TRXUSDT emir defteri isteği tek bir zaman aşımı vermiş. Sonradan yapılan canlı kontrol sırasında `/healthz` sağlıklı yanıt verdi ve TRXUSDT emir defteri döndü. Bu nedenle mevcut kanıt, kalıcı bir kesinti değil geçici istek hatasıyla uyumludur.
+- **Güçlü fırsat kapısı ve alarm uygunluğu:** Son bulut analizinde 155 parite alarm uygunluk filtresini geçmiş görünse de `strong_opportunity_qualified=true` olan aday sayısı sıfır. Bunlar farklı anlamlardır. Panel ayrıntılarında izin filtresi ile gerçek güçlü fırsat koşullarını ayrı gösteren düzeltme uygulandı; ana engel alanı artık `strong_opportunity_gate_reasons` içeriğini kullanır.
+- **Ekran görüntüsü:** Test Render geçidinde üç etkin Cloudinary görüntü kaydı listeleniyor. Test sunucusundaki yükleme/okuma yolu çalışıyor; üretim `matrix` deposundaki Render geçidi kodu hâlâ bu görsel uç noktalarını içermiyor. Dolayısıyla görsel işlevinin üretime taşındığı söylenemez.
+
+### Bu turdaki değişiklik ve test kanıtı
+
+- `tek_motor_paneli.pyw`: “Güçlü alarm koşulu” ifadesi, sadece izin filtresini ifade ettiğini gösterecek şekilde düzeltildi; gerçek güçlü fırsat koşulları ayrı gösteriliyor. Engeller listesi eksik kaldığında gerçek güçlü fırsat kapılarından okunuyor.
+- `tests/test_panel_ui_contract.py`: Bu ayrım için regresyon testi eklendi.
+- `tests/test_analysis_report_connection.py`: Analiz raporu yükleme istemcisinin gzip/JSON gövdesini doğru sabit uç noktaya ve beklenen başlıklarla gönderdiğini doğrulayan test eklendi.
+- GitHub Actions [#40710482527](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40710482527), kaynak derleme, Python birim testleri, Worker testleri, Render geçidi testleri, canlı piyasa verisi/WebSocket, test görüntü geçidi/Cloudinary listeleme ve BtcTurk canlı fiyat kontrollerinin tamamını başarıyla geçti. Bu çalıştırma `push` olayıydı; ZIP üretimi, Release güncellemesi ve artefakt yükleme adımları tasarlanan kural gereği atlandı.
+- Üretim `matrix` deposu ve üretim Render hizmeti bu değişiklik turunda değiştirilmedi; canlı üretim dağıtımı yapılmadı.
 
 ### Açık kalanlar
-- **Analiz raporu gönderimi:** 00:50:23 TRT’de sunucu bağlantısı hatası görüldü. 00:50:45 TRT’deki sonraki girişimin başarılı olduğu doğrulanmadı.
-- **Geçmiş mum hazırlığı:** Son tanıda `bootstrap_ready=false` idi. İki eski/eksik mum aralığı hatası kalmıştı; canlı akışın güncel olması bu hazırlığın tamamlandığı anlamına gelmez.
-- **Render piyasa geçidi:** Yaklaşık 00:09 ve 00:43 TRT’de bellek taşması/yeniden başlama logları görüldü. Bunların analiz raporu hatasına doğrudan sebep olduğu kanıtlanmadı.
-- **`ayarlar.json` kaydı:** Yaklaşık 00:44 TRT’de `PermissionError / WinError 5` görüldü. Sorunun kalıcı olarak çözüldüğü doğrulanmadı.
 
-### Sıradaki iş
-Yeni bir rapor veya günlük alındığında önce zaman damgalarını karşılaştır; analiz raporunun güncellenip güncellenmediğini, geçmiş mum hazırlığının tamamlanıp tamamlanmadığını ve geçit/ayar hatalarının tekrarlanıp tekrarlanmadığını kontrol et. Sonucu bu canlı bölüme özetle, ayrıntılı yeni bulguları gerektiğinde tarihli tarihsel kayda ekle.
+1. Analiz raporu buluttaki kaydını yenilemiş değil. Son log kesitinde bir analiz gönderme girişimi olmadığı için nedenin kullanıcı arayüzünde yükleme düğmesine basılmaması mı, kimlik yapılandırması mı, yoksa yeni rapor denemesinde ortaya çıkacak başka bir hata mı olduğu henüz kesin değil. Yeni analiz raporu yükleme denemesinin sonucu alınmadan canlı aktarımın başarılı olduğu söylenmez.
+2. Ekran görüntüsü işlevinin üretime taşınması tamamlanmadı. Üretim sunucu kodu `matrix` deposunda ayrı duruyor; masaüstü kodundaki mevcut görsel adresi test Render hizmetine sabit. Üretim kaynağı/servisi değiştirilecekse önce hedef Render çalışma alanı, Cloudinary ortam değişkenleri, dağıtım yolu ve geri dönüş adımı netleştirilmeli; test başarıları üretim için kanıt sayılmamalı.
+3. Sürüm 01’in yeni Windows ZIP’i bu doğrulama çalıştırmasında oluşturulmadı. Güncel kaynakta testler başarılı olsa da test ortamına bağlı ekran görüntüsü akışını üretime geçmiş gibi sunan bir paket paylaşılmamalı. ZIP ve SHA-256 yalnızca üretim yolu karara bağlanıp testleri geçtiğinde ve manuel paketleme adımı başarıyla tamamlandığında “son sürüm” olarak sunulabilir.
 
 ### Değişiklik ve onay durumu
-Bu son incelemede yalnızca README kaydı güncellendi. Bu açık sorunları çözmek amacıyla kaynak kodda veya bulut hizmeti yapılandırmasında değişiklik yapılmış değildir. Teşhis ile düzeltme ayrı tutulur; kod veya bulut yapılandırması değişikliği için kullanıcıdan açık onay beklenir.
+
+Bu turda yalnızca geliştirme deposunun `main` dalındaki iki işlevsel/regresyon düzenlemesi yapıldı. Üretim `matrix` deposuna, üretim Render hizmetine, Cloudinary yapılandırmasına veya eski Sürüm 00 paketine dokunulmadı. Rapor bulguları, otomatik test sonuçları ve gerçek üretim doğrulaması ayrı statülerde tutulur.
 
 ## Tarihsel çalışma kaydı — 28 Ekim 2026 (son rapor anı: 00:51 TRT)
 
