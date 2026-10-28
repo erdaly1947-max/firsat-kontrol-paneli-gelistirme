@@ -15,8 +15,8 @@ on:
         type: boolean
         default: false
 
-# Pushes and pull requests normally validate only. Packaging is allowed only by an explicit manual approval,
-# or by the one-time, specifically named user-test package commit.
+# Main pushes and pull requests run validation only.
+# The sole push exception is the exact one-time user-authorized test-package commit; normal pushes do not package.
 concurrency:
   group: s01-validation-${{ github.ref }}
   cancel-in-progress: true
