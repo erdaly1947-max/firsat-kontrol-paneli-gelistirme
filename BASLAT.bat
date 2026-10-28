@@ -76,7 +76,7 @@ if errorlevel 1 (
     exit /b 1
 )
 echo Gerekli paketler kontrol ediliyor...
-"%PYTHON%" -c "import requests, websocket" >nul 2>nul
+"%PYTHON%" -c "import requests, websocket; from PIL import Image" >nul 2>nul
 if errorlevel 1 (
     "%PYTHON%" -m pip --version >nul 2>nul
     if errorlevel 1 (
@@ -90,7 +90,7 @@ if errorlevel 1 (
         pause
         exit /b 1
     )
-    "%PYTHON%" -c "import requests, websocket" >nul 2>nul
+    "%PYTHON%" -c "import requests, websocket; from PIL import Image" >nul 2>nul
     if errorlevel 1 (
         echo Paketler kurulduktan sonra Python bilesenleri hala yuklenemiyor.
         pause
