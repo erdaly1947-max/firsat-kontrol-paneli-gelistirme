@@ -5,6 +5,7 @@ import {
   cacheTtlMs,
   createRelayServer,
   cloudinaryConfiguration,
+  cloudinaryRequest,
   resolveImageUploadRoute,
   resolveReportUploadRoute,
   resolveRestRoute,
@@ -32,6 +33,22 @@ test("Cloudinary configuration trims invisible outer whitespace from copied cred
       else process.env[name] = previous[name];
     }
   }
+});
+
+test("Cloudinary error diagnostics preserve ordinary letters while removing credentials", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    error: { message: "cloud_name mismatch" },
+  }), { status: 401, headers: { "Content-Type": "application/json" } });
+  await assert.rejects(
+    cloudinaryRequest({
+      cloudName: "test-cloud",
+      apiKey: "test-api-key",
+      apiSecret: "test-api-secret",
+    }, "/resources/image/upload"),
+    /Cloudinary isteği başarısız oldu \(HTTP 401\): cloud_name mismatch/,
+  );
 });
 
 test("only explicitly allowlisted public-market endpoints resolve", () => {
