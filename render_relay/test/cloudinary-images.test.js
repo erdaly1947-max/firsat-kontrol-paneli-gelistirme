@@ -81,6 +81,10 @@ test("Cloudinary screenshot commit replaces oldest image and exposes only three 
         const JPEG=Buffer.from([0xff,0xd8,0xff,0xd9]);
         return new Response(JPEG,{status:200,headers:{"Content-Type":"image/jpeg"}});
       }
+      if(url.pathname.includes("44444444-4444-4444-8444-444444444444")){
+        const LARGE_PNG=Buffer.concat([PNG,Buffer.alloc(600*1024)]);
+        return new Response(LARGE_PNG,{status:200,headers:{"Content-Type":"image/png"}});
+      }
       return new Response(PNG,{status:200,headers:{"Content-Type":"image/png"}});
     }
     return originalFetch(input,init);
