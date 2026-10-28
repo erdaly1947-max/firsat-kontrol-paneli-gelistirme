@@ -1203,7 +1203,19 @@ class ControlPanel(tk.Tk):
         freshness = "GÜNCEL" if candidate.get("data_freshness") == "CANLI AKIŞ GÜNCEL" else "UYARI"
         missing = candidate.get("missing_checks")
         missing = [str(item) for item in missing if item] if isinstance(missing, list) else []
-        blockers = "; ".join(missing[:3]) if missing else str(candidate.get("strong_alarm_block_reason") or "kayıtlı eksik kontrol yok")
+        gate_reasons = candidate.get("strong_opportunity_gate_reasons")
+        gate_reasons = [str(item) for item in gate_reasons if item] if isinstance(gate_reasons, list) else []
+        alarm_block_reason = str(candidate.get("strong_alarm_block_reason") or "").strip()
+        if gate_reasons:
+            blockers = "; ".join(gate_reasons[:3])
+        elif missing:
+            blockers = "; ".join(missing[:3])
+        elif alarm_block_reason:
+            blockers = alarm_block_reason
+        elif candidate.get("strong_opportunity_qualified") is True:
+            blockers = "Güçlü fırsat kapıları sağlandı."
+        else:
+            blockers = "Engel gerekçesi raporda bulunmuyor."
         reason = str(candidate.get("decision_reason") or "Karar gerekçesi henüz yok.")
         try:
             score = float(candidate.get("opportunity_score", candidate.get("score_0_100")))
@@ -1237,7 +1249,8 @@ class ControlPanel(tk.Tk):
             "", "--- KONTROL DURUMU ---",
             f"Canlı fiyat verisi: {freshness}",
             f"Güçlü fırsat kapısı: {'AÇIK' if candidate.get('strong_opportunity_qualified') is True else 'KAPALI / BEKLE'}",
-            f"Güçlü alarm koşulu: {'SAĞLANDI' if candidate.get('strong_alarm_eligible') is True else 'SAĞLANMADI'}",
+            f"Güçlü alarm uygunluk filtresi (izin): {'GEÇTİ' if candidate.get('strong_alarm_eligible') is True else 'ENGELLİ'}",
+            f"Gerçek güçlü fırsat koşulları: {'SAĞLANDI' if candidate.get('strong_opportunity_qualified') is True else 'SAĞLANMADI'}",
             f"Ana engel / teyit bekleyen: {blockers}",
             "", "A/B/C araştırma aşamalarıdır; emir veya kârlılık garantisi değildir. Giriş bölgesi aşıldıysa fiyat kovalanmamalıdır. Komisyon ve kayma hesaplanmaz; program emir göndermez.",
         ]
