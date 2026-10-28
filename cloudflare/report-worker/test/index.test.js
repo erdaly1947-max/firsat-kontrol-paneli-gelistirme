@@ -304,9 +304,18 @@ function pngHeader(extra = []) {
 }
 
 async function stagePng(env, filename = "chart.png") {
+  // Worker timestamps have millisecond precision. Ensure uploads are distinguishable
+  // so "oldest image" assertions test replacement order rather than timestamp ties.
+  if (Number.isFinite(env._lastImageStageTimestamp)) {
+    while (Date.now() <= env._lastImageStageTimestamp) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+  }
   const response = await worker.fetch(imageStageRequest(filename, pngHeader([1, 2, 3])), env);
   assert.equal(response.status, 201);
-  return (await response.json()).staged_id;
+  const payload = await response.json();
+  env._lastImageStageTimestamp = Date.parse(payload.uploaded_at);
+  return payload.staged_id;
 }
 
 async function commitImages(env, ids) {
