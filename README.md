@@ -378,7 +378,7 @@ Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; 
 
 ### 101–122. karar aralığı — kaynak durumu ve karar metinleri
 
-**Kayıt doğruluğu notu:** 101–112. kararların aşağıdaki metinleri kullanıcı tarafından 29 Ekim 2026'da sağlandı ve bu metinler esas alındı. 113–117. kararların özgün ifadeleri erişilebilen kaynaklarda bulunamadığı için bunlar yeniden oluşturulmuş operasyonel kayıtlardır; özgün metin oldukları ileri sürülmez. Kullanıcı 118. kararın kesinleştiğini bildirdi ancak özgün ifadesi bulunamadığından bu karar tamamlayıcı kayıt olarak yeniden oluşturulmuştur. 119–122. kararlar için kullanıcı tarafından sağlanan metinler esas alınmıştır. Bu kaynak ayrımı korunacaktır.
+**Kayıt doğruluğu notu:** Kullanıcı 29 Ekim 2026'da 101–122 kararlarının özetlerini sağladı. 101–112 için önceki ayrıntılı kullanıcı metinleri korunuyor. 113–118 için önceki yeniden oluşturulmuş kayıtlar kaldırılarak kullanıcının bu iletide sağladığı karar özetleri kaydedildi. 119–122 için daha önce sağlanan ayrıntılı karar metinleri korunuyor. 113–118 için burada kayıtlı ifadeler kullanıcı tarafından özet olarak sunuldu; özgün tam metin oldukları iddia edilmiyor.
 
 - **101. Yükseliş başarısı (kullanıcının sağladığı karar metni):** Eşiğe değerlendirme süresi içinde ulaşılıp ulaşılmadığı ve süre sonunda fiyatın nerede kaldığı ayrı gösterilecek.
 - **102. Aynı mumda hedef ve zarar durdurma (kullanıcının sağladığı karar metni):** Daha kısa zaman aralığındaki verilerle gerçekleşme sırası araştırılacak. Sıra belirlenemezse sonuç Belirsiz kaydedilecek ve başarı/başarısızlık hesabına katılmayacak.
