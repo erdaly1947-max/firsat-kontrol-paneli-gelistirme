@@ -367,3 +367,33 @@ Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; 
 - 72, 75 ve 97. maddeler, gerçek işlem performansını kapsam dışı bırakan kullanıcı düzeltmesine göre kaydedilmiştir.
 - Bu defter tasarım gereksinimlerinin kaydıdır; burada yazan hiçbir yeni işlev, kod ve testle doğrulanmadan mevcut programda uygulanmış kabul edilmez.
 - **Sonraki adım: 101. tasarım kararı.** Kullanıcı daha sonra devam etmek istediğinde buradan sürdürülür.
+
+
+---
+
+## Yeni sohbet odası için güncel devir noktası — 29 Ekim 2026
+
+**Tasarım kararları:** 1–100 tamamlandı ve bu README'de kayıtlıdır. Bunlar kesinleşmiş kararlardır; yeniden sorulmayacak. Gerçek işlem performansı kapsam dışıdır. Program borsa hesabına bağlanmayacak ve otomatik emir göndermeyecektir.
+
+**Şu anki açık konu: 101. tasarım kararı — Yükseliş başarısı nasıl ölçülecek?**
+
+Mevcut teyitli çerçeve: 1 saat, 4 saat ve 24 saatlik pencerelerde dönem sonu fiyat değişimi, pencere içindeki en yüksek yükseliş ve en büyük düşüş ölçülür. Kullanıcı yükseliş eşiğini ayarlardan belirler. Eşiğe herhangi bir anda ulaşmak ile pencere sonunda eşiğin üzerinde kalmak arasındaki başarı ölçütü henüz seçilmemiştir.
+
+Seçenekler:
+1. Eşik fiyatına değerlendirme süresinin herhangi bir anında ulaşılması başarı sayılsın.
+2. Yalnızca değerlendirme süresi sonunda fiyat eşik üzerinde ise başarı sayılsın.
+3. Eşiğe ulaşılıp ulaşılmadığı ve dönem sonunda fiyatın nerede kaldığı ayrı ayrı gösterilsin.
+
+Önceki sohbette verilen tavsiye: **3. seçenek.** Kullanıcı henüz seçim yapmadı. Yeni sohbet doğrudan bu soruyla başlamalı; önceki 1–100 kararları yeniden sorulmamalıdır.
+
+### Yol haritası — bağlayıcı sıra
+1. 101. karardan itibaren tasarım kararlarına devam et. Küçük/ayrıntılı seçimleri asistan belirlesin; programın önemli çalışma mantığını veya kapsamını etkileyen kararları kullanıcıyla birlikte netleştir. Her seferinde yalnızca bir ana karar sor.
+2. Kararlar tamamlanana kadar kodlamaya başlama. Her 100 karar tamamlandığında karar aralığını bu README'ye numaralı şekilde ekle ve yeni sohbetler için devir noktasını güncelle.
+3. Bütün tasarım kararları bittikten sonra mevcut `main` dalındaki programı incele; dosyaları, gerçek işlevleri ve testleri doğrula, eksikleri gider. Bir özellik kod ve test kanıtıyla doğrulanmadıkça uygulanmış sayma.
+4. Mevcut programın doğrulanmış, tam bir sürüm adayı olarak Sürüm 1'i hazırla. Kullanıcının Windows bilgisayarındaki son testini ve açık onayını bekle. Bunlar olmadan Sürüm 1 kabul edilmiş sayılmaz.
+5. Sürüm 1 kabul edilince sabitle. Yeni tasarım kararlarını, Sürüm 1'in eksiksiz kopyasından oluşturulan Sürüm 2'ye uygula. Sürüm 1'i geriye dönük değiştirme ve mevcut işlevleri gereksiz yere yeniden yazma.
+6. Kullanıcıya eksik/ara ZIP teslim etme. Sürümün özellikleri tamamlandıktan ve gerekli testler geçtikten sonra tam paket oluştur. Kullanıcının son kabulü olmadan sonraki sürüme geçme.
+
+**Kodlama ve GitHub sınırı:** Bu kayıt bir plan/devir güncellemesidir, kodlama izni değildir. Program kodu değiştirilmemiştir. Tasarım kararları tamamlanmadan kodlama yapılmayacaktır.
+
+**Yeni sohbetin ilk mesajı:** 101. tasarım kararını yukarıdaki seçeneklerle sor; 3. seçeneğin önceki tavsiye olduğunu ama henüz seçilmediğini belirt. Ardından kullanıcının cevabından sonra 102. karara geç.
