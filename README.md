@@ -367,7 +367,7 @@ Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; 
 - 1–100. karar aralığı tamamlanmış kabul edilir; bu aralıktaki kesinleşmiş kararlar yeniden açılmaz.
 - 72, 75 ve 97. maddeler, gerçek işlem performansını kapsam dışı bırakan kullanıcı düzeltmesine göre kaydedilmiştir.
 - Bu defter tasarım gereksinimlerinin kaydıdır; burada yazan hiçbir yeni işlev, kod ve testle doğrulanmadan mevcut programda uygulanmış kabul edilmez.
-- **Güncel sonraki adım: 142. tasarım kararı.** 101–122 aralığındaki kaynak eksikleri aşağıdaki güncel devir bölümünde işaretlidir; eski “101. tasarım kararı” yönlendirmesi geçersizdir.
+- **Güncel sonraki adım: 142. tasarım kararı.** 101–112 karar metinleri kullanıcı tarafından sağlandı; 113–118 aralığındaki kaynak durumu aşağıdaki güncel devir bölümünde işaretlidir; eski “101. tasarım kararı” yönlendirmesi geçersizdir.
 
 
 ---
