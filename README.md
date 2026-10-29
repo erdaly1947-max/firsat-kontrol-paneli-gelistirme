@@ -448,4 +448,4 @@ Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; 
 - **GitHub kapsamı:** Bu değişiklik yalnızca README'deki tasarım kararları ve devir kaydı içindir. Program kaynak kodu ve uygulama davranışı değiştirilmedi.
 - **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu anlamına gelmez. Uygulama durumu ancak daha sonraki inceleme ve doğrulamayla belirlenir.
 
-Yeni sohbet veya devam adımı 142. tasarım kararından başlamalıdır. 101–122 aralığı içerik olarak kayıtlıdır; yeniden oluşturulmuş metinler özgün sohbet alıntısı olarak sunulmaz. Birincil metin sonradan bulunursa sürüm farkı karşılaştırılır ve kullanıcı onaylı kararların anlamı korunur.
+Yeni sohbet veya devam adımı 142. tasarım kararından başlamalıdır. 101–112 kararları kullanıcı tarafından sağlanan metinlerle kayıtlıdır; yalnızca 113–118 için belirtilen yeniden oluşturulmuş metinler özgün sohbet alıntısı olarak sunulmaz. Birincil metin sonradan bulunursa sürüm farkı karşılaştırılır ve kullanıcı onaylı kararların anlamı korunur.
