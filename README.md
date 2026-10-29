@@ -41,7 +41,7 @@ Masaüstü kodundaki ilgili işlevler analysis_report.py içindedir: görüntü 
 
 ## Programın amacı ve mevcut kapsamı
 
-Program, hızlı yükseliş potansiyeli taşıyan coinleri erken bulmaya yardımcı olan bir teknik analiz ve karar destek aracıdır. Otomatik alım-satım yapmaz, borsa hesabına bağlanmaz ve emir göndermez. Güçlü fırsat ya da A/B/C sınıflandırması kârlılık garantisi değildir.
+Program, hızlı yükseliş potansiyeli taşıyan coinleri erken bulmaya yardımcı olan bir teknik analiz ve karar destek aracıdır,temel amaç kullanıcının para kazanmasına yardım etmekyir. Otomatik alım-satım yapmaz, borsa hesabına bağlanmaz ve emir göndermez. Güçlü fırsat ya da A/B/C sınıflandırması kârlılık öngörüsü içindir.
 
 Mevcut kaynakta şu işlev aileleri bulunur:
 - Binance Spot halka açık piyasa verisi ve WebSocket mum akışı; BtcTurk yerel USDT Spot parite listesi üzerinden ortak tarama evreni. BtcTurk fiyatı bilgi amaçlıdır; teknik mum analizi Binance verisinden yapılır.
@@ -52,7 +52,7 @@ Mevcut kaynakta şu işlev aileleri bulunur:
 - Alarm ve sinyal geçmişi, tek motorlu Windows paneli, günlük/analiz/sorun giderme raporları ve sorun giderme ZIP'i.
 - Bulut raporları için Cloudflare Worker ve piyasa verisi için ayrı Render geçidi.
 
-Kodda işlevin bulunması, o işlevin tarihsel piyasa koşullarında kârlı çalıştığının kanıtı değildir. Gerçek piyasa verileri üzerinde sistematik backtest, kaçırılmış yükseliş/yanlış pozitif ölçümü ve maliyet sonrası net risk/getiri henüz bu README'de doğrulanmış tamamlanmış özellikler olarak gösterilmez.
+Kodda işlevin bulunması, o işlevin tarihsel piyasa koşullarında kârlı çalıştığının kanıtı değildir. Gerçek piyasa verileri üzerinde sistematik backtest, kaçırılmış yükseliş/yanlış pozitif ölçümü ve maliyet sonrası net risk/getiri henüz bu README'de doğrulanmış tamamlanmış özellikler olarak gösterilemiyor.
 
 ## Önemli kaynak dosyaları
 
@@ -258,22 +258,20 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 **Kayıt tarihi:** 29 Ekim 2026  
 **Tasarım durumu:** 1–100 numaralı kararlar kayıtlı; 101–119 için ayrıntılı karar metinleri kayıtlı; 120–122 için ayrıntılı kullanıcı metinleri kayıtlı; 123–141 numaralı kararlar kayıtlıdır. 113. kararın ayrıntılı metni 29 Ekim 2026'da kullanıcı tarafından yeniden sağlandı, onaylandı ve README'ye işlendi.  
 **Sonraki tasarım kararı:** 142. karar.  
-**Kayıt kapsamı denetimi — 29 Ekim 2026:** README'deki 1–141 aralığının tümü mekanik olarak kontrol edildi: 141 ayrı numaralı karar kaydı bulundu; eksik numara veya yinelenen numara yok. 113. karar ayrıntılı, onaylanmış metniyle kayıtlı ve artık eski “yalnızca özet” notu bulunmuyor. Bu kontrol sonrasında sonraki karar numarası 142 olarak doğrulandı.  
+**Kayıt kapsamı denetimi — 29 Ekim 2026:** README'deki 1–141 aralığının tümü mekanik olarak kontrol edildi: 141 ayrı numaralı karar kaydı bulundu;  Bu kontrol sonrasında sonraki karar numarası 142 olarak doğrulandı.  
 **Kodlama durumu:** Başlanmayacak; bütün tasarım kararları tamamlanana ve gerekli açık onaylar verilene kadar beklemede.
 
 ### Bağlayıcı yol haritası
 
-1. **Tasarım kararlarını bitir:** 142. karardan itibaren devam et. Küçük ve ayrıntılı tasarım seçimlerini asistan belirlesin; programın önemli çalışma mantığını veya kapsamını etkileyen kararlar kullanıcıyla birlikte netleştirilsin. Kesinleşmiş kararlar yeniden sorulmasın. Kararların tamamlanması tek başına kodlama izni değildir.
+1. **Tasarım kararlarını bitir:** 142. karardan itibaren devam et. Küçük ve ayrıntılı tasarım seçimlerini asistan belirlesin; programın önemli çalışma mantığını veya kapsamını etkileyen kararlar kullanıcıyla birlikte netleştirilsin. Kesinleşmiş kararlar yeniden sorulmasın. Kararların tamamlanması tek başına kodlama izni değildir kullanıcıya sorulur.
 2. **Her 100 kararda kayıt al:** 1–100 aralığı bu kayıtla sabitlenmiştir. Sonraki 100 karar tamamlandığında 101–200 aralığı aynı README içindeki tasarım kararları defterine eklenecek. Böylece kararlar 100'er maddelik aralıklarla korunacak ve yeni sohbetlere aktarılabilecek.
-3. **Sürüm 1'i mevcut program üzerinden hazırla:** Tasarım kararlarının tamamı bittikten sonra, mevcut GitHub main dalındaki programı incele. Mevcut işlevleri, dosyaları, yapılandırmaları ve testleri doğrula; eksikleri gider ve gerekli testleri çalıştır. Sürüm 1 hazır olduğu kanıtlanmadan kabul edilmiş sayılmayacak.
+3. **Sürüm 1'i mevcut program üzerinden hazırla:** Tasarım kararlarının tamamı bittikten sonra, mevcut GitHub main dalındaki programı incele. Mevcut işlevleri, dosyaları, yapılandırmaları ve testleri doğrula; eksikleri gider ve gerekli testleri çalıştır.
 4. **Sürüm 1'i kullanıcı testinden geçir:** Tam ve doğrulanmış sürüm adayı kullanıcının Windows bilgisayarında kontrol edilecek. Kullanıcının bulguları düzeltilip ilgili testler tekrarlanacak. Kullanıcının son onayı gelmeden Sürüm 1 kabul edilmeyecek.
-5. **Sürüm 1'i sabitle, Sürüm 2'yi ondan üret:** Sürüm 1 kabul edilip sabitlendikten sonra değiştirilmeden korunacak. Yeni tasarım kararları, Sürüm 1'in eksiksiz kopyası temel alınarak Sürüm 2'ye uygulanacak. Mevcut ve çalışan işlevler gereksiz yere yeniden yazılmayacak; yeni işlevler gerçek programa ve arayüze entegre edilecek.
-6. **Eksik sürüm teslim etme:** Kullanıcıya ara çalışma veya eksik ZIP verilmeyecek. Sürümün tüm işlevleri uygulandıktan, ilgili testler ve son tam doğrulama geçtikten sonra tam paket hazırlanacak. Kullanıcının son test ve sürüm kabulü tamamlanmadan bir sonraki sürüme geçilmeyecek.
-7. **Hesap bağlantısı ve otomatik emir yok:** Program borsa hesabına bağlanmayacak, kullanıcının gerçek işlemlerini izlemeyecek ve otomatik emir göndermeyecek. Başarı raporları radarın ve önerilen teknik işlem planlarının fiyat hareketine göre değerlendirilmesini kapsayacak; kullanıcının gerçek alım-satım performansını kapsamayacak.
-8. **Karar kaydını anında koru:** Kullanıcı bir kararı kesinleştirince numarası, başlığı, tam karar metni ve kayıt statüsü README'ye eklenir veya ilgili madde güncellenir. Aynı oturumda bu kayıt yeniden okunup doğrulanmadan sonraki tasarım kararına geçilmez. Özgün metin bulunmuyorsa yeniden oluşturulan içerik açıkça işaretlenir; varsayım sessizce özgün karar gibi kaydedilmez.
-9. **Eksiksizlik yanıtından önce kayıt denetimi yap:** Kullanıcı kararların eksiksiz olup olmadığını sorduğunda, yalnızca hafızaya veya önceki yanıta dayanarak cevap verilmez. README'deki karar numaraları mekanik olarak taranır; 1'den son kesinleşen numaraya kadar her numaranın bir kez bulunduğu, eksik/çift numara olmadığı, önceki kaynak-durumu notlarının güncel olduğu ve sonraki karar numarasının doğru olduğu doğrulanır. İlgili karar bölümü yeniden okunur. Bu denetim bitmeden “eksiksiz” denmez. Kullanıcıdan eksik araması veya mevcut kaydı denetlemesi beklenmez; sorunun kapsamı genişletilerek gereksiz yeni bir doğrulama şartı ortaya atılmaz.
+5. **Sürüm 1'i sabitle, Sürüm 2'yi ondan üret:** Sürüm 1 kabul edilip sabitlendikten sonra değiştirilmeden korunacak. Yeni tasarım kararları, Sürüm 1'in eksiksiz kopyası yeni dala aktarılıp, temel alınarak yeni dalda Sürüm 2 olarak geliştirilecek. Mevcut ve çalışan işlevler gereksiz yere yeniden yazılmayacak; yeni işlevler gerçek programa ve arayüze entegre edilecek.
+6. **Eksik sürüm teslim etme:** Kullanıcıya ara çalışma veya eksik ZIP verilmeyecek. Sürümün tüm işlevleri koda uygulandıktan, ilgili testler ve son tam doğrulama geçtikten sonra tam paket hazırlanacak. Kullanıcının son test ve sürüm kabulü tamamlanmadan bir sonraki sürüme geçilmeyecek.
+7. **Hesap bağlantısı ve otomatik emir yok:** Program borsa hesabına bağlanmayacak, bu herzaman göz önünde bulundurularak geliştirmeler yapılacak, kullanıcının gerçek işlemlerini izlemeyecek ve otomatik emir göndermeyecek. Başarı raporları radarın ve önerilen teknik işlem planlarının fiyat hareketine göre değerlendirilmesini kapsayacak.
 
-### Kararların kaydı: 1–31
+
 
 #### KESİNLEŞEN 1–20. TASARIM KARARLARI
 
@@ -365,7 +363,6 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - Binance ve BtcTurk verilerinin kaynağı arayüzde açıkça ayırt edilecek.
 - BtcTurk sayfasının ortak analiz motorunu kullanması hedefleniyor; teknik gereklilik kod yapısı incelendiğinde değerlendirilecek.
 
-**Tarihsel devir notu:** Kullanıcının bu karar kaydı metninde sıradaki adım 32 olarak belirtilmişti. Daha sonraki süreçte 32–141 kararları da kaydedildiğinden, bu README'nin güncel devam noktası 142. karardır.
 
 ### Kesinleşmiş tasarım kararları: 32–100
 
@@ -456,12 +453,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 
 - 1–100. karar aralığı tamamlanmış kabul edilir; bu aralıktaki kesinleşmiş kararlar yeniden açılmaz.
 - 72, 75 ve 97. maddeler, gerçek işlem performansını kapsam dışı bırakan kullanıcı düzeltmesine göre kaydedilmiştir.
-- Bu defter tasarım gereksinimlerinin kaydıdır; burada yazan hiçbir yeni işlev, kod ve testle doğrulanmadan mevcut programda uygulanmış kabul edilmez.
-- **Güncel sonraki adım: 142. tasarım kararı.** 101–112 karar metinleri kullanıcı tarafından sağlandı; 113–122 aralığındaki kaynak durumu aşağıdaki güncel devir bölümünde işaretlidir; eski “101. tasarım kararı” yönlendirmesi geçersizdir.
-
-
----
-
+- Bu defter tasarım gereksinimlerinin kaydıdır; 
 ## Güncel tasarım kararları ve devir noktası — 29 Ekim 2026
 
 **Güncel durum:** Kullanıcının devir kaydına göre 140. karar tamamlanmıştı. Bu sohbette 141. karar da kesinleştirildi. Sıradaki yeni karar numarası 142'dir.
@@ -493,7 +485,6 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - **121. Sonradan gelen veri düzeltmeleri — kullanıcı tarafından sağlanan karar metni:** Daha sonra gelen güvenilir piyasa verileri önceki bir olay kaydını değiştiriyorsa, program eski kaydı sessizce silmeyecek veya üzerine yazmayacak. Düzeltilmiş sonuç yeniden değerlendirilecek; önceki kayıt, yeni sonuç, düzeltme nedeni ve doğrulama zamanı korunacak. Performans raporlarında en son doğrulanmış sonuç esas alınacak.
 - **122. Düzeltilen verilerin raporlara yansıması — kullanıcı tarafından sağlanan karar metni:** Bir olayın sonucu sonradan düzeltildiğinde, bu değişiklikten etkilenen başarı oranları, toplam ölçümler ve ilgili grafikler en son doğrulanmış sonuçlara göre yeniden hesaplanacak. Daha önce oluşturulmuş raporların geçmiş sürümleri korunacak. Böylece güncel sonuçlar doğru hesaplanırken önceki raporlarla aradaki fark da izlenebilecek.
 
-**Bu aralığın kaynak durumu:** 101–119 ayrıntılı karar metinleriyle kayıtlı; 113'ün ayrıntılı metni kullanıcı tarafından 29 Ekim 2026'da yeniden sağlanıp onaylandı; 120–122 önceki ayrıntılı kullanıcı metinleriyle kayıtlı.
 
 ### Kesinleşmiş kararlar: 123–132
 
@@ -532,11 +523,10 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 
 - **Son kesinleşen karar:** 141.
 - **Sıradaki karar:** 142.
-- **Karar kaydının durumu:** 101–122 aralığındaki kararların ayrıntı ve kaynak durumu ilgili bölümde kayıtlıdır. 113. kararın ayrıntılı metni 29 Ekim 2026'da kullanıcı tarafından yeniden sağlanıp onaylandı; 113–119 metinleri README'de ayrıntılı olarak yer alır.
-- **Kayıt kuralı:** Her kesinleşen karar aynı oturumda README'ye yazılır, yeniden okunur ve doğrulanır; doğrulama bitmeden sonraki numaraya geçilmez.
-- **Sohbet/karar kurtarma kuralı:** Karar defterinin tek yetkili kaynağı bu README'nin `main` dalındaki güncel sürümüdür; sohbet arşivi tek kayıt yeri olarak kullanılmaz. Arşivden çıkarılan sohbet görünmezse karar metinleri tahminle yeniden yazılmaz ve kullanıcıdan bütün kararları baştan anlatması istenmez. Önce aynı hesap/çalışma alanı, arama, Arşivlenmiş sohbetler ve oturum yenileme kontrol edilir. Sohbet yine bulunamazsa ChatGPT Ayarlar > Veri denetimleri > Verileri dışa aktar üzerinden dışa aktarımdaki sohbet kayıtları incelenir. Kullanıcı dışa aktarım dosyasını sağlarsa ilgili karar mesajları özgün ifadeleriyle aranır ve README ile karşılaştırılır. Bulunamayan özgün ifadeler açıkça eksik olarak işaretlenir; yalnızca doğrulanmış tam metin veya kullanıcının açıkça verdiği özet kayda geçirilir. Dışa aktarımda da bulunmayan kayıp sohbet için OpenAI Destek'e başvurulur. Her README güncellemesinden sonra ilgili bölüm yeniden okunup doğrulanır; kodlama için ayrıca açık kullanıcı onayı gerekir.
-- **Kodlama:** Açık kullanıcı onayı gelmeden başlanmayacak.
-- **GitHub kapsamı:** Bu değişiklik yalnızca README'deki tasarım kararları ve devir kaydı içindir. Program kaynak kodu ve uygulama davranışı değiştirilmedi.
-- **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu anlamına gelmez. Uygulama durumu ancak daha sonraki inceleme ve doğrulamayla belirlenir.
 
-Yeni sohbet veya devam adımı 142. tasarım kararından başlamalıdır. 101–122 kararlarının kayıt durumu yukarıda belirtilmiştir. 113. kararın ayrıntılı metni 29 Ekim 2026'da kullanıcı tarafından yeniden sağlanıp onaylanarak kaydedilmiştir.
+- ** kural:** Karar defterinin tek yetkili kaynağı bu README'nin `main` dalındaki güncel sürümüdür; kullanıcıya danışmadan yazılacak metin kendisine sunulmadan buraya kayıt yapılamaz burda düzeltme yapılamaz.
+- **Kodlama:** Açık kullanıcı onayı gelmeden başlanmayacak.
+
+- **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu kontrol edilir, inceleme ve doğrulamayla belirlenir kullanıcı onayıyla koda uygulanır.
+
+Yeni sohbet veya devam adımı 142. tasarım kararından başlamalıdır.
