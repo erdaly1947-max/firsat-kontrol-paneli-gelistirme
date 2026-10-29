@@ -442,7 +442,7 @@ Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; 
 
 - **Son kesinleşen karar:** 141.
 - **Sıradaki karar:** 142.
-- **Karar kaydının durumu:** 101–112 kullanıcının sağladığı metinlerle güncellendi; 113–117 yeniden oluşturulmuş kayıtlardır; 118'in özgün metni bulunamadı; 119–122 kullanıcının sağladığı metinlerle kayıtlı. Özgün sohbet metinleri erişilebilir olmadığından kayıt kaynağı açıkça belirtilmiştir; bu durum sonraki tasarım kararlarının ilerlemesini engelleyen açık bir karar maddesi değildir.
+- **Karar kaydının durumu:** 101–112 için kullanıcı tarafından sağlanan ayrıntılı metinler ve özetler kayıtlı; 113–118 için kullanıcının sağladığı karar özetleriyle önceki yeniden oluşturulmuş içerikler değiştirildi; 119–122 için ayrıntılı kullanıcı metinleri ve özetler kayıtlı. 113–118 özetlerinin özgün tam metin olduğu iddia edilmez.
 - **Kayıt kuralı:** Her kesinleşen karar aynı oturumda README'ye yazılır, yeniden okunur ve doğrulanır; doğrulama bitmeden sonraki numaraya geçilmez.
 - **Kodlama:** Açık kullanıcı onayı gelmeden başlanmayacak.
 - **GitHub kapsamı:** Bu değişiklik yalnızca README'deki tasarım kararları ve devir kaydı içindir. Program kaynak kodu ve uygulama davranışı değiştirilmedi.
