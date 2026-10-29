@@ -207,8 +207,7 @@ Bu bölüm, eski ve çelişen dal/test/paket kurallarının yerine geçer.
 
 ### 3. Değişikliğe uygun test kapsamı
 
-- Her küçük değişiklikten sonra bütün program tekrar baştan sona test edilmez. Önce değiştirilen işlevin doğrudan testleri ve etkilenen davranışlara ait ilgili regresyon testleri çalıştırılır.
-- Ortak modül, veri akışı, yapılandırma, kullanıcı arayüzü veya hizmetler arası bağlantı etkileniyorsa buna uygun entegrasyon testleri de çalıştırılır.
+- Her küçük değişiklikten sonra bütün program tekrar baştan sona test edilmez. Önce değiştirilen işlevin doğrudan testleri ve etkilenen davranışlara ait ilgili regresyon testleri çalıştırılır.- Ortak modül, veri akışı, yapılandırma, kullanıcı arayüzü veya hizmetler arası bağlantı etkileniyorsa buna uygun entegrasyon testleri de çalıştırılır.
 - Her aşama sonunda o aşamanın işlev alanları için daha geniş kontroller yapılır. Başarısız test varsa neden bulunur, kod düzeltilir ve ilgili testler yeniden çalıştırılır.
 - Son ZIP'ten önce programın tüm kritik bileşenlerini ve hizmetler arası akışları kapsayan zorunlu tam doğrulama yapılır. Başarısız zorunlu test varsa paket hazır diye sunulmaz.
 - Otomatik test başarısı, gerçek Windows arayüzünün görsel kontrolü veya tarihsel kârlılık kanıtı değildir; bunlar gerektiğinde ayrı ve dürüst biçimde raporlanır.
@@ -417,8 +416,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - **71.** Aktif Takip pariteleri güncel fırsat gücüne göre otomatik sıralanır.
 - **72.** **Düzeltilmiş karar:** Gerçekleşen alım-satım işlemlerinin performansı hesaplanmaz. Yalnızca fırsat radarının tespit performansı ve önerilen işlem planlarının fiyat hareketlerine göre başarısı değerlendirilir.
 - **73.** Değerlendirme süreleri 1 saat, 4 saat ve 24 saattir.
-- **74.** Her sürede dönem sonu fiyat değişimi, dönem içindeki en yüksek yükseliş ve en büyük düşüş ölçülür.
-- **75.** Radarın fiyat hareketini tespit başarısı ile önerilen işlem planının hedefe ulaşma başarısı ayrı ölçülür; kullanıcıya ait gerçek işlem sonuçları kullanılmaz.
+- **74.** Her sürede dönem sonu fiyat değişimi, dönem içindeki en yüksek yükseliş ve en büyük düşüş ölçülür.- **75.** Radarın fiyat hareketini tespit başarısı ile önerilen işlem planının hedefe ulaşma başarısı ayrı ölçülür; kullanıcıya ait gerçek işlem sonuçları kullanılmaz.
 - **76.** Başarı için gereken yükseliş eşiğini kullanıcı ayarlardan belirler.
 - **77.** Genel sonuçlar, coin bazında performans ve Binance ile BtcTurk PRO sonuçları ayrı gösterilir.
 - **78.** Raporlarda sayısal özetler, tablolar ve grafikler birlikte kullanılır.
@@ -619,3 +617,53 @@ Bu madde, programın geçmişteki bir tarihte o an elinde bulunan verilerle nas�
 - **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu kontrol edilir, inceleme ve doğrulamayla belirlenir kullanıcı onayıyla koda uygulanır.
 
 Yeni sohbet 155. tasarım maddesinden devam etmelidir. 1–154 arasındaki kesinleşmiş tasarım kararları tekrar sorulmayacak.
+
+
+---
+
+## Güncel karar güncellemesi — 30 Ekim 2026
+
+Bu bölüm, aşağıdaki 154. ve 155. maddelerin **en güncel durum kaydıdır**. Önceki bölümlerde sıradaki madde olarak yer alan 155 ifadesi, bu güncellemedeki tamamlanma durumuyla birlikte okunmalıdır.
+
+### 154. Tarihsel geri test ve ölçüm yöntemi — tamamlandı ve onaylandı
+
+Kullanıcı 154. maddeyi onaylamıştır. Tasarım kararı kesinleşmiştir ve yeniden sorulmayacaktır. Geçmiş test anında yalnızca o tarihte gerçekten erişilebilir veri kullanılacak; adaylar, sinyaller ve teknik plan seviyeleri kaydedilecek, sonraki mumlar kronolojik olarak ilerletilerek gerçek fiyat davranışıyla karşılaştırılacaktır. Radarın erken tespit başarısı ile teknik plan sonuçları ayrı ölçülecek; eksik veri veya belirsiz olay sırası uydurulmayacak.
+
+Bu onay, tarihsel geri test motorunun kaynak koda eklendiğini veya ölçümlerin çalıştırılarak doğrulandığını göstermez.
+
+### 155. Bütün ekranların son tasarım tutarlılığı kontrolü — devam ediyor
+
+155. madde henüz tamamlanmamıştır. Şu ana kadar geliştirme yöntemi ve iki motorun ana kontrollerle çalıştırılmasına ilişkin kararlar kesinleşmiştir. Menünün nihai ad ve sıralaması dahil bütün ekran tutarlılığı kontrolü tamamlanmış değildir.
+
+#### 155 kapsamında kullanıcı tarafından onaylanan geliştirme yöntemi
+
+1. Önce mevcut `main` dalındaki kaynak kodu ve testler salt okunur biçimde incelenir. İşlevler “mevcut karşılığı var”, “kısmen karşılanıyor”, “eksik”, “çelişkili” veya “doğrulanamadı” şeklinde sınıflandırılır.
+2. Kritik çalışma aksaklıkları ve güvenilirliği etkileyen eksikler önem sırasına konur.
+3. Kritik temel düzeltmelerden sonra yeni arayüz ve eksik motor işlevleri aşamalı olarak geliştirilir.
+4. Her aşamada ilgili testler çalıştırılır; bu kontroller nihai bütünleşik testin yerini almaz.
+5. Son aşamada ekranlar, motorlar, veri akışı, düğmeler ve paketlenmiş Windows programı birlikte doğrulanır.
+
+Bu sıra onaylanmış geliştirme yöntemidir; kendi başına kod değişikliği yapma izni değildir.
+
+#### 155 kapsamında Başlat/Durdur kararı — onaylandı
+
+- **Başlat:** Teknik analiz motoru ile Naratif Avcısı birlikte başlatılacak.
+- **Durdur:** Teknik analiz motoru ile Naratif Avcısı birlikte durdurulacak.
+- Her motorun gerçek çalışma durumu ayrı ve anlaşılır biçimde izlenebilir olmalıdır.
+- Bir motorun veya naratif kaynağının hata vermesi hâlinde diğer motorun davranışı, kontrollü durdurma ve hata bildirimi ayrıntıları güncel kod ve mimari incelendikten sonra netleştirilecektir; bunlar henüz ayrı bir kesin tasarım kararı değildir.
+
+**Mevcut kod ile tasarım hedefinin ayrımı:** İncelenen `tek_motor_paneli.pyw` dosyasında mevcut Başlat düğmesi `binance_erken_firsat_radari.py` teknik analiz motorunu başlatıyor. Başlat/Durdur üzerinden Naratif Avcısı'nın da çalıştırıldığı doğrulanmış değildir. Naratif Avcısı'nın birlikte çalışması onaylanmış hedef davranıştır; uygulanmış özellik olarak sunulmayacaktır.
+
+#### 155'in kalan işi
+
+- Menü ve ekran isimleri/sırası ile ortak gezinme tutarlılığını kontrol etmek.
+- Mevcut düğme, kontrol ve işlevlerin kaybolmamasını sağlamak.
+- 1–155 arasındaki gereksinimlerde eksik veya çelişkili noktaları, kesinleşmiş kararları tekrar açmadan son kez gözden geçirmek.
+- Önceki öneri olarak sunulan on ekranlık menü sırası kullanıcı tarafından onaylanmamıştır; nihai menü kararı olarak kaydedilmemiştir.
+
+### Çalışma sınırı ve yeni başlangıç noktası
+
+- Kod, test, dağıtım veya paketleme değişikliklerine başlamadan önce kullanıcıdan ayrıca açık onay alınacaktır.
+- İlk uygulama işi, mevcut `main` dalının güncel kod/test durumunu salt okunur biçimde denetlemek ve bulguları önem sırasına koymaktır. Bu denetim sırasında dosya veya kod değiştirilmeyecektir.
+- Tasarım hedefiyle kodda doğrulanmış davranış birbirinden ayrı gösterilecektir.
+- Bu güncellemede yalnızca README karar kaydı değiştirilmektedir; kaynak kod ve test dosyaları değiştirilmemiştir.
