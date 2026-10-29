@@ -249,3 +249,121 @@ Bu bölüm, eski ve çelişen dal/test/paket kurallarının yerine geçer.
 ## Windows'ta başlatma
 
 ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalıştırın. Program Python/Tkinter masaüstü uygulamasıdır; EXE kurucusu değildir. Kullanılan bağımlılıklar requirements.txt dosyasında tutulur. Program halka açık piyasa verilerini okuyan bir analiz/karar destek aracıdır; borsa hesabına bağlanmaz, emir göndermez ve otomatik alım-satım yapmaz.
+
+
+---
+
+## Fırsat-Kontrol Paneli — tasarım kararları defteri ve sürüm yol haritası
+
+**Kayıt tarihi:** 29 Ekim 2026  
+**Tasarım durumu:** 1–100. karar aralığı tamamlandı.  
+**Sonraki tasarım kararı:** 101. karar.  
+**Kodlama durumu:** Başlanmayacak; bütün tasarım kararları tamamlanana ve gerekli açık onaylar verilene kadar beklemede.
+
+### Bağlayıcı yol haritası
+
+1. **Tasarım kararlarını bitir:** 101. karardan itibaren devam et. Küçük ve ayrıntılı tasarım seçimlerini asistan belirlesin; programın önemli çalışma mantığını veya kapsamını etkileyen kararlar kullanıcıyla birlikte netleştirilsin. Kesinleşmiş kararlar yeniden sorulmasın. Kararların tamamlanması tek başına kodlama izni değildir.
+2. **Her 100 kararda kayıt al:** 1–100 aralığı bu kayıtla sabitlenmiştir. Sonraki 100 karar tamamlandığında 101–200 aralığı aynı README içindeki tasarım kararları defterine eklenecek. Böylece kararlar 100'er maddelik aralıklarla korunacak ve yeni sohbetlere aktarılabilecek.
+3. **Sürüm 1'i mevcut program üzerinden hazırla:** Tasarım kararlarının tamamı bittikten sonra, mevcut GitHub main dalındaki programı incele. Mevcut işlevleri, dosyaları, yapılandırmaları ve testleri doğrula; eksikleri gider ve gerekli testleri çalıştır. Sürüm 1 hazır olduğu kanıtlanmadan kabul edilmiş sayılmayacak.
+4. **Sürüm 1'i kullanıcı testinden geçir:** Tam ve doğrulanmış sürüm adayı kullanıcının Windows bilgisayarında kontrol edilecek. Kullanıcının bulguları düzeltilip ilgili testler tekrarlanacak. Kullanıcının son onayı gelmeden Sürüm 1 kabul edilmeyecek.
+5. **Sürüm 1'i sabitle, Sürüm 2'yi ondan üret:** Sürüm 1 kabul edilip sabitlendikten sonra değiştirilmeden korunacak. Yeni tasarım kararları, Sürüm 1'in eksiksiz kopyası temel alınarak Sürüm 2'ye uygulanacak. Mevcut ve çalışan işlevler gereksiz yere yeniden yazılmayacak; yeni işlevler gerçek programa ve arayüze entegre edilecek.
+6. **Eksik sürüm teslim etme:** Kullanıcıya ara çalışma veya eksik ZIP verilmeyecek. Sürümün tüm işlevleri uygulandıktan, ilgili testler ve son tam doğrulama geçtikten sonra tam paket hazırlanacak. Kullanıcının son test ve sürüm kabulü tamamlanmadan bir sonraki sürüme geçilmeyecek.
+7. **Hesap bağlantısı ve otomatik emir yok:** Program borsa hesabına bağlanmayacak, kullanıcının gerçek işlemlerini izlemeyecek ve otomatik emir göndermeyecek. Başarı raporları radarın ve önerilen teknik işlem planlarının fiyat hareketine göre değerlendirilmesini kapsayacak; kullanıcının gerçek alım-satım performansını kapsamayacak.
+
+### Kararların kaydı: 1–31
+
+1–31. kararlar önceki sohbetlerde kesinleştirildi. Bu aktarımın kaynak metninde bu 31 kararın tamamının tek tek numaralanmış özgün metni bulunmadığından, eksik maddeler uydurularak yeniden yazılmadı. Bu aralık kesinleşmiş kabul edilir; yeniden sorulmayacak veya kendiliğinden değiştirilmeyecek.
+
+Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; kullanıcı onaylı takip listesi; yeni işlem planının kullanıcı onayı olmadan etkinleştirilmemesi ve eski planın korunması; bildirim ayrıntılarının sağdan açılan panelde gösterilmesi; Binance'ten BtcTurk PRO'ya coin aktarılırken paritenin otomatik seçilmesi; grafiklerin önceki Binance grafiği mantığına uygun çalışması; trend çizgisi ve paralel kanal çizimi ile çizimlerin kalıcı saklanması. Ayrıca 26. kararın kayıtta bulunan metni: BtcTurk PRO doğrudan açıldığında en son incelenen paritenin ayrıntı ekranı açılsın; Binance'ten aktarılan coin otomatik seçilsin.
+
+### Kesinleşmiş tasarım kararları: 32–100
+
+#### 32–40. Grafikler ve çizim araçları
+- **32.** Çizimler kalıcı saklanır ve ilgili zaman dilimiyle birlikte kaydedilir.
+- **33.** Çizimler taşınarak veya uç noktaları değiştirilerek düzenlenmez; silinip yeniden çizilir.
+- **34.** Zaman dilimleri ayrı düğmelerle seçilir; daha önce kararlaştırılmış grafik davranışları yeniden tartışılmaz.
+- **35.** Çizimler silinirken kısa süreli Geri Al seçeneği bulunur.
+- **36.** Trend çizgisi ve paralel kanal aynı çizim araçları menüsünde bulunur.
+- **37.** Aktif planın giriş bölgesi, kâr hedefleri, zarar-kes ve geçersizlik seviyeleri grafikte gösterilir; her biri ayrı ayrı gizlenebilir.
+- **38.** Her işlem seviyesi için ad ve fiyat gösterilir.
+- **39.** Grafikte yalnızca aktif plan gösterilir. Yeni öneri ayrı açılır ve kullanıcı onayı olmadan etkinleştirilmez.
+- **40.** RSI (Göreceli Güç Endeksi), MACD (Hareketli Ortalamaların Yakınsaması ve Iraksaması) ve Momentum (Fiyat İvmesi) fiyat grafiğinin altında ayrı bölümlerde gösterilir; açılıp kapatılabilir.
+
+#### 41–50. Fırsat Radarı
+- **41.** Satıra tıklamak coin seçer; Parite Analizi ayrı bir İncele düğmesiyle açılır.
+- **42.** Coin satırında kısa fırsat gerekçesi, ayrıca ayrıntılı inceleme bulunur.
+- **43.** En güçlü fırsat adayı listenin en üstünde olur.
+- **44.** Tarama tamamlandığında liste topluca yeniden sıralanır; inceleme sırasında coinler sürekli yer değiştirmez.
+- **45.** Güçlü Fırsat, İzlemeye Değer ve Zayıf Aday seviyeleri kullanılır.
+- **46.** Coin satırında tespit zamanı gösterilir.
+- **47.** Yeniden sıralama sırasında seçilmiş coin korunur.
+- **48.** Fırsat özelliğini kaybeden coin listede kalır ve durum kaybı belirtilir.
+- **49.** Coin adı veya parite sembolüyle arama yapılır; liste anında filtrelenir.
+- **50.** Hazır filtreler fırsat gücünü, fırsat durumunun güncelliğini ve işlem yapılan borsayı kapsar.
+
+#### 51–60. Raporlar, genel bakış ve pencere davranışı
+- **51.** Rapor dönemleri: Bugün, Son 7 Gün, Son 30 Gün, Tüm Dönem ve özel tarih aralığı.
+- **52.** Excel (tablo dosyası) ve PDF (belge dosyası) dışa aktarma bulunur.
+- **53.** Genel Bakış açılışında piyasa durumu, en güçlü fırsat adayı, aktif işlem planları ve son tarama durumu gösterilir.
+- **54.** En güçlü fırsat ve piyasa durumu üstte, diğer bilgiler altta bulunur.
+- **55.** Genel Bakış otomatik güncellenir; son güncelleme zamanı ve elle yenileme düğmesi bulunur.
+- **56.** Güncelleme sıklığı Sistem ve Ayarlar bölümünden değiştirilebilir.
+- **57.** Varsayılan koyu tema; isteğe bağlı açık tema bulunur.
+- **58.** Son kullanılan pencere boyutu ve konumu hatırlanır.
+- **59.** Pencere kapandığında tarama motorları arka planda çalışmaya devam eder ve fırsat uyarıları etkin kalır.
+- **60.** Pencere ek onay sorulmadan doğrudan kapanır.
+
+#### 61–70. Bağlantı, bildirim ve arka plan
+- **61.** Bağlantı kesilince uyarı gösterilir, otomatik yeniden bağlanma denenir ve veri akışı geri geldiğinde tarama sürer.
+- **62.** Aynı koşul devam ederken yalnızca ilk uyarı verilir; durum önemli ölçüde değişirse yeni uyarı verilir.
+- **63.** Pencere kapalıyken Windows masaüstü bildirimi gösterilir ve kayıt tutulur.
+- **64.** Uyarı kayıtlarının saklama süresi ayarlardan belirlenir.
+- **65.** Eski veriler ekranda kalır, ancak güncel olmadıkları yazı ve veri rengiyle vurgulanır. Güncel veri gelene kadar yeni fırsat değerlendirmesi yapılmaz.
+- **66.** Windows açılışında otomatik başlatma ayarlardan açılıp kapatılır.
+- **67.** Otomatik başlatma programı arka planda başlatır; ana pencere açılmadan tarama motorları çalışır.
+- **68.** Arka plandaki programa erişmek için Windows sistem tepsisi simgesi bulunur.
+- **69.** Sistem tepsisi simgesine tek tıklama ana pencereyi açar.
+- **70.** Simgeye sağ tıklanınca Programı Tamamen Kapat seçeneği bulunur; motorlar da kapatılır.
+
+#### 71–80. Aktif Takip ve fırsat başarı ölçümü
+- **71.** Aktif Takip pariteleri güncel fırsat gücüne göre otomatik sıralanır.
+- **72.** **Düzeltilmiş karar:** Gerçekleşen alım-satım işlemlerinin performansı hesaplanmaz. Yalnızca fırsat radarının tespit performansı ve önerilen işlem planlarının fiyat hareketlerine göre başarısı değerlendirilir.
+- **73.** Değerlendirme süreleri 1 saat, 4 saat ve 24 saattir.
+- **74.** Her sürede dönem sonu fiyat değişimi, dönem içindeki en yüksek yükseliş ve en büyük düşüş ölçülür.
+- **75.** Radarın fiyat hareketini tespit başarısı ile önerilen işlem planının hedefe ulaşma başarısı ayrı ölçülür; kullanıcıya ait gerçek işlem sonuçları kullanılmaz.
+- **76.** Başarı için gereken yükseliş eşiğini kullanıcı ayarlardan belirler.
+- **77.** Genel sonuçlar, coin bazında performans ve Binance ile BtcTurk PRO sonuçları ayrı gösterilir.
+- **78.** Raporlarda sayısal özetler, tablolar ve grafikler birlikte kullanılır.
+- **79.** Sinyal verilsin veya verilmesin, taranan tüm coinlerin sonraki fiyat hareketleri kaydedilir; eşik ve değerlendirme süreleri uygulanır.
+- **80.** Yükselişler erken tespit edilen, geç tespit edilen ve tamamen kaçırılan olarak sınıflandırılır.
+
+#### 81–90. Ölçüm yöntemi ve rapor başlangıcı
+- **81.** Erken/geç tespit için izleme başlangıcındaki fiyat referans alınır. Belirlenen yükseliş eşiğine doğru hareketin ilk %25'lik bölgesine ulaşılmadan sinyal gelirse erken; bu bölgeden sonra ancak eşik aşılmadan sinyal gelirse geç tespit sayılır. Eşik sinyal gelmeden aşılırsa yükseliş kaçırılmış sayılır.
+- **82.** Her coin için izleme başladığında kaydedilen ilk geçerli fiyat başlangıç fiyatıdır.
+- **83.** Önceki kaydın 24 saatlik ölçümü devam ediyorsa kayıt korunur. Ölçüm tamamlandıktan sonra yeni sinyal gelirse yeni kayıt ve başlangıç fiyatı oluşturulur.
+- **84.** Hedef ölçüm zamanında güvenilir fiyat alınamazsa ölçüm eksik kaydedilir ve başarı hesabına katılmaz.
+- **85.** Eksik ölçümlerin sayısı, toplam içindeki oranı, ilgili zaman dilimi ve kayıtlıysa nedeni gösterilir.
+- **86.** Başarı oranı ölçüm sayısıyla birlikte gösterilir. Veri azsa sonuç Yetersiz Veri olarak işaretlenir.
+- **87.** Asgari ölçüm sınırı Sistem ve Ayarlar bölümünden kullanıcı tarafından belirlenebilir.
+- **88.** Varsayılan asgari sınır 30 tamamlanmış ölçümdür; ayarlardan değiştirilebilir.
+- **89.** Genel performans, coin ve tarama motoru ayrı değerlendirilir. Her grup asgari sınırın altındaysa Yetersiz Veri işareti konur; sayısal sonuçlar gösterilmeye devam eder.
+- **90.** Raporlar ekranı genel performans özetiyle açılır; toplam sonuçlar, başarı oranları, erken tespitler ve kaçırılan yükselişler ilk ekranda gösterilir.
+
+#### 91–100. Ayrıntılı raporlar, işlem kapsamı ve başarısız sinyaller
+- **91.** Genel performans özetindeki bir sonuca tıklanınca ilgili ayrıntılı rapor açılır.
+- **92.** Ayrıntılı raporlar varsayılan olarak en önemli sonuçlar önce sıralanır; kullanıcı sıralamayı tarihe, yükseliş oranına veya performansa göre değiştirebilir.
+- **93.** Coin, borsa, erken/geç/kaçırılan yükseliş sınıfı ve 1 saat/4 saat/24 saat değerlendirme süresi filtreleri birlikte kullanılabilir.
+- **94.** Filtreler değiştikçe sonuçlar anında güncellenir; ayrıca Filtreleri Sıfırla düğmesi bulunur.
+- **95.** Rapor ayrıntısında hem ölçüm sonuçları hem de fiyat hareketinin zaman içindeki gelişimi gösterilir.
+- **96.** **İşlem yetkisi:** Program analiz, işlem planı ve uyarı sunar. Borsa hesabı bağlanmaz; emirleri kullanıcı kendisi verir ve program otomatik emir göndermez.
+- **97.** **Düzeltilmiş karar:** Kullanıcının gerçek işlem performansı hesaplamalara dahil edilmez; işlem geçmişi manuel olarak da istenmez.
+- **98.** Yükseliş sinyali verilip ilgili yükseliş eşiğine ulaşılmayan durumlar raporlarda başarısız sinyal olarak ayrı sınıflandırılır.
+- **99.** Küçük ayrıntı kararı: 1 saat, 4 saat ve 24 saatlik değerlendirme pencereleri ayrı ölçülür. İlgili pencerede yükseliş eşiğine hiç ulaşılmazsa o pencerenin sonucu başarısız sinyal olur; daha uzun bir pencerenin sonucu ayrı hesaplanır.
+- **100.** Başarısız sinyal için yalnızca 24 saatlik değerlendirme tamamlandığında hâlâ yükseliş eşiğine ulaşılmamışsa tek bildirim gönderilir.
+
+### Kayıt bütünlüğü ve sonraki adım
+
+- 1–100. karar aralığı tamamlanmış kabul edilir; bu aralıktaki kesinleşmiş kararlar yeniden açılmaz.
+- 72, 75 ve 97. maddeler, gerçek işlem performansını kapsam dışı bırakan kullanıcı düzeltmesine göre kaydedilmiştir.
+- Bu defter tasarım gereksinimlerinin kaydıdır; burada yazan hiçbir yeni işlev, kod ve testle doğrulanmadan mevcut programda uygulanmış kabul edilmez.
+- **Sonraki adım: 101. tasarım kararı.** Kullanıcı daha sonra devam etmek istediğinde buradan sürdürülür.
