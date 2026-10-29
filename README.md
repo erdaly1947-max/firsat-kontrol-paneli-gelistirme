@@ -256,13 +256,13 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 ## Fırsat-Kontrol Paneli — tasarım kararları defteri ve sürüm yol haritası
 
 **Kayıt tarihi:** 29 Ekim 2026  
-**Tasarım durumu:** 1–100. karar aralığı tamamlandı.  
-**Sonraki tasarım kararı:** 101. karar.  
+**Tasarım durumu:** 1–100. kararların defteri mevcut; 101–117 yeniden oluşturulmuş taslak, 118'in kesinleştiği biliniyor ancak içeriği eksik, 119–122 kullanıcı tarafından sağlanan metinler, 123–141 kayıtlıdır.  
+**Sonraki tasarım kararı:** 142. karar.  
 **Kodlama durumu:** Başlanmayacak; bütün tasarım kararları tamamlanana ve gerekli açık onaylar verilene kadar beklemede.
 
 ### Bağlayıcı yol haritası
 
-1. **Tasarım kararlarını bitir:** 101. karardan itibaren devam et. Küçük ve ayrıntılı tasarım seçimlerini asistan belirlesin; programın önemli çalışma mantığını veya kapsamını etkileyen kararlar kullanıcıyla birlikte netleştirilsin. Kesinleşmiş kararlar yeniden sorulmasın. Kararların tamamlanması tek başına kodlama izni değildir.
+1. **Tasarım kararlarını bitir:** 142. karardan itibaren devam et. Küçük ve ayrıntılı tasarım seçimlerini asistan belirlesin; programın önemli çalışma mantığını veya kapsamını etkileyen kararlar kullanıcıyla birlikte netleştirilsin. Kesinleşmiş kararlar yeniden sorulmasın. Kararların tamamlanması tek başına kodlama izni değildir.
 2. **Her 100 kararda kayıt al:** 1–100 aralığı bu kayıtla sabitlenmiştir. Sonraki 100 karar tamamlandığında 101–200 aralığı aynı README içindeki tasarım kararları defterine eklenecek. Böylece kararlar 100'er maddelik aralıklarla korunacak ve yeni sohbetlere aktarılabilecek.
 3. **Sürüm 1'i mevcut program üzerinden hazırla:** Tasarım kararlarının tamamı bittikten sonra, mevcut GitHub main dalındaki programı incele. Mevcut işlevleri, dosyaları, yapılandırmaları ve testleri doğrula; eksikleri gider ve gerekli testleri çalıştır. Sürüm 1 hazır olduğu kanıtlanmadan kabul edilmiş sayılmayacak.
 4. **Sürüm 1'i kullanıcı testinden geçir:** Tam ve doğrulanmış sürüm adayı kullanıcının Windows bilgisayarında kontrol edilecek. Kullanıcının bulguları düzeltilip ilgili testler tekrarlanacak. Kullanıcının son onayı gelmeden Sürüm 1 kabul edilmeyecek.
@@ -366,7 +366,7 @@ Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; 
 - 1–100. karar aralığı tamamlanmış kabul edilir; bu aralıktaki kesinleşmiş kararlar yeniden açılmaz.
 - 72, 75 ve 97. maddeler, gerçek işlem performansını kapsam dışı bırakan kullanıcı düzeltmesine göre kaydedilmiştir.
 - Bu defter tasarım gereksinimlerinin kaydıdır; burada yazan hiçbir yeni işlev, kod ve testle doğrulanmadan mevcut programda uygulanmış kabul edilmez.
-- **Sonraki adım: 101. tasarım kararı.** Kullanıcı daha sonra devam etmek istediğinde buradan sürdürülür.
+- **Güncel sonraki adım: 142. tasarım kararı.** 101–122 aralığındaki kaynak eksikleri aşağıdaki güncel devir bölümünde işaretlidir; eski “101. tasarım kararı” yönlendirmesi geçersizdir.
 
 
 ---
