@@ -258,6 +258,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 **Kayıt tarihi:** 29 Ekim 2026  
 **Tasarım durumu:** 1–100 numaralı kararlar kayıtlı; 101–119 için ayrıntılı karar metinleri kayıtlı; 120–122 için ayrıntılı kullanıcı metinleri kayıtlı; 123–141 numaralı kararlar kayıtlıdır. 113. kararın ayrıntılı metni 29 Ekim 2026'da kullanıcı tarafından yeniden sağlandı, onaylandı ve README'ye işlendi.  
 **Sonraki tasarım kararı:** 142. karar.  
+**Kayıt kapsamı denetimi — 29 Ekim 2026:** README'deki 1–141 aralığının tümü mekanik olarak kontrol edildi: 141 ayrı numaralı karar kaydı bulundu; eksik numara veya yinelenen numara yok. 113. karar ayrıntılı, onaylanmış metniyle kayıtlı ve artık eski “yalnızca özet” notu bulunmuyor. Bu kontrol sonrasında sonraki karar numarası 142 olarak doğrulandı.  
 **Kodlama durumu:** Başlanmayacak; bütün tasarım kararları tamamlanana ve gerekli açık onaylar verilene kadar beklemede.
 
 ### Bağlayıcı yol haritası
@@ -270,6 +271,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 6. **Eksik sürüm teslim etme:** Kullanıcıya ara çalışma veya eksik ZIP verilmeyecek. Sürümün tüm işlevleri uygulandıktan, ilgili testler ve son tam doğrulama geçtikten sonra tam paket hazırlanacak. Kullanıcının son test ve sürüm kabulü tamamlanmadan bir sonraki sürüme geçilmeyecek.
 7. **Hesap bağlantısı ve otomatik emir yok:** Program borsa hesabına bağlanmayacak, kullanıcının gerçek işlemlerini izlemeyecek ve otomatik emir göndermeyecek. Başarı raporları radarın ve önerilen teknik işlem planlarının fiyat hareketine göre değerlendirilmesini kapsayacak; kullanıcının gerçek alım-satım performansını kapsamayacak.
 8. **Karar kaydını anında koru:** Kullanıcı bir kararı kesinleştirince numarası, başlığı, tam karar metni ve kayıt statüsü README'ye eklenir veya ilgili madde güncellenir. Aynı oturumda bu kayıt yeniden okunup doğrulanmadan sonraki tasarım kararına geçilmez. Özgün metin bulunmuyorsa yeniden oluşturulan içerik açıkça işaretlenir; varsayım sessizce özgün karar gibi kaydedilmez.
+9. **Eksiksizlik yanıtından önce kayıt denetimi yap:** Kullanıcı kararların eksiksiz olup olmadığını sorduğunda, yalnızca hafızaya veya önceki yanıta dayanarak cevap verilmez. README'deki karar numaraları mekanik olarak taranır; 1'den son kesinleşen numaraya kadar her numaranın bir kez bulunduğu, eksik/çift numara olmadığı, önceki kaynak-durumu notlarının güncel olduğu ve sonraki karar numarasının doğru olduğu doğrulanır. İlgili karar bölümü yeniden okunur. Bu denetim bitmeden “eksiksiz” denmez. Kullanıcıdan eksik araması veya mevcut kaydı denetlemesi beklenmez; sorunun kapsamı genişletilerek gereksiz yeni bir doğrulama şartı ortaya atılmaz.
 
 ### Kararların kaydı: 1–31
 
