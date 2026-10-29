@@ -375,11 +375,34 @@ Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; 
 
 **Güncel durum:** Kullanıcının devir kaydına göre 140. karar tamamlanmıştı. Bu sohbette 141. karar da kesinleştirildi. Sıradaki yeni karar numarası 142'dir.
 
-### Karar defteri bütünlüğü: 101–122
+### 101–122. karar aralığı — yeniden oluşturulmuş işletim kaydı
 
-Mevcut README'de 1–100. kararların metinleri bulunuyor. README'nin önceki sonunda kalan 101. karar devir notu artık güncel değildir ve yürürlükteki durum olarak kullanılmamalıdır.
+**Kayıt doğruluğu notu:** 101–122. kararların özgün sohbetlerdeki tam metinleri erişilebilen kitaplık ve GitHub kayıtlarında bulunamadı. Aşağıdaki metin, özgün ifadelerin aynen geri getirildiği iddiası değildir. Kullanıcının “gerekli yerlerde sor, küçük ayrıntılarda kendin karar ver ve bu aralığı tamamla” yönlendirmesi üzerine 29 Ekim 2026'da, doğrulanmış 1–100 ve 123–141. kararlarla çelişmeyecek şekilde yeniden oluşturulan işletim kaydıdır. Daha sonra özgün metin bulunursa farklılıklar karşılaştırılır; kullanıcı tarafından kesinleştirilmiş sonraki kararlar sessizce değiştirilmez.
 
-101–122. kararların tam metinleri mevcut README'de yer almıyor. Erişilebilen önceki devir dosyaları da bu 22 kararın tam metnini doğrulamaya yetmiyor. Kullanıcının güncel devir kaydı 123–140. kararların tamamlandığını bildiriyor; ancak 101–122. kararların özgün metinleri doğrulanmadan yeniden yazılmayacak veya varsayımla doldurulmayacak. Bu aralık kullanıcıyla birlikte doğrulanıp kaynak metinleri elde edildikçe karar defterine eklenecek.
+- **101. Yükseliş başarısının ölçülmesi:** Radarın belirlediği yükseliş eşiğine ölçüm penceresi içinde herhangi bir anda ulaşılıp ulaşılmadığı ile pencere sonundaki fiyat sonucu ayrı gösterilir. Birine bakarak diğeri varsayılmaz.
+- **102. Bir ölçüm penceresinde gösterilecek temel sonuçlar:** Eşik olayının durumu, pencere sonundaki fiyat değişimi, pencere içindeki en yüksek yükseliş ve en büyük düşüş ayrı alanlar olarak sunulur. Aynı fiyat geçmişi yeniden toplanmaz.
+- **103. En yüksek yükselişin hesabı:** En yüksek yükseliş, ölçüm başlangıç fiyatı ile ölçüm penceresinde görülen en yüksek güvenilir mum tepesi arasındaki yüzde değişim olarak hesaplanır.
+- **104. En büyük düşüşün hesabı:** En büyük düşüş, aynı ölçüm başlangıç fiyatı ile ölçüm penceresinde görülen en düşük güvenilir mum dibi arasındaki yüzde değişim olarak hesaplanır. Yükseliş ve düşüş için farklı başlangıç fiyatları kullanılmaz.
+- **105. Pencere sonu fiyatı:** Pencere sonu karşılaştırmasında, bitiş zamanına kadar kapanmış en son güvenilir mumun kapanış fiyatı kullanılır. Henüz kapanmamış mumun anlık fiyatı nihai sonuç gibi kullanılmaz.
+- **106. Üç zaman penceresinin bağımsızlığı:** 1 saatlik, 4 saatlik ve 24 saatlik sonuçlar ayrı sonuçlardır. Kısa penceredeki başarısızlık uzun pencerenin sonucunu peşinen belirlemez; uzun pencere de kısa pencerenin sonucunu geriye dönük değiştirmez.
+- **107. Sinyal sonrası pencerenin başlangıcı:** Sinyal sonrası değerlendirme sinyal zamanından başlar. Verinin programa geç ulaşması pencereyi uzatmaz.
+- **108. Sinyal ölçümünün fiyat referansı:** Sinyal sonrası ölçümün başlangıç fiyatı, sinyali oluşturan kapanmış mumun kapanış fiyatıdır. Bu kural 141. kararda kullanıcı tarafından ayrıca kesinleştirilmiştir.
+- **109. İzleme başlangıcı ile sinyal başlangıcının ayrılması:** Sinyal öncesi erken/geç/kaçırılan yükseliş sınıflandırmasında izleme başladığında alınan ilk geçerli fiyat kullanılır. Sinyal sonrası ölçümün fiyat referansı bununla karıştırılmaz.
+- **110. Eşik temasının doğrulanması:** Yükseliş eşiğine temas, ilgili pencere içindeki kapanmış ve güvenilir mumun yüksek fiyatı eşiğe ulaştığında kaydedilir. Pencere sonunda fiyatın eşik altında olması, önceki güvenilir teması silmez.
+- **111. Pencere bazlı başarısız sonuç:** İlgili pencere içinde yükseliş eşiğine hiç ulaşılmazsa o pencere başarısız sinyal sonucu alır. 1 saat, 4 saat ve 24 saat sonuçları ayrı tutulur.
+- **112. Başarısız sinyal bildirimi:** Başarısız sinyal için tek bildirim, 24 saatlik değerlendirme tamamlandığında eşik hâlâ karşılanmamışsa gönderilir. Daha kısa pencerelerin sonuçları bu bildirim kuralını erkene çekmez.
+- **113. Erken, geç ve kaçırılmış yükseliş ayrımı:** Bu sınıflandırma, izleme başlangıcındaki ilk geçerli fiyat ve yükseliş yolunun ilk %25'lik bölümü kuralına göre yapılır. Bu sınıflandırmanın referansı, 109. maddede ayrıştırılan izleme başlangıcıdır.
+- **114. Sinyal üretmeyen coinlerin ölçümü:** Taranan coinlerin sonraki fiyat hareketleri sinyal verilip verilmediğinden bağımsız olarak izlenir. Eşiği aşan fakat sinyalle yakalanmayan hareketler kaçırılan yükseliş ölçümüne katkı sağlar.
+- **115. Yeni ve yinelenen sinyal ayrımı:** Aynı sinyalin tekrarlanan bildirimi yeni bir ölçüm başlatmaz. Gerçekten yeni bir sinyal, benzersiz kimliğiyle ayrı ölçüm oluşturur; önceki ölçüm sürerken yeni ölçüm onu değiştirmez.
+- **116. Eksik ölçümün ele alınması:** Ölçüm sonu için güvenilir fiyat verisi yoksa sonuç eksik kaydedilir; başarı veya başarısızlık oranına dahil edilmez.
+- **117. Eksik veri görünürlüğü:** Eksik ölçümlerin sayısı, toplam ölçümlere oranı, ilgili pencere ve kayıtlıysa eksiklik nedeni raporlarda gösterilir. Eksik sonuçlar sessizce kaldırılmaz.
+- **118. Ölçümün yeniden üretilebilirliği:** Her ölçümde kullanılan kaynak, zaman dilimi, son güvenilir mum zamanı, eşik ve hesaplama koşulları korunur. Sonucu yeniden üretmek için gereken bilgiler ortak kayıttan alınır.
+- **119. Geçmiş sonucun korunması:** Eşikler veya hesaplama mantığı değiştiğinde geçmiş ölçümler yeni ayarlara göre sessizce yeniden yazılmaz. Yeni koşullar sonraki ölçümlere ve kendi sürüm kayıtlarına uygulanır.
+- **120. Sonuç grupları ve yeterli örnek:** Genel sonuçlar, coin bazındaki sonuçlar ve tarama motoruna göre sonuçlar ayrı gösterilir. Her grup için ölçüm sayısı görünür; belirlenmiş asgari sayıya ulaşmayan grup “Yetersiz Veri” olarak işaretlenir.
+- **121. Raporun okunabilirliği:** Raporlarda sayısal özet, tablo ve fiyat hareketinin zaman içindeki gelişimini gösteren grafik birlikte sunulur. Genel özetten ilgili ayrıntıya geçiş ve belirlenmiş filtreler korunur.
+- **122. Radar sonucu ile teknik plan sonucunun ayrılması:** Radar başarısı fiyat hareketinin tespitini; teknik plan başarısı ise planın kendi giriş ve çıkış koşullarını ölçer. Giriş gerçekleşmeden hedefe ulaşılması teknik planın hedef başarısı değildir. Bu ayrım, 133–140. kararlardaki ortak olay kayıtları ve plan koşullarıyla birlikte uygulanır.
+
+**Yeniden oluşturma durumu:** 101–122 aralığı artık boş bir bölüm olarak bırakılmıyor. Bu 22 madde, özgün metinlerin bire bir geri kazanımı değil; bilinen kayıtlarla uyumlu, açıkça etiketlenmiş yeniden oluşturulmuş işletim kaydıdır.
 
 ### Kesinleşmiş kararlar: 123–132
 
