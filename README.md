@@ -256,7 +256,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 ## Fırsat-Kontrol Paneli — tasarım kararları defteri ve sürüm yol haritası
 
 **Kayıt tarihi:** 29 Ekim 2026  
-**Tasarım durumu:** 1–31. kararların tek tek özgün metinleri bu README'de yok; yalnızca bu aralığın kesinleştiği bilgisi ve doğrulanabilen bazı kuralların özeti bulunuyor. 32–100 numaralı kararlar kayıtlıdır. 101–112 için kullanıcı tarafından sağlanan ayrıntılı metinler kayıtlı ve sonraki özetleriyle karşılaştırıldı; 113–118 kullanıcının sağladığı karar özetleriyle kayıtlı; 119–122 için kullanıcı tarafından sağlanan ayrıntılı metinler kayıtlı ve sonraki özetleriyle karşılaştırıldı; 123–141 numaralı kararlar kayıtlıdır. 113–118 özetleri özgün tam metin olarak gösterilmez.  
+**Tasarım durumu:** 1–100 numaralı kararlar kayıtlı; 101–112 için kullanıcının sağladığı ayrıntılı metinler kayıtlı ve sonraki özetleriyle karşılaştırıldı; 113–118 kullanıcının sağladığı karar özetleriyle kayıtlı; 119–122 için kullanıcı tarafından sağlanan ayrıntılı metinler kayıtlı ve sonraki özetleriyle karşılaştırıldı; 123–141 numaralı kararlar kayıtlıdır. 113–118 özetleri özgün tam metin olarak gösterilmez.  
 **Sonraki tasarım kararı:** 142. karar.  
 **Kodlama durumu:** Başlanmayacak; bütün tasarım kararları tamamlanana ve gerekli açık onaylar verilene kadar beklemede.
 
@@ -273,9 +273,97 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 
 ### Kararların kaydı: 1–31
 
-1–31. kararlar önceki sohbetlerde kesinleştirildi. Bu aktarımın kaynak metninde bu 31 kararın tamamının tek tek numaralanmış özgün metni bulunmadığından, eksik maddeler uydurularak yeniden yazılmadı. Bu aralık kesinleşmiş kabul edilir; yeniden sorulmayacak veya kendiliğinden değiştirilmeyecek.
+#### KESİNLEŞEN 1–20. TASARIM KARARLARI
 
-Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; kullanıcı onaylı takip listesi; yeni işlem planının kullanıcı onayı olmadan etkinleştirilmemesi ve eski planın korunması; bildirim ayrıntılarının sağdan açılan panelde gösterilmesi; Binance'ten BtcTurk PRO'ya coin aktarılırken paritenin otomatik seçilmesi; grafiklerin önceki Binance grafiği mantığına uygun çalışması; trend çizgisi ve paralel kanal çizimi ile çizimlerin kalıcı saklanması. Ayrıca 26. kararın kayıtta bulunan metni: BtcTurk PRO doğrudan açıldığında en son incelenen paritenin ayrıntı ekranı açılsın; Binance'ten aktarılan coin otomatik seçilsin.
+**1. Takip kapasitesi:** Erken adaylar ve işlem planı hazır pariteler birlikte takip edilecek. Aynı anda 4–5 aktif takip paritesi olacak; arka planda daha fazla parite taranabilecek.
+
+**2. Uyarılar:** Erken adaylarda görsel bildirim, güçlü fırsat koşulları doğrulandığında belirgin sesli uyarı, takip seviyeleri için ayrı bildirimler ve veri/bağlantı sorunları için ayrı ikazlar. Aynı koşul sürerken gereksiz tekrar olmayacak. Ekranın kenarındaki tıklanabilir bildirime basıldığında ayrıntılar açılacak, kullanıcı başka sayfaya zorla geçirilmeyecek.
+
+**3. Aktif takip listesi:** Program en güçlü 4–5 pariteyi önerecek. Ekleme ve çıkarma kararını kullanıcı verecek.
+
+**4. İşlem planı değişiklikleri:** Eski plan korunacak, yeni plan ayrı önerilecek. Eski plan geçersizleştiğinde bu açıkça bildirilecek. Yeni plan ancak kullanıcının onayıyla aktif olacak.
+
+**5. Aktif takip ekranı:** 4–5 özet kartı gösterilecek. Parite seçildiğinde ayrıntılı analiz ve işlem planı açılacak.
+
+**6. Gezinme düzeni:** Ana bölümler solda sabit menüde bulunacak. Gerekirse sayfaların içinde alt sekmeler kullanılacak.
+
+**7. Sekiz ana bölüm:**
+1. Genel Bakış
+2. Fırsat Radarı
+3. Aktif Takip
+4. Parite Analizi
+5. BTC ve Piyasa
+6. Planlar ve Uyarılar
+7. Raporlar
+8. Sistem ve Ayarlar
+
+**8. Genel Bakış:** Önce dikkat gerektiren uyarılar ve güçlü fırsatlar, ardından piyasa durumu, veri bağlantısı ve tarama özeti gösterilecek.
+
+**9. Fırsat Radarı:** Kompakt tablo ve aynı sayfada açılan ayrıntı alanı.
+
+**10. Sıralama ve filtreler:** Güçlü fırsatlar ve işlem planı hazır pariteler üstte, güçlenen adaylar ortada, erken adaylar aşağıda. Durum filtresi ve parite araması bulunacak; bütün adaylara erişim korunacak.
+
+**11. Radar tablosu alanları:** Parite, aday durumu, fiyat değişimi, hacim, Bitcoin'e (BTC) göre güç, öne çıkma nedeni ve işlem planı durumu.
+
+**12. Ayrıntı paneli:** Tablonun sağında açılacak.
+
+**13. Genişlik ayarı:** Tablo ve ayrıntı alanı arasındaki ayırıcı sürüklenerek ayarlanabilecek.
+
+**14. Ayrıntı sıralaması:** Önce genel özet, sonra işlem planı ve teknik analiz bilgileri.
+
+**15. Ayrıntı sekmeleri:** İşlem Planı, Teknik Analiz ve Grafik.
+
+**16. Varsayılan sekme:** Parite seçildiğinde Teknik Analiz açılacak.
+
+**17. Teknik analiz grupları:** Fiyat yapısı ve trend; göstergeler ve hacim; Fibonacci, destek ve direnç; BTC ilişkisi ve zaman dilimleri. Gruplar açılıp kapatılabilecek.
+
+**18. Grafik:** Gerçek piyasa verisiyle çalışan fiyat grafiği; temel zaman dilimi seçimi, hacim ve gereken göstergeler. Göstergeler ayrı panellerde gösterilebilecek.
+
+**19. Grafik katmanları:** Giriş/hedef/zarar-kes, plan geçersizliği, Fibonacci, destek/direnç ve trend çizgileri/kanallar ayrı ayrı açılıp kapatılabilecek.
+
+**20. Temel grafik araçları:** Mum bilgileri, zaman dilimi seçimi, hacim, yakınlaştırma ve kaydırma. Kullanıcı kendi trend çizgisini ve paralel kanalını çizebilecek. Gelişmiş ve gereksiz çizim araçları ilk aşamada geliştirilmeyecek.
+
+#### KESİNLEŞEN 21–31. TASARIM KARARLARI
+
+**21. Bildirim ayrıntısının konumu:** Bildirime tıklanınca ayrıntı paneli sağ tarafta açılacak.
+
+**22. Panelin açılma biçimi:** Panel mevcut sayfanın üzerine açılacak. Ana sayfanın genişliği ve düzeni değişmeyecek.
+
+**23. Panelin kapatılması:** Yalnızca panelin sağ üstündeki X işaretiyle kapatılacak. Dışarıya tıklayarak veya Esc tuşuyla kapatma olmayacak.
+
+**24. BtcTurk PRO çalışma alanı:** Sol menüye ayrıca BtcTurk PRO sayfası eklenecek. Binance Fırsat Radarı aynen korunacak; mevcut sekiz ana bölümün düzeni bozulmayacak.
+
+**Binance ve BtcTurk PRO arasındaki görev dağılımı:**
+- Binance: Fırsat tarama, aday sıralama ve coin seçimi.
+- BtcTurk PRO: Seçilen coin için işlem yapılabilirliğini inceleme ve giriş, hedef, zarar-kes, geçersizlik seviyelerini hesaplama.
+- Ortak analiz altyapısı hedefleniyor. Ayrı motor gerekip gerekmediği mevcut kod yapısı incelenmeden kesinleştirilmeyecek.
+- Her borsanın kendi verileri kullanılacak. BtcTurk tarafında fiyat hassasiyeti, emir miktarı sınırları, alış-satış farkı, emir defteri ve işlem maliyetleri dikkate alınacak.
+
+**25. Coin aktarımı:** Hem Binance'ten tek tıkla BtcTurk PRO'ya aktarım hem de BtcTurk PRO içinde bağımsız parite araması olacak.
+
+**26. BtcTurk PRO açılışı:** Sayfaya doğrudan girildiğinde en son incelenen paritenin ayrıntı ekranı açılacak. Binance'ten coin aktarılırsa aktarılan coin otomatik seçilecek.
+
+**27. BtcTurk'te uygun USDT paritesi bulunamazsa:** Uyarı gösterilecek; coin seçili kalacak, işlem planı hesaplanmayacak ve başka bir USDT paritesi arama seçeneği sunulacak.
+
+**28. Binance verilerinin gösterimi:** BtcTurk PRO'da Binance fiyatı ve fiyat değişimi ayrı, küçük bir karşılaştırma alanında gösterilecek. İşlem hesabında BtcTurk verileri kullanılacak.
+
+**29. İşlem uygunluğu:** Paritenin üst bölümünde işlem durumu gösterilecek: “İşlem yapılabilir”, “Dikkat” veya “İşlem planı oluşturulamaz”. Alış-satış farkı, emir defteri derinliği, minimum emir şartları ve maliyetler aşağıdaki ayrıntılarda incelenebilecek.
+
+**30. Güncel olmayan BtcTurk verisi:** Uyarı gösterilecek, ancak taslak işlem planı incelenebilecek. Güncel veri geldiğinde kontrol yeniden yapılacak.
+
+**31. Veri zamanı:** Son veri zamanı ile güncellik uyarısı birlikte gösterilecek.
+
+#### 1–31. kararlarla birlikte verilen ortak Binance ve BtcTurk kuralları
+
+- Kullanıcı Binance'i fırsat bulmak ve coin seçmek için kullanıyor.
+- Gerçek giriş ve çıkış kararları BtcTurk PRO verilerine göre hazırlanacak.
+- İşlem paritelerinde USDT kullanılacak; TL pariteleri tercih edilmiyor.
+- Binance fiyatı ile BtcTurk fiyatı aynı kabul edilmeyecek.
+- BtcTurk'te uygun USDT paritesi yoksa uygulanabilir işlem planı oluşturulmayacak.
+- Binance ve BtcTurk verilerinin kaynağı arayüzde açıkça ayırt edilecek.
+- BtcTurk sayfasının ortak analiz motorunu kullanması hedefleniyor; teknik gereklilik kod yapısı incelendiğinde değerlendirilecek.
+
+**Tarihsel devir notu:** Kullanıcının bu karar kaydı metninde sıradaki adım 32 olarak belirtilmişti. Daha sonraki süreçte 32–141 kararları da kaydedildiğinden, bu README'nin güncel devam noktası 142. karardır.
 
 ### Kesinleşmiş tasarım kararları: 32–100
 
