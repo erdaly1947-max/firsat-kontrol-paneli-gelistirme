@@ -575,9 +575,24 @@ Analiz Raporu'na naratif verisi eklemek, raporun kendiliğinden bu ChatGPT sohbe
 
 **153. maddenin durumu:** Tamamlandı. 153.1–153.15 kararları ve naratifin hem teknik adaylara destek olması hem teknik sinyalden önce aday keşfetmesi yaklaşımı tek tasarımda birleştirildi. Bu kayıt tasarım hedefidir; işlevlerin kodda mevcut veya test edilmiş olduğu anlamına gelmez.
 
+
+### 154. Tarihsel geri test ve ölçüm yöntemi — onaylandı
+
+Bu madde, programın geçmişteki bir tarihte o an elinde bulunan verilerle nasıl karar vereceğini yeniden oynatıp, daha sonra gerçekleşen fiyat hareketleriyle karşılaştırarak gerçek tespit başarısını ölçmek için kabul edilmiştir. Bu bir tarihsel geri testtir; geçmiş grafiğe bugünkü bilgiyi taşıyarak değerlendirme yapmak değildir.
+
+- Her test anında yalnızca o ana kadar gerçekten mevcut olan güvenilir kapanmış mumlar, göstergeler, piyasa/veri durumu ve o anda erişilebilir olmuş naratif kayıtları kullanılacak. Sonradan ortaya çıkan veri veya haber geçmişteki kararın girdisi olamayacak.
+- O test anında oluşan adaylar, puanlar, A/B/C aşamaları, erken izlemeler, güçlü fırsat sinyalleri, öne çıkma nedenleri ve teknik plan seviyeleri kaydedilecek. Sonraki mumlar kronolojik sırayla ilerletilecek ve gerçek fiyat davranışıyla karşılaştırılacak.
+- Radarın erken tespit başarısı ile teknik işlem planının sonucu ayrı raporlanacak. Radar için sinyal anından sonraki fiyat hareketi ve 1 saat/4 saat/24 saat ölçümleri; teknik plan için giriş koşulunun gerçekleşmesi, hedef, stop ve geçersizleşme olayları kullanılacak. Teknik plan hedef başarısı, giriş gerçekleşmeden yazılmayacak.
+- Olayların sırası güvenilir biçimde belirlenemiyorsa sonuç tahmin edilmeyecek, belirsiz kaydedilecek. Güvenilir geçmiş mum verisi veya gerekli alanlar yoksa ilgili ölçüm “değerlendirilemedi” olarak işaretlenecek; otomatik olarak başarısız sayılmayacak.
+- Sabit ve gerekçesiz bir geçmiş uzunluğu dayatılmayacak. Kullanılabilir güvenilir geçmişin kapsadığı dönem kullanılacak; yeterli örnek ve mümkün olduğunca farklı piyasa koşullarını temsil eden dönemler gözetilecek. Test, programın gerçek zamanlı kullandığı mum çözünürlüklerini ve karar mantığını geriye dönük taklit edecek.
+- Naratifin geçmişteki etkisi yalnızca ilgili tarihte gerçekten erişilebilir naratif geçmişi varsa ölçülecek. Naratif geçmişinin bulunmaması, teknik radar veya teknik plan ölçümünü geçersiz kılmayacak.
+- Radarın erken/geç tespiti, yakalanan ve kaçırılan yükselişler, sinyal sonrasındaki en yüksek yükseliş/en büyük düşüş ile teknik planın giriş, hedef, stop, geçersizleşme sonuçları ayrı gösterilecek. Brüt sonuçlar ve 136. kararda kabul edilen %0,14 giriş + %0,14 çıkış komisyon varsayımına göre tahmini maliyet sonrası sonuçlar birbirine karıştırılmayacak.
+
+**154. maddenin durumu:** Kullanıcı onayladı. Bu madde tasarım ve değerlendirme yöntemini kesinleştirir; geri test motorunun kodlandığı veya ölçümlerin çalıştırıldığı anlamına gelmez.
+
 #### Sıradaki tasarım maddeleri
 
-- **154. Tarihsel geri test ve ölçüm yöntemi:** Geçmiş veri süresi, mum çözünürlüğü, radar başarısıyla teknik plan başarısının ayrılması, eksik veri ve olay sıralama yöntemi.
+- **154. Tarihsel geri test ve ölçüm yöntemi — onaylandı:** Geçmiş bir zaman noktasında program yalnızca o ana kadar gerçekten mevcut olan güvenilir verilerle yeniden çalıştırılacak. O anda oluşan adaylar, puanlar, A/B/C aşamaları, erken izlemeler, güçlü fırsat sinyalleri, gerekçeler ve teknik plan seviyeleri kaydedilecek; ardından sonraki mumlar zaman sırasıyla ilerletilip gerçek fiyat davranışıyla karşılaştırılacak. Geleceğe ait veri geçmişteki karara sızdırılmayacak. Elde bulunan güvenilir geçmiş verinin kapsadığı süre kullanılacak; yeterli veri ve farklı piyasa koşullarının temsil edilmesi gözetilecek, sabit ve gerekçesiz bir geçmiş süresi varsayılmayacak. Radarın erken tespit başarısı ile teknik işlem planının başarısı ayrı ölçülecek. Teknik planın hedef başarısı için giriş koşulunun gerçekleşmiş olması gerekecek; hedef, stop ve geçersizleşme olayları zaman sırasıyla değerlendirilecek. Olay sırası veya veri güvenilir biçimde belirlenemiyorsa sonuç belirsiz bırakılacak. Tarihsel naratif verisi yalnızca gerçekten mevcut olduğu dönemlerde değerlendirilecek; bulunmaması başarısızlık sayılmayacak. Brüt sonuçlar ile 136. kararındaki sabit komisyon varsayımına göre tahmini maliyet sonrası sonuçlar ayrı gösterilecek.
 - **155. Bütün ekranların son tasarım tutarlılığı kontrolü:** Menü ve sayfa isimleri/sırası, ortak gezinme, mevcut düğme ve işlevlerin korunması, ekranlar arasındaki tutarlılık ve 1–155 gereksinimlerinin son kontrolü. Önceki çalışma listesindeki maliyet kapsamı çelişkisi 136. kararın revizyonuyla çözülmüştür; bu konu yeniden sorulmayacak.
 
 146–155 tamamlanınca 1–155 tasarım gereksinimleri ile ana daldaki kod tekrar karşılaştırılacak, eksikler ve çelişkiler öncelik sırasına konacaktır. Kod uygulaması, test/dağıtım değişikliği ve ZIP hazırlığı için ayrı açık onay beklenecektir.
@@ -592,9 +607,10 @@ Analiz Raporu'na naratif verisi eklemek, raporun kendiliğinden bu ChatGPT sohbe
 
 ### Güncel devir noktası
 
-- **Son tamamlanmış ana karar:** 153 — Naratif Avcısı ve bütünleşik arayüz tasarımı.
-- **Sıradaki ana karar:** 154 — Tarihsel geri test ve ölçüm yöntemi.
+- **Son tamamlanmış ana karar:** 154 — Tarihsel geri test ve ölçüm yöntemi.
+- **Sıradaki ana karar:** 155 — Bütün ekranların son tasarım tutarlılığı kontrolü.
 - **Tamamlanan 153 alt kararları:** 153.1–153.15.
+- **Kesinleşen 154. madde:** Geçmiş veriyi o tarihte bilinebilen bilgilerle kronolojik olarak yeniden oynatma; radar başarısını teknik plan başarısından ayrı ölçme; eksik veri ve olay sırası belirsizliğini dürüstçe işaretleme.
 - **Kodlama:** Ayrı ve açık kullanıcı onayı olmadan başlanmayacak.
 
 
@@ -602,4 +618,4 @@ Analiz Raporu'na naratif verisi eklemek, raporun kendiliğinden bu ChatGPT sohbe
 
 - **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu kontrol edilir, inceleme ve doğrulamayla belirlenir kullanıcı onayıyla koda uygulanır.
 
-Yeni sohbet 154. tasarım maddesinden devam etmelidir. 1–153 arasındaki kesinleşmiş tasarım kararları tekrar sorulmayacak.
+Yeni sohbet 155. tasarım maddesinden devam etmelidir. 1–154 arasındaki kesinleşmiş tasarım kararları tekrar sorulmayacak.
