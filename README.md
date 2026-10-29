@@ -256,7 +256,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 ## Fırsat-Kontrol Paneli — tasarım kararları defteri ve sürüm yol haritası
 
 **Kayıt tarihi:** 29 Ekim 2026  
-**Tasarım durumu:** 1–100 kayıtlı; 101–112 kullanıcı tarafından sağlanan ayrıntılı metinlerle kayıtlı ve sonraki özetleri bu metinlerle karşılaştırıldı; 113–118 kullanıcının sağladığı karar özetleriyle güncellendi; 119–122 kullanıcı tarafından sağlanan ayrıntılı metinlerle kayıtlı ve sonraki özetleri bu metinlerle karşılaştırıldı; 123–141 kayıtlıdır. 113–118 özetleri özgün tam metin olarak gösterilmez.  
+**Tasarım durumu:** 1–31. kararların tek tek özgün metinleri bu README'de yok; yalnızca bu aralığın kesinleştiği bilgisi ve doğrulanabilen bazı kuralların özeti bulunuyor. 32–100 numaralı kararlar kayıtlıdır. 101–112 için kullanıcı tarafından sağlanan ayrıntılı metinler kayıtlı ve sonraki özetleriyle karşılaştırıldı; 113–118 kullanıcının sağladığı karar özetleriyle kayıtlı; 119–122 için kullanıcı tarafından sağlanan ayrıntılı metinler kayıtlı ve sonraki özetleriyle karşılaştırıldı; 123–141 numaralı kararlar kayıtlıdır. 113–118 özetleri özgün tam metin olarak gösterilmez.  
 **Sonraki tasarım kararı:** 142. karar.  
 **Kodlama durumu:** Başlanmayacak; bütün tasarım kararları tamamlanana ve gerekli açık onaylar verilene kadar beklemede.
 
