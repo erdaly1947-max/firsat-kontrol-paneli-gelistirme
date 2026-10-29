@@ -256,7 +256,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 ## Fırsat-Kontrol Paneli — tasarım kararları defteri ve sürüm yol haritası
 
 **Kayıt tarihi:** 29 Ekim 2026  
-**Tasarım durumu:** 1–100 numaralı kararlar kayıtlı; 101–112 için ayrıntılı kullanıcı metinleri kayıtlı; 113 için özet kayıtlı; 114–119 için kullanıcının 29 Ekim 2026'da sağladığı ayrıntılı karar metinleri kayıtlı; 120–122 için ayrıntılı kullanıcı metinleri kayıtlı; 123–141 numaralı kararlar kayıtlıdır. 113. kararın ayrıntılı metni hâlâ bulunamadı.  
+**Tasarım durumu:** 1–100 numaralı kararlar kayıtlı; 101–119 için ayrıntılı karar metinleri kayıtlı; 120–122 için ayrıntılı kullanıcı metinleri kayıtlı; 123–141 numaralı kararlar kayıtlıdır. 113. kararın ayrıntılı metni 29 Ekim 2026'da kullanıcı tarafından yeniden sağlandı, onaylandı ve README'ye işlendi.  
 **Sonraki tasarım kararı:** 142. karar.  
 **Kodlama durumu:** Başlanmayacak; bütün tasarım kararları tamamlanana ve gerekli açık onaylar verilene kadar beklemede.
 
@@ -455,7 +455,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - 1–100. karar aralığı tamamlanmış kabul edilir; bu aralıktaki kesinleşmiş kararlar yeniden açılmaz.
 - 72, 75 ve 97. maddeler, gerçek işlem performansını kapsam dışı bırakan kullanıcı düzeltmesine göre kaydedilmiştir.
 - Bu defter tasarım gereksinimlerinin kaydıdır; burada yazan hiçbir yeni işlev, kod ve testle doğrulanmadan mevcut programda uygulanmış kabul edilmez.
-- **Güncel sonraki adım: 142. tasarım kararı.** 101–112 karar metinleri kullanıcı tarafından sağlandı; 113–118 aralığındaki kaynak durumu aşağıdaki güncel devir bölümünde işaretlidir; eski “101. tasarım kararı” yönlendirmesi geçersizdir.
+- **Güncel sonraki adım: 142. tasarım kararı.** 101–112 karar metinleri kullanıcı tarafından sağlandı; 113–122 aralığındaki kaynak durumu aşağıdaki güncel devir bölümünde işaretlidir; eski “101. tasarım kararı” yönlendirmesi geçersizdir.
 
 
 ---
@@ -466,7 +466,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 
 ### 101–122. karar aralığı — kaynak durumu ve karar metinleri
 
-**Kayıt doğruluğu notu:** 101–112 için kullanıcının sağladığı ayrıntılı metinler korunuyor. Kullanıcı 29 Ekim 2026'da 114–119 kararlarının aşağıdaki ayrıntılı metinlerini ayrıca sağladı; bu metinler önceki özet kayıtlarının yerine geçti. 113 için yalnızca daha önce sağlanan özet mevcut; ayrıntılı metni bulunamadığı için bu durum açıkça belirtiliyor. 120–122 için daha önce sağlanan ayrıntılı karar metinleri korunuyor.
+**Kayıt doğruluğu notu:** 101–112 için kullanıcının sağladığı ayrıntılı metinler korunuyor. Kullanıcı 29 Ekim 2026'da 113. kararın ayrıntılı metnini yeniden sağladı ve onayladı; aşağıda kayıtlıdır. Aynı gün 114–119 kararlarının ayrıntılı metinleri de sağlandı ve önceki özet kayıtlarının yerine işlendi. 120–122 için daha önce sağlanan ayrıntılı karar metinleri korunuyor.
 
 - **101. Yükseliş başarısı (kullanıcının sağladığı karar metni):** Eşiğe değerlendirme süresi içinde ulaşılıp ulaşılmadığı ve süre sonunda fiyatın nerede kaldığı ayrı gösterilecek.
 - **102. Aynı mumda hedef ve zarar durdurma (kullanıcının sağladığı karar metni):** Daha kısa zaman aralığındaki verilerle gerçekleşme sırası araştırılacak. Sıra belirlenemezse sonuç Belirsiz kaydedilecek ve başarı/başarısızlık hesabına katılmayacak.
@@ -480,7 +480,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - **110. 24 saat sonrasındaki takip (kullanıcının sağladığı karar metni):** Olay bazlı takip için sabit azami süre olmayacak. Takip, hedefe, zarar durdurmaya veya geçersizleşme koşuluna ulaşılana kadar sürecek.
 - **111. Birden fazla hedefin takibi (kullanıcının sağladığı karar metni):** Her kâr hedefi ayrı izlenecek. İlk hedefin gerçekleşmesi diğer hedeflerin takibini bitirmeyecek. Bütün hedefler tamamlandığında veya zarar durdurma/geçersizleşme koşulu gerçekleştiğinde olay bazlı takip sonlandırılacak.
 - **112. Ayrıntılı karar — hedef sonrasındaki zarar durdurma veya geçersizleşme (kullanıcının sağladığı karar metni):** Asistan tarafından belirlenen karar: Bir kâr hedefine ulaşıldıktan sonra zarar durdurma veya geçersizleşme gerçekleşirse önceki hedef başarıları korunacak. Ulaşılmamış hedefler ayrı gösterilecek ve sonraki olay da kaydedilecek. Rapor, önceki sonuçları silmeden planın tüm gelişimini gösterecek.
-- **113. Aynı kâr hedefinin yinelenen teması — kullanıcının sağladığı karar özeti:** Aynı kâr hedefi ilk kez doğrulandığında gerçekleşmiş sayılacak. Fiyatın daha sonra aynı hedefi yeniden aşması ikinci başarı oluşturmayacak.
+- **113. Kâr hedefinin tekrar aşılması — kullanıcı tarafından 29 Ekim 2026'da yeniden sağlanıp onaylanan ayrıntılı karar:** Her kâr hedefi, aynı işlem planı içinde ilk kez doğrulandığı anda gerçekleşmiş olarak kaydedilecek. Fiyat daha sonra aynı hedefin altına düşüp yeniden üzerine çıksa bile bu durum ikinci bir hedef başarısı sayılmayacak. İlk gerçekleşme zamanı ve fiyatı korunacak. Böylece aynı hedefin tekrar tekrar aşılması, raporlardaki başarı sayısını yapay biçimde artırmayacak. Bu kural, 107, 111 ve 112. kararlarla birlikte uygulanacak. Her hedef ayrı izlenecek; daha önce kazanılmış hedef başarıları korunacak ve sonraki olaylar ayrıca kaydedilecek.
 - **114. Hedefe ulaşma koşulu — kullanıcı tarafından sağlanan ayrıntılı karar metni:** Kâr hedefi, fiyatın hedef seviyesine ulaşması veya bu seviyeyi aşmasıyla gerçekleşmiş sayılacak. Mumun hedef fiyatının üzerinde kapanması gerekmeyecek. Aynı mum içinde hedef ve zarar durdurma seviyeleri görülürse, gerçekleşme sırasını belirlemek için 102. karar uygulanacak. Hedefe temas veya aşım tek başına gerçek bir emir gerçekleştiği anlamına gelmeyecek.
 - **115. Hedef fiyat ile gözlemlenen fiyatın kaydı — kullanıcı tarafından sağlanan ayrıntılı karar metni:** Kâr hedefi gerçekleştiğinde iki ayrı değer kaydedilecek: planlanan hedef fiyatı, yani işlem planında belirlenen hedef seviyesi; ve gözlemlenen fiyat, yani hedefin aşıldığı mumda görülen en yüksek veya en düşük fiyat. Gözlemlenen fiyat, gerçekleşmiş bir alım-satım fiyatı olarak gösterilmeyecek. Program emir göndermediği için yalnızca piyasa fiyatının hedefe ulaştığı doğrulanmış olacak. Bu ayrım, hedef başarısının gerçek işlem gerçekleşmesiyle karıştırılmasını önleyecek.
 - **116. Hedef gerçekleşmesinin veriyle doğrulanması — kullanıcı tarafından sağlanan ayrıntılı karar metni:** Kâr hedefi, ilgili fiyat verisinin geçerli ve yeterli olması hâlinde gerçekleşmiş sayılacak. Fiyat verisi eksikse, bozuksa veya hedefe ulaşıldığını doğrulamaya yetmiyorsa hedef başarısı kaydedilmeyecek; sonuç Belirsiz olarak işaretlenecek. Eksik veri başarı veya başarısızlık oranına katılmayacak ve nedeni raporda belirtilecek. Bu kural, 102 ve 105. kararlarla uyumlu biçimde uygulanacak. Mevcut kararlar değiştirilmeyecek; kodlamaya başlanmayacak.
@@ -491,7 +491,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - **121. Sonradan gelen veri düzeltmeleri — kullanıcı tarafından sağlanan karar metni:** Daha sonra gelen güvenilir piyasa verileri önceki bir olay kaydını değiştiriyorsa, program eski kaydı sessizce silmeyecek veya üzerine yazmayacak. Düzeltilmiş sonuç yeniden değerlendirilecek; önceki kayıt, yeni sonuç, düzeltme nedeni ve doğrulama zamanı korunacak. Performans raporlarında en son doğrulanmış sonuç esas alınacak.
 - **122. Düzeltilen verilerin raporlara yansıması — kullanıcı tarafından sağlanan karar metni:** Bir olayın sonucu sonradan düzeltildiğinde, bu değişiklikten etkilenen başarı oranları, toplam ölçümler ve ilgili grafikler en son doğrulanmış sonuçlara göre yeniden hesaplanacak. Daha önce oluşturulmuş raporların geçmiş sürümleri korunacak. Böylece güncel sonuçlar doğru hesaplanırken önceki raporlarla aradaki fark da izlenebilecek.
 
-**Bu aralığın kaynak durumu:** 101–112 ayrıntılı kullanıcı metinleriyle kayıtlı; 113 yalnızca özet olarak kayıtlı; 114–119 kullanıcının 29 Ekim 2026'da sağladığı ayrıntılı metinlerle kayıtlı; 120–122 önceki ayrıntılı kullanıcı metinleriyle kayıtlı.
+**Bu aralığın kaynak durumu:** 101–119 ayrıntılı karar metinleriyle kayıtlı; 113'ün ayrıntılı metni kullanıcı tarafından 29 Ekim 2026'da yeniden sağlanıp onaylandı; 120–122 önceki ayrıntılı kullanıcı metinleriyle kayıtlı.
 
 ### Kesinleşmiş kararlar: 123–132
 
@@ -530,11 +530,11 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 
 - **Son kesinleşen karar:** 141.
 - **Sıradaki karar:** 142.
-- **Karar kaydının durumu:** 101–112 ve 120–122 için ayrıntılı kullanıcı metinleri kayıtlıdır. 114–119'un ayrıntılı metinleri bu sohbette yeniden sağlandı ve README'ye işlendi. 113. kararın ayrıntılı metni bulunamadığı için yalnızca kullanıcının daha önce verdiği özet kayıtlıdır.
+- **Karar kaydının durumu:** 101–122 aralığındaki kararların ayrıntı ve kaynak durumu ilgili bölümde kayıtlıdır. 113. kararın ayrıntılı metni 29 Ekim 2026'da kullanıcı tarafından yeniden sağlanıp onaylandı; 113–119 metinleri README'de ayrıntılı olarak yer alır.
 - **Kayıt kuralı:** Her kesinleşen karar aynı oturumda README'ye yazılır, yeniden okunur ve doğrulanır; doğrulama bitmeden sonraki numaraya geçilmez.
 - **Sohbet/karar kurtarma kuralı:** Karar defterinin tek yetkili kaynağı bu README'nin `main` dalındaki güncel sürümüdür; sohbet arşivi tek kayıt yeri olarak kullanılmaz. Arşivden çıkarılan sohbet görünmezse karar metinleri tahminle yeniden yazılmaz ve kullanıcıdan bütün kararları baştan anlatması istenmez. Önce aynı hesap/çalışma alanı, arama, Arşivlenmiş sohbetler ve oturum yenileme kontrol edilir. Sohbet yine bulunamazsa ChatGPT Ayarlar > Veri denetimleri > Verileri dışa aktar üzerinden dışa aktarımdaki sohbet kayıtları incelenir. Kullanıcı dışa aktarım dosyasını sağlarsa ilgili karar mesajları özgün ifadeleriyle aranır ve README ile karşılaştırılır. Bulunamayan özgün ifadeler açıkça eksik olarak işaretlenir; yalnızca doğrulanmış tam metin veya kullanıcının açıkça verdiği özet kayda geçirilir. Dışa aktarımda da bulunmayan kayıp sohbet için OpenAI Destek'e başvurulur. Her README güncellemesinden sonra ilgili bölüm yeniden okunup doğrulanır; kodlama için ayrıca açık kullanıcı onayı gerekir.
 - **Kodlama:** Açık kullanıcı onayı gelmeden başlanmayacak.
 - **GitHub kapsamı:** Bu değişiklik yalnızca README'deki tasarım kararları ve devir kaydı içindir. Program kaynak kodu ve uygulama davranışı değiştirilmedi.
 - **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu anlamına gelmez. Uygulama durumu ancak daha sonraki inceleme ve doğrulamayla belirlenir.
 
-Yeni sohbet veya devam adımı 142. tasarım kararından başlamalıdır. 101–112 ve 120–122 için ayrıntılı karar metinleri kayıtlıdır. 114–119'un ayrıntılı metinleri kullanıcı tarafından yeniden sağlanıp kaydedilmiştir. 113. karar için yalnızca özet kayıtlıdır; ayrıntılı özgün metin henüz bulunamadı.
+Yeni sohbet veya devam adımı 142. tasarım kararından başlamalıdır. 101–122 kararlarının kayıt durumu yukarıda belirtilmiştir. 113. kararın ayrıntılı metni 29 Ekim 2026'da kullanıcı tarafından yeniden sağlanıp onaylanarak kaydedilmiştir.
