@@ -518,7 +518,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - **144. Genel Bakış ekranı:** Mevcut üst durum satırı ve işlem kontrolleri korunacak. Genel Bakış içinde piyasa durumu/önemli fırsatlar ve aday tablosu merkezde; seçili coin ayrıntısı sağda; tanılama ve son kayıtlar altta, gerektiğinde daraltılabilir biçimde sunulacak. Mevcut BTC ayrıntısı, motor başlatma/durdurma, parite güncelleme, rapor, sorun giderme ZIP'i, seviye takibi, sesli bildirim/ses testi/ses düzeyi, yazı boyutu ve ekran görüntüsü yükleme işlevleri kaybolmayacak. Bildirim ayrıntısı, önceki karara göre sayfa üzerine sağdan açılır. Taslak görsellerdeki örnek fiyatlar gerçek piyasa verisi değildir.
 - **145. Fırsat Radarı tablosu:** Mevcut sütunlar ve karar bilgisi korunarak şu alanlar tek tabloda sunulacak; genişlik yetmezse yatay kaydırma kullanılacak: Coin; Binance USDT fiyatı; BtcTurk USDT fiyatı; 24 saatlik fiyat değişimi; puan ve A/B/C aşaması; zaman dilimi ve veri tazeliği; BTC'ye göre göreceli güç; hacim; öne çıkma nedeni; işlem planı durumu. Mevcut tablonun dokuz sütunlu test sözleşmesi şu anki kod/test durumudur; yeni tasarımın tam uygulandığı anlamına gelmez. Gerekli kod/test uyumu ileride ayrıca onaylanan kodlama aşamasında yapılacak.
 
-### Kesinleşmiş tasarım kararları: 146–152
+### Kesinleşmiş tasarım kararları: 146–153
 
 - **146. Aktif Takip ekranı ve kartları:** Seçilen 4–5 Binance USDT paritesi iki sütunlu kart düzeninde gösterilecek. Kullanıcı parite ekleyip çıkarabilecek, sıralamayı değiştirebilecek ve ayrıntıya geçebilecek.
 - **147. Parite Analizi ve grafik ekranı:** Büyük fiyat grafiği solda; analiz ayrıntıları sağda olacak. Göstergeler, zaman dilimleri, giriş/hedef/stop, Fibonacci, destek/direnç ve ilgili plan bilgileri grafikle birlikte değerlendirilecek. Bu tasarım hedefidir; kodda uygulanmış olduğu anlamına gelmez.
@@ -528,9 +528,11 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - **151. Sistem ve Ayarlar ekranı:** Tek ekran, sistem/veri durumu, analiz ayarları, uyarılar ve görünüm gibi net bölümlere ayrılacak. Mevcut çalışan kontroller korunacak. Gelecekteki ayar değişiklikleri geçmiş ölçümlerin koşullarını geriye dönük değiştirmeyecek.
 - **152. BtcTurk PRO ekranı:** BtcTurk PRO tek bir çalışma alanında sunulacak. Binance keşif ve sıralama motoru olarak kalacak; seçilen aday için BtcTurk PRO verileriyle ayrı teknik değerlendirme/plan oluşturulacak. BtcTurk fiyatı, mumları ve yeterli olduğunda emir defteri/spread verileri kullanılacak. Binance ve BtcTurk fiyatları birbirine karıştırılmayacak; eksik veri açıkça belirtilecek.
 
-### 153. Naratif Avcısı — devam eden tasarım maddesi
+- **153. Naratif Avcısı:** Hem teknik radarın bulduğu adayları naratif verisiyle destekleyecek hem de naratifin önce öne çıkardığı coinleri erken izlemeye taşıyacak. Naratif puanı teknik puandan ayrı kalacak; güçlü alarm mevcut teknik fırsat koşullarını karşılayan adaylar için üretilecek.
 
-**Amaç:** Ortak Binance–BtcTurk USDT evrenindeki coinlerden haberlere/sosyal ilgiye doğru ve yeni naratiflerden ilişkili coinlere doğru çift yönlü tarama yapmak. Yeni bir ana arayüz tasarlanmıyor. Mevcut tasarım kapsamındaki Naratif Avcısı sayfasında hangi bilgilerin ve hangi özet düzeyinde gösterileceği netleştiriliyor. Kodlama başlamadı; 153 henüz tamamlanmadı.
+### 153. Naratif Avcısı — tamamlanmış tasarım maddesi
+
+**Amaç:** Naratif Avcısı, piyasanın hangi temalara yöneldiğini erken fark etmeye ve teknik göstergeler henüz fırsatı yakalamamışken de coinleri erken takibe almaya yardımcı olacak. Ayrı bir işlem karar sistemi değil; mevcut Fırsat Radarı, Parite Analizi ve Analiz Raporu ile bağlantılı bir keşif ve destek katmanı olarak tasarlanacak. Kodlama başlamadı; bu bölüm kabul edilmiş tasarım hedeflerini kaydeder.
 
 #### Kesinleşmiş alt kararlar: 153.1–153.11
 
@@ -546,9 +548,34 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - **153.10 — Coin eşleştirmesi:** Coin sembolü, adı, proje adı, alternatif adları ve içerik bağlamı birlikte değerlendirilecek. Şüpheli eşleşmeler silinmeyecek ama belirsiz işaretlenecek; kesin eşleşmelerle aynı güven düzeyinde gösterilmeyecek.
 - **153.11 — Yinelenen haberler:** Aynı gelişme tek naratif olayı olarak birleştirilecek. Aynı haberi yeniden yayımlayan kaynaklar kaydedilebilecek ancak bağımsız doğrulama sayısını yapay olarak artırmayacak.
 
-#### Naratif Avcısı sayfasında devam edilecek tasarım
+#### Kesinleşmiş alt kararlar: 153.12–153.15
 
-Bir sonraki sohbet, Naratif Avcısı sayfasının **hangi bilgileri göstereceği ve bunları mevcut tasarım içinde nasıl sade sunacağı** konusundan devam edecek. Yeni bir ana arayüz tasarımı açılmayacak; arka plan kaynağı ayrıntıları arayüzü gereksiz yere ağırlaştırmayacak. Naratif özetleri aday radarına ve Analiz Raporu'na bağlanacak. Analiz Raporu'na naratif verisi eklenmesi, raporun kendiliğinden ChatGPT'ye mesaj göndereceği anlamına gelmez; ChatGPT'ye doğrudan aktarım ayrıca tasarlanmalıdır.
+- **153.12 — Ana kart ve ayrıntı görünümü:** Naratif Avcısı ana listesinde yalnızca naratif adı/aşaması, ilişkili coinler, ilgi değişimi ve güven/veri durumu gösterilecek. İlişkili coinler Binance ve BtcTurk PRO'nun ortak USDT parite evreninden eşleştirilecek. Karta tıklanınca kaynaklar, gelişmeler, gözlem tarihçesi ve piyasa tepkisi ayrıntıda açılacak.
+- **153.13 — Sıralama:** Artan ilgi gösteren, eldeki kanıtlarla desteklenen ve henüz aşırı ısınmamış naratifler üst sıralarda değerlendirilecek. Veri eksiği olan naratifler gizlenmeyecek; eksik doğrulama ve güven durumu belirtilecek.
+- **153.14 — Filtreleme:** Naratifler yaşam aşamalarına ve ilgi değişimine göre filtrelenebilecek.
+- **153.15 — Bildirimler:** Yeni bir naratif tespit edildiğinde veya Yayılma ya da Güçlenme aşamasına geçtiğinde, neden öne çıktığını ve veri güven durumunu açıklayan bildirim oluşturulacak. Bu bildirim kendi başına güçlü fırsat alarmı veya alım sinyali olmayacak.
+
+#### Bütünleşik çalışma: iki yönlü fırsat keşfi
+
+1. **Teknik radar önce bulursa:** Teknik açıdan öne çıkan coinle eşleşen naratif bilgisi adayın gerekçesine eklenecek ve öncelik değerlendirmesini destekleyebilecek.
+2. **Naratif önce bulursa:** Yeni bir gelişme veya artan ilgiyle öne çıkan coin, teknik puanı henüz yüksek olmasa veya güçlü teknik sinyal oluşmamış olsa bile erken izlemeye alınabilecek. Aday, teknik motorun sonraki değerlendirmelerinde takip önceliği kazanabilecek; teknik sinyal henüz oluşmadı diye kaybolmayacak.
+
+Her iki yol aynı aday değerlendirmesinde birleşecek. Naratif puanı, mevcut 100 puanlık teknik puandan ayrı tutulacak; sıralama ve takip önceliğini etkileyebilecek, ancak teknik eşikleri, likidite kontrollerini veya güçlü fırsat koşullarını geçersiz kılamayacak. Naratif desteği tek başına güçlü alarm üretmeyecek. Güçlü alarm için mevcut güçlü fırsat koşullarının sağlanması gerekecek. Naratif bilgisi olmayan teknik adaylar da yalnızca bu nedenle otomatik olarak elenmeyecek.
+
+#### Arayüz entegrasyonu
+
+- **Naratif Avcısı:** Temayı keşfetmek ve izlemek için sade özet kartları ve tıklanınca açılan ayrıntılar.
+- **Fırsat Radarı:** Bir adayın teknik nedenlerle mi, naratif kaynaklı erken izleme nedeniyle mi öne çıktığı açıkça anlaşılacak. Erken izleme durumu, güçlü fırsat alarmıyla karıştırılmayacak.
+- **Parite Analizi:** Coin teknik olarak incelenirken naratif desteği de kısa bir alanda görünecek. Tema/aşama, ilgi yönü ve güven/veri durumu gösterilecek; kaynak ve gelişme ayrıntıları gerektiğinde açılacak. Böylece naratif bilgisi teknik incelemeden kopmayacak ama grafik alanını da kalabalıklaştırmayacak.
+- **Analiz Raporu:** Naratif adı/aşaması, ilişkili coinler, ilk ve son gözlem zamanı, kaynak özeti/bağlantıları, ilgi değişimi, piyasa tepkisi ve eksik veri durumu ayrı bölümde yer alacak.
+- **Geçmiş ve ölçüm:** Naratif puanı, aşaması, kaynakları ve ilişkili coinleri zaman içinde korunacak. Naratifin aday önceliğine katkısı ileride ölçülebilecek. Kaynağın geçmiş verisi yoksa kayıt ilk gözlemden başlayacak.
+- **Basitlik:** Yeni bir ana arayüz veya bağımsız işlem sistemi eklenmeyecek. Mevcut sayfalar arasında gerekli bağlantılar kurulacak; ayrıntılar kullanıcı gerektiğinde açacak şekilde sunulacak.
+
+Analiz Raporu'na naratif verisi eklemek, raporun kendiliğinden bu ChatGPT sohbetine mesaj göndermesi anlamına gelmez; doğrudan sohbet aktarımı ayrıca tasarlanmalıdır.
+
+**153. maddenin durumu:** Tamamlandı. 153.1–153.15 kararları ve naratifin hem teknik adaylara destek olması hem teknik sinyalden önce aday keşfetmesi yaklaşımı tek tasarımda birleştirildi. Bu kayıt tasarım hedefidir; işlevlerin kodda mevcut veya test edilmiş olduğu anlamına gelmez.
+
+#### Sıradaki tasarım maddeleri
 
 - **154. Tarihsel geri test ve ölçüm yöntemi:** Geçmiş veri süresi, mum çözünürlüğü, radar başarısıyla teknik plan başarısının ayrılması, eksik veri ve olay sıralama yöntemi.
 - **155. Bütün ekranların son tasarım tutarlılığı kontrolü:** Menü ve sayfa isimleri/sırası, ortak gezinme, mevcut düğme ve işlevlerin korunması, ekranlar arasındaki tutarlılık ve 1–155 gereksinimlerinin son kontrolü. Önceki çalışma listesindeki maliyet kapsamı çelişkisi 136. kararın revizyonuyla çözülmüştür; bu konu yeniden sorulmayacak.
@@ -565,14 +592,14 @@ Bir sonraki sohbet, Naratif Avcısı sayfasının **hangi bilgileri göstereceğ
 
 ### Güncel devir noktası
 
-- **Son tamamlanmış ana karar:** 152.
-- **Devam eden ana karar:** 153 — Naratif Avcısı sayfasının içerik ve bilgi düzeni.
-- **Kesinleşen alt kararlar:** 153.1–153.11.
-- **Sıradaki çalışma:** 153 kapsamında mevcut arayüzdeki Naratif Avcısı sayfasında hangi bilgilerin gösterileceğini ve nasıl sade sunulacağını netleştirmek.
-- **Kodlama:** Açık kullanıcı onayı gelmeden başlanmayacak.
+- **Son tamamlanmış ana karar:** 153 — Naratif Avcısı ve bütünleşik arayüz tasarımı.
+- **Sıradaki ana karar:** 154 — Tarihsel geri test ve ölçüm yöntemi.
+- **Tamamlanan 153 alt kararları:** 153.1–153.15.
+- **Kodlama:** Ayrı ve açık kullanıcı onayı olmadan başlanmayacak.
+
 
 - ** kural:** Karar defterinin tek yetkili kaynağı bu README'nin `main` dalındaki güncel sürümüdür; kullanıcıya danışmadan yazılacak metin kendisine sunulmadan buraya kayıt yapılamaz burda düzeltme yapılamaz.
 
 - **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu kontrol edilir, inceleme ve doğrulamayla belirlenir kullanıcı onayıyla koda uygulanır.
 
-Yeni sohbet 153. tasarım maddesinden devam etmelidir. 1–152 arasındaki kesinleşmiş kararlar ve 153.1–153.11 alt kararları tekrar sorulmayacak; 153'ün sayfa içeriği/bilgi düzeni tamamlanacaktır.
+Yeni sohbet 154. tasarım maddesinden devam etmelidir. 1–153 arasındaki kesinleşmiş tasarım kararları tekrar sorulmayacak.
