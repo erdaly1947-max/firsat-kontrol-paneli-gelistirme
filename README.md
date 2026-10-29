@@ -403,7 +403,7 @@ Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; 
 - **121. Sonradan gelen veri düzeltmeleri — kullanıcı tarafından sağlanan karar metni:** Daha sonra gelen güvenilir piyasa verileri önceki bir olay kaydını değiştiriyorsa, program eski kaydı sessizce silmeyecek veya üzerine yazmayacak. Düzeltilmiş sonuç yeniden değerlendirilecek; önceki kayıt, yeni sonuç, düzeltme nedeni ve doğrulama zamanı korunacak. Performans raporlarında en son doğrulanmış sonuç esas alınacak.
 - **122. Düzeltilen verilerin raporlara yansıması — kullanıcı tarafından sağlanan karar metni:** Bir olayın sonucu sonradan düzeltildiğinde, bu değişiklikten etkilenen başarı oranları, toplam ölçümler ve ilgili grafikler en son doğrulanmış sonuçlara göre yeniden hesaplanacak. Daha önce oluşturulmuş raporların geçmiş sürümleri korunacak. Böylece güncel sonuçlar doğru hesaplanırken önceki raporlarla aradaki fark da izlenebilecek.
 
-**Bu aralığın kaynak durumu:** 101–117 yeniden oluşturulmuş taslak; 118'in kesinleşme durumu biliniyor ancak özgün içeriği eksik; 119–122 kullanıcının bu sohbette sunduğu karar metinlerine dayanıyor. Bu ayrım, kaynak metin bulunana kadar korunacak.
+**Bu aralığın kaynak durumu:** 101–112 kullanıcı tarafından yeniden sağlanan karar metinlerine dayanır; 113–117 yeniden oluşturulmuş kayıtlardır; 118'in kesinleşme durumu biliniyor ancak özgün metni eksiktir; 119–122 kullanıcı tarafından sağlanan metinlere dayanır.
 
 ### Kesinleşmiş kararlar: 123–132
 
