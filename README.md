@@ -41,7 +41,7 @@ Masaüstü kodundaki ilgili işlevler analysis_report.py içindedir: görüntü 
 
 ## Programın amacı ve mevcut kapsamı
 
-Program, hızlı yükseliş potansiyeli taşıyan coinleri erken bulmaya yardımcı olan bir teknik analiz ve karar destek aracıdır,temel amaç kullanıcının para kazanmasına yardım etmekyir. Otomatik alım-satım yapmaz, borsa hesabına bağlanmaz ve emir göndermez. Güçlü fırsat ya da A/B/C sınıflandırması kârlılık öngörüsü içindir.
+Program, hızlı yükseliş potansiyeli taşıyan coinleri erken bulmaya yardımcı olan bir teknik analiz ve karar destek aracıdır. Temel amaç, kullanıcının para kazanmasına yardımcı olabilecek fırsatları erkenden tespit edip değerlendirmesini desteklemektir. Otomatik alım-satım yapmaz, borsa hesabına bağlanmaz ve emir göndermez. Güçlü fırsat ya da A/B/C sınıflandırması kârlılık öngörüsü içindir.
 
 Mevcut kaynakta şu işlev aileleri bulunur:
 - Binance Spot halka açık piyasa verisi ve WebSocket mum akışı; BtcTurk yerel USDT Spot parite listesi üzerinden ortak tarama evreni. BtcTurk fiyatı bilgi amaçlıdır; teknik mum analizi Binance verisinden yapılır.
@@ -162,12 +162,12 @@ Hesaplamalar gereksiz yere kopyalanmaz; yeni geliştirme mevcut modüllerin doğ
 - Koşullu giriş, stop riski, hedefe kalan getiri, eksik teyit ve geçersizleşme koşulu.
 - Veri güncelliği, eksik geçmiş ve likidite.
 
-Güçlü fırsat kapısının mevcut başlangıç koşulları korunur: en az 80/100 puan, uygun B/C aşaması, güncel ve yeterli veri, başarılı likidite kontrolleri, geçerli teknik plan, BTC risk kapısı ve ilk teknik hedefte en az 1,5 brüt teknik risk/getiri. Eşikler sessizce değiştirilmez. Komisyon ve kayma varsayımları uygulanıp test edilene kadar net maliyet sonrası getiri hesaplanmış gibi sunulmaz. Teknik hedef, matematiksel 1R/2R/3R projeksiyonundan ayrıdır ve emir değildir.
+Güçlü fırsat kapısının mevcut başlangıç koşulları korunur: en az 80/100 puan, uygun B/C aşaması, güncel ve yeterli veri, başarılı likidite kontrolleri, geçerli teknik plan, BTC risk kapısı ve ilk teknik hedefte en az 1,5 brüt teknik risk/getiri. Eşikler sessizce değiştirilmez. 136. karar uyarınca tasarımda sabit %0,14 giriş ve %0,14 çıkış komisyonuyla tahmini maliyet sonrası risk/getiri hesaplamak onaylanmıştır; ancak mevcut kod bu hesabı uygulamıyor. Kod ve testler tamamlanana kadar maliyet sonrası hesap uygulanmış özellik gibi gösterilmez. Teknik hedef, matematiksel 1R/2R/3R projeksiyonundan ayrıdır ve emir değildir.
 
 ### Kabul edilmiş panel tasarımı
 
 - Üst bölüm: motor/veri durumu, BTC ana yönü, genel piyasa riski, önemli destek/direnç, kanal ve veri tazeliği.
-- Aday listesi: coin, Binance/BtcTurk USDT fiyatları, puan, zaman dilimi, A/B/C, veri durumu, BTC'ye göre durum ve son karar.
+- Aday listesi: Coin, Binance/BtcTurk USDT fiyatları, 24 saatlik fiyat değişimi, puan ve A/B/C aşaması, zaman dilimi ve veri tazeliği, BTC'ye göre göreceli güç, hacim, öne çıkma nedeni ve işlem planı durumu. Mevcut alanlar korunur; genişlik yetmezse yatay kaydırma kullanılabilir.
 - Seçilen coin: hızlı karar özeti ile teknik ayrıntılar; BTC ilişkisi, fiyat yapısı, destek/direnç, önemli engeller ve eksik teyitler.
 - Giriş/hedef/risk alanı: koşullu giriş, kırılım, stop ve yüzde riski, teknik hedef, matematiksel risk katları, geçersizleşme koşulu.
 - Siyah panel arka planı, beyaz ayırıcılar ve okunabilir durum metinleri. Renk tek başına karar gerekçesi olmaz.
@@ -256,15 +256,15 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 ## Fırsat-Kontrol Paneli — tasarım kararları defteri ve sürüm yol haritası
 
 **Kayıt tarihi:** 29 Ekim 2026  
-**Tasarım durumu:** 1–100 numaralı kararlar kayıtlı; 101–119 için ayrıntılı karar metinleri kayıtlı; 120–122 için ayrıntılı kullanıcı metinleri kayıtlı; 123–141 numaralı kararlar kayıtlıdır. 113. kararın ayrıntılı metni 29 Ekim 2026'da kullanıcı tarafından yeniden sağlandı, onaylandı ve README'ye işlendi.  
-**Sonraki tasarım kararı:** 142. karar.  
-**Kayıt kapsamı denetimi — 29 Ekim 2026:** README'deki 1–141 aralığının tümü mekanik olarak kontrol edildi: 141 ayrı numaralı karar kaydı bulundu;  Bu kontrol sonrasında sonraki karar numarası 142 olarak doğrulandı.  
+**Tasarım durumu:** 1–145 arasındaki 145 karar kaydı tutuluyor. 142–145. kararlar 29 Ekim 2026'da onaylanıp bu deftere işlendi. 136. kararın maliyet kapsamı aynı gün kullanıcının açık onayıyla revize edildi; eski “maliyet hesabı kapsam dışı” hükmü artık geçerli değildir.  
+**Sonraki tasarım kararı:** 146. karar.  
+**Kayıt kapsamı denetimi — 29 Ekim 2026:** Önceden mevcut 1–141 karar ile yeni eklenen 142–145 kararları birleştirilerek toplam 145 numaralı karar kaydı tutuluyor. Yeni sıradaki madde 146'dır.  
 **Kodlama durumu:** Başlanmayacak; bütün tasarım kararları tamamlanana ve gerekli açık onaylar verilene kadar beklemede.
 
 ### Bağlayıcı yol haritası
 
-1. **Tasarım kararlarını bitir:** 142. karardan itibaren devam et. Küçük ve ayrıntılı tasarım seçimlerini asistan belirlesin; programın önemli çalışma mantığını veya kapsamını etkileyen kararlar kullanıcıyla birlikte netleştirilsin. Kesinleşmiş kararlar yeniden sorulmasın. Kararların tamamlanması tek başına kodlama izni değildir kullanıcıya sorulur.
-2. **Her 100 kararda kayıt al:** 1–100 aralığı bu kayıtla sabitlenmiştir. Sonraki 100 karar tamamlandığında 101–200 aralığı aynı README içindeki tasarım kararları defterine eklenecek. Böylece kararlar 100'er maddelik aralıklarla korunacak ve yeni sohbetlere aktarılabilecek.
+1. **Tasarım kararlarını bitir:** 146. maddeden devam et. Küçük ve ayrıntılı tasarım seçimlerini asistan, kesinleşmiş kararları değiştirmeden birleştirsin; çalışma mantığını/kapsamını etkileyen önemli seçimler kullanıcıyla tek tek netleştirilsin. Kesinleşmiş kararlar yeniden sorulmasın. Tasarımın bitmesi tek başına kodlama izni değildir; kodlama için ayrıca açık onay gerekir.
+2. **Her 10 yeni kesinleşmiş kararda kayıt al:** Kullanıcının son talimatı geçerlidir. Her 10 yeni onaylı karar tamamlandığında aynı README güncellenecek ve değişiklik geri okunarak doğrulanacak. Önceden kesinleşmiş kararlar sessizce değiştirilmez; açıkça revize edilen kararın nedeni kaydedilir.
 3. **Sürüm 1'i mevcut program üzerinden hazırla:** Tasarım kararlarının tamamı bittikten sonra, mevcut GitHub main dalındaki programı incele. Mevcut işlevleri, dosyaları, yapılandırmaları ve testleri doğrula; eksikleri gider ve gerekli testleri çalıştır.
 4. **Sürüm 1'i kullanıcı testinden geçir:** Tam ve doğrulanmış sürüm adayı kullanıcının Windows bilgisayarında kontrol edilecek. Kullanıcının bulguları düzeltilip ilgili testler tekrarlanacak. Kullanıcının son onayı gelmeden Sürüm 1 kabul edilmeyecek.
 5. **Sürüm 1'i sabitle, Sürüm 2'yi ondan üret:** Sürüm 1 kabul edilip sabitlendikten sonra değiştirilmeden korunacak. Yeni tasarım kararları, Sürüm 1'in eksiksiz kopyası yeni dala aktarılıp, temel alınarak yeni dalda Sürüm 2 olarak geliştirilecek. Mevcut ve çalışan işlevler gereksiz yere yeniden yazılmayacak; yeni işlevler gerçek programa ve arayüze entegre edilecek.
@@ -456,7 +456,7 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - Bu defter tasarım gereksinimlerinin kaydıdır; 
 ## Güncel tasarım kararları ve devir noktası — 29 Ekim 2026
 
-**Güncel durum:** Kullanıcının devir kaydına göre 140. karar tamamlanmıştı. Bu sohbette 141. karar da kesinleştirildi. Sıradaki yeni karar numarası 142'dir.
+**Güncel durum:** 1–145 arası tasarım kararları tamamlandı. 142–145 kararları bu sohbette onaylanıp kayda işlendi. Sıradaki tasarım maddesi 146'dır.
 
 ### 101–122. karar aralığı — kaynak durumu ve karar metinleri
 
@@ -499,17 +499,24 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - **131. Güvenilir geçmiş mumlar ve düzeltmeler:** Mum kapandıktan sonra güvenilir geçmiş mum verisi esas alınır. Sonradan gelen güvenilir düzeltmelerin eski kayıtları nasıl etkileyeceği önceki kararlar doğrultusunda yürütülür.
 - **132. Ölçüm pencerelerinin başlangıcı:** 1 saat, 4 saat ve 24 saatlik ölçümler sinyal zamanından başlar; veri gecikmesi ölçüm süresini uzatmaz.
 
-### Kesinleşmiş kararlar: 133–141
+### Kesinleşmiş kararlar: 133–145
 
 - **133. Sinyal başarısının ölçülmesi:** Aynı fiyat geçmişi üzerinden iki ayrı değerlendirme yapılır. **Radar başarısı:** Yükselişin ne kadar erken tespit edildiği, dönem içindeki en yüksek yükseliş ve en büyük düşüş. **Teknik plan başarısı:** Giriş, hedefler, zarar durdurma ve geçersizleşme koşullarının gerçekleşmesi. Aynı fiyat verisi iki ayrı sistemde yeniden toplanmaz.
 - **134. Birden fazla hedefin ölçülmesi:** Her hedefin durumu ayrı değerlendirilir. Hangi hedeflere ulaşıldığı ve en yüksek ulaşılan hedef, gerçekleşen olay kayıtlarından türetilir. Aynı bilgi için ikinci bir olay kaydı oluşturulmaz.
 - **135. Sonuçların sınıflandırılması:** Hedefe ulaşma, zarar durdurma, geçersizleşme, sürenin dolması, girişin gerçekleşmemesi ve belirsizlik değerlendirilir. Birden fazla olay gerçekleşebileceğinden yalnızca tek sonuç etiketiyle yetinilmez. Olayların sırası korunur. Sıra güvenilir biçimde belirlenemiyorsa tahmin yürütülmez; sonuç belirsiz kaydedilir.
-- **136. Maliyet hesabının kapsamı:** Komisyon, kayma ve maliyet sonrası kazanç hesabı kapsam dışıdır. Program gerçek işlem performansını hesaplamaz; teknik fırsatları ve teknik planların fiyat hareketleri karşısındaki başarısını ölçer.
+- **136. Maliyet sonrası teknik risk/getiri tahmini — 29 Ekim 2026'da kullanıcının açık onayıyla revize edildi:** İşlem planındaki giriş fiyatı temel alınır; her kâr hedefi ve zarar-kes çıkışı ayrı değerlendirilir. Komisyon varsayımı sabittir: girişte %0,14 ve çıkışta %0,14. Aynı tutarlı giriş ve çıkışta bu yaklaşık %0,28 toplam komisyon demektir; hacim kademesi veya emir türüne göre oran değiştirilmez. Brüt risk/getiri ile tahmini maliyet sonrası net risk/getiri ayrı gösterilir. Fiyat kayması yalnızca BtcTurk alış-satış farkı/emir defteri verisi yeterliyse tahmin edilir; veri yoksa oran uydurulmaz, eksik olduğu açıkça gösterilir. Bu hesap tahmindir; gerçek emir, dolum, tahsil edilmiş komisyon veya gerçek işlem kârı değildir. Program otomatik emir göndermez. Eski “komisyon/kayma hesabı kapsam dışı” hükmü bu revizyonla geçersizdir.
 - **137. Teknik planın başarı koşulu:** Bir planın hedef başarısı sayılabilmesi için giriş koşulu gerçekleşmiş olmalıdır. Giriş gerçekleşmeden hedefe ulaşılması radarın fiyat hareketini tespit başarısına yazılır; teknik planın hedef başarısı sayılmaz. Giriş gerçekleşmişse hedef, zarar durdurma ve geçersizleşme olayları değerlendirilir. Giriş gerçekleşmezse plan, gerçekleşmiş işlem gibi başarılı veya başarısız sayılmaz. Olay sırası güvenilir biçimde belirlenemiyorsa sonuç belirsizdir.
 - **138. Giriş koşulunun belirlenmesi:** Sinyalden sonraki kapanmış ve güvenilir mumun en düşük ve en yüksek fiyatı giriş bölgesiyle kesişirse giriş bölgesine temas kaydedilir. Teknik plan ayrıca kapanış, kırılım veya başka bir teyit koşulu gerektiriyorsa giriş ancak bu koşul gerçekleştiğinde doğrulanır. Ek teyit yoksa bölgeye temas yeterlidir. Geçmiş plan koşulları sonradan değiştirilerek eski sonuçlar yeniden yazılmaz. Aynı mumda giriş, hedef veya zarar durdurma olaylarının sırası belirlenemiyorsa tahmin yapılmaz.
 - **139. Giriş öncesinde geçersizleşme:** Giriş gerçekleşmeden geçersizleşme koşulu oluşursa plan **“Giriş öncesi geçersizleşti”** olarak kaydedilir. Gerçekleşmiş işlem zararı sayılmaz. Radarın fiyat hareketini tespit başarısı ölçülmeye devam eder. Teknik planın geçersizleşmesi, 1 saatlik, 4 saatlik ve 24 saatlik radar ölçümlerini sonlandırmaz.
 - **140. Hedefe ulaşıldığında zarar durdurma seviyesi:** Başlangıçta belirlenen hedefler ve zarar durdurma seviyesi sabit kalır. Bir hedefe ulaşılması zarar durdurma seviyesini kendiliğinden değiştirmez. Seviyeyi değiştiren bir kural varsa önceden belirlenmiş olmalıdır. Geçmiş plan koşulları sonradan oluşan fiyat hareketlerine göre geriye dönük değiştirilmez. Hedef ve zarar durdurma temasları ortak fiyat verisinden değerlendirilir.
 - **141. Radar ölçümünün başlangıç fiyatı — kesinleşti:** 1 saatlik, 4 saatlik ve 24 saatlik sinyal sonrası radar ölçümlerinde başlangıç fiyatı, sinyali oluşturan kapanmış mumun kapanış fiyatıdır. Veri gecikmesi nedeniyle daha sonraki bir fiyat başlangıç referansı yapılmaz. Bu karar, **81–82. kararlardaki erken/geç/kaçırılan yükseliş sınıflandırması için kullanılan izleme başlangıcı fiyatını değiştirmez**; iki referans farklı ölçüm amaçlarına aittir. Geçmiş ölçümlerin başlangıç fiyatı sonradan değiştirilmez.
+
+### Kesinleşmiş kararlar: 142–145
+
+- **142. BtcTurk PRO'nun ana menü konumu:** BtcTurk PRO, sol ana menüde diğer çalışma alanlarından ayrı, doğrudan seçilebilir bir madde olacak. Daha önce çizilen sekiz bölümlü menü listesi kesinleşmiş nihai isim/sıra listesi sayılmayacak; içerik ve sıralama ekranların bütün tasarımıyla uyumlu biçimde kapatılacak. BtcTurk PRO'nun ayrı madde olması kesinleşmiştir.
+- **143. Ortak pencere iskeleti:** Tek pencerenin solunda sabit ana gezinme menüsü, üstte ortak durum satırı ve ortak işlem kontrolleri, ortada seçilen bölümün çalışma alanı bulunacak. Mevcut çalışan işlevler ve düğmeler kaldırılmayacak; yerleri, ihtiyaç halinde sayfa bazında daha düzenli sunulacak. Bu karar kodun uygulandığını göstermez.
+- **144. Genel Bakış ekranı:** Mevcut üst durum satırı ve işlem kontrolleri korunacak. Genel Bakış içinde piyasa durumu/önemli fırsatlar ve aday tablosu merkezde; seçili coin ayrıntısı sağda; tanılama ve son kayıtlar altta, gerektiğinde daraltılabilir biçimde sunulacak. Mevcut BTC ayrıntısı, motor başlatma/durdurma, parite güncelleme, rapor, sorun giderme ZIP'i, seviye takibi, sesli bildirim/ses testi/ses düzeyi, yazı boyutu ve ekran görüntüsü yükleme işlevleri kaybolmayacak. Bildirim ayrıntısı, önceki karara göre sayfa üzerine sağdan açılır. Taslak görsellerdeki örnek fiyatlar gerçek piyasa verisi değildir.
+- **145. Fırsat Radarı tablosu:** Mevcut sütunlar ve karar bilgisi korunarak şu alanlar tek tabloda sunulacak; genişlik yetmezse yatay kaydırma kullanılacak: Coin; Binance USDT fiyatı; BtcTurk USDT fiyatı; 24 saatlik fiyat değişimi; puan ve A/B/C aşaması; zaman dilimi ve veri tazeliği; BTC'ye göre göreceli güç; hacim; öne çıkma nedeni; işlem planı durumu. Mevcut tablonun dokuz sütunlu test sözleşmesi şu anki kod/test durumudur; yeni tasarımın tam uygulandığı anlamına gelmez. Gerekli kod/test uyumu ileride ayrıca onaylanan kodlama aşamasında yapılacak.
 
 ### Aynı sinyalin yeniden oluşması ve ortak kayıt ilkesi
 
@@ -521,12 +528,12 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 
 ### Güncel devir noktası
 
-- **Son kesinleşen karar:** 141.
-- **Sıradaki karar:** 142.
+- **Son kesinleşen karar:** 145.
+- **Sıradaki karar:** 146.
 
 - ** kural:** Karar defterinin tek yetkili kaynağı bu README'nin `main` dalındaki güncel sürümüdür; kullanıcıya danışmadan yazılacak metin kendisine sunulmadan buraya kayıt yapılamaz burda düzeltme yapılamaz.
 - **Kodlama:** Açık kullanıcı onayı gelmeden başlanmayacak.
 
 - **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu kontrol edilir, inceleme ve doğrulamayla belirlenir kullanıcı onayıyla koda uygulanır.
 
-Yeni sohbet veya devam adımı 142. tasarım kararından başlamalıdır.
+Yeni sohbet 146. tasarım maddesinden devam etmelidir; 1–145 arası kesinleşmiş kararlar tekrar sorulmaz.
