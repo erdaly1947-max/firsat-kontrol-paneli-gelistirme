@@ -518,6 +518,23 @@ ZIP'i Windows'ta ayrı bir klasöre çıkarıp BASLAT.bat dosyasını çalışt�
 - **144. Genel Bakış ekranı:** Mevcut üst durum satırı ve işlem kontrolleri korunacak. Genel Bakış içinde piyasa durumu/önemli fırsatlar ve aday tablosu merkezde; seçili coin ayrıntısı sağda; tanılama ve son kayıtlar altta, gerektiğinde daraltılabilir biçimde sunulacak. Mevcut BTC ayrıntısı, motor başlatma/durdurma, parite güncelleme, rapor, sorun giderme ZIP'i, seviye takibi, sesli bildirim/ses testi/ses düzeyi, yazı boyutu ve ekran görüntüsü yükleme işlevleri kaybolmayacak. Bildirim ayrıntısı, önceki karara göre sayfa üzerine sağdan açılır. Taslak görsellerdeki örnek fiyatlar gerçek piyasa verisi değildir.
 - **145. Fırsat Radarı tablosu:** Mevcut sütunlar ve karar bilgisi korunarak şu alanlar tek tabloda sunulacak; genişlik yetmezse yatay kaydırma kullanılacak: Coin; Binance USDT fiyatı; BtcTurk USDT fiyatı; 24 saatlik fiyat değişimi; puan ve A/B/C aşaması; zaman dilimi ve veri tazeliği; BTC'ye göre göreceli güç; hacim; öne çıkma nedeni; işlem planı durumu. Mevcut tablonun dokuz sütunlu test sözleşmesi şu anki kod/test durumudur; yeni tasarımın tam uygulandığı anlamına gelmez. Gerekli kod/test uyumu ileride ayrıca onaylanan kodlama aşamasında yapılacak.
 
+### Kalan tasarım kapanış işleri: 146–155
+
+Bu sıra, tasarım çalışmasının sonraki bölümüdür. Her seferinde tek ana konu ele alınacak; kesinleşmiş 1–145 kararları tekrar sorulmayacak. Kullanıcının onayı olmadan kodlama yapılmayacak.
+
+- **146. Aktif Takip ekranı ve kartları:** Aynı anda 4–5 kullanıcı tarafından seçilen paritenin gösterimi; ekleme/çıkarma, seçilmiş varlıkların sıralanması ve ayrıntıya geçiş.
+- **147. Parite Analizi ve grafik ekranı:** Gerçek piyasa fiyat grafiği, zaman dilimleri, göstergeler, plan/Fibonacci/destek-direnci katmanları ve kullanıcının manuel trend çizgisi/paralel kanal araçları.
+- **148. BTC ve Piyasa ekranı:** BTC yapısının yanına BTC Dominance, TOTAL/TOTAL2/TOTAL3 ve piyasa genişliği metriklerinin eklenip eklenmeyeceği; veri kaynaklarının güvenilirliği.
+- **149. Planlar ve Uyarılar ekranı:** Aktif/eski/yeni önerilen planlar, geçersizlikler, uyarı geçmişi ve sağdan açılır bildirim ayrıntısı.
+- **150. Raporlar ekranı:** Radarın erken tespit başarısı ile teknik plan sonuçları, dönem/coin/borsa filtreleri, çoklu hedef olayları ve maliyet sonrası tahmini risk/getiri.
+- **151. Sistem ve Ayarlar ekranı:** Veri/motor durumu, güncelleme sıklığı, tema, ölçüm eşikleri, uyarı saklama, otomatik başlatma, sistem tepsisi ve ilişkili kontroller.
+- **152. BtcTurk PRO ekranı:** Bağımsız USDT parite araması, radardan parite aktarma, BtcTurk fiyat/spread/emir defteri/işlem uygunluğu ve güncellik/eksik veri durumları.
+- **153. Haber, sektör ve sosyal ilgi kaynakları:** Program içindeki haber, tema/narrative ve sosyal ilgi verilerinin kapsamı, kaynak seçimi ve bunların aday değerlendirmesinde nasıl sunulacağı.
+- **154. Tarihsel geri test ve ölçüm yöntemi:** Geçmiş veri süresi, mum çözünürlüğü, radar başarısıyla teknik plan başarısının ayrılması, eksik veri ve olay sıralama yöntemi.
+- **155. Bütün ekranların son tasarım tutarlılığı kontrolü:** Menü ve sayfa isimleri/sırası, ortak gezinme, mevcut düğme ve işlevlerin korunması, ekranlar arasındaki tutarlılık ve 1–155 gereksinimlerinin son kontrolü. Önceki çalışma listesindeki maliyet kapsamı çelişkisi 136. kararın revizyonuyla çözülmüştür; bu konu yeniden sorulmayacak.
+
+146–155 tamamlanınca 1–155 tasarım gereksinimleri ile ana daldaki kod tekrar karşılaştırılacak, eksikler ve çelişkiler öncelik sırasına konacaktır. Kod uygulaması, test/dağıtım değişikliği ve ZIP hazırlığı için ayrı açık onay beklenecektir.
+
 ### Aynı sinyalin yeniden oluşması ve ortak kayıt ilkesi
 
 - Önceki sinyalin 24 saatlik ölçümü devam ederken mevcut kayıt korunur.
