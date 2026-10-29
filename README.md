@@ -371,29 +371,56 @@ Bu aktarımda doğrulanabilen önceki kurallar: Aktif Takip için 4–5 parite; 
 
 ---
 
-## Yeni sohbet odası için güncel devir noktası — 29 Ekim 2026
+## Güncel tasarım kararları ve devir noktası — 29 Ekim 2026
 
-**Tasarım kararları:** 1–100 tamamlandı ve bu README'de kayıtlıdır. Bunlar kesinleşmiş kararlardır; yeniden sorulmayacak. Gerçek işlem performansı kapsam dışıdır. Program borsa hesabına bağlanmayacak ve otomatik emir göndermeyecektir.
+**Güncel durum:** Kullanıcının devir kaydına göre 140. karar tamamlanmıştı. Bu sohbette 141. karar da kesinleştirildi. Sıradaki yeni karar numarası 142'dir.
 
-**Şu anki açık konu: 101. tasarım kararı — Yükseliş başarısı nasıl ölçülecek?**
+### Karar defteri bütünlüğü: 101–122
 
-Mevcut teyitli çerçeve: 1 saat, 4 saat ve 24 saatlik pencerelerde dönem sonu fiyat değişimi, pencere içindeki en yüksek yükseliş ve en büyük düşüş ölçülür. Kullanıcı yükseliş eşiğini ayarlardan belirler. Eşiğe herhangi bir anda ulaşmak ile pencere sonunda eşiğin üzerinde kalmak arasındaki başarı ölçütü henüz seçilmemiştir.
+Mevcut README'de 1–100. kararların metinleri bulunuyor. README'nin önceki sonunda kalan 101. karar devir notu artık güncel değildir ve yürürlükteki durum olarak kullanılmamalıdır.
 
-Seçenekler:
-1. Eşik fiyatına değerlendirme süresinin herhangi bir anında ulaşılması başarı sayılsın.
-2. Yalnızca değerlendirme süresi sonunda fiyat eşik üzerinde ise başarı sayılsın.
-3. Eşiğe ulaşılıp ulaşılmadığı ve dönem sonunda fiyatın nerede kaldığı ayrı ayrı gösterilsin.
+101–122. kararların tam metinleri mevcut README'de yer almıyor. Erişilebilen önceki devir dosyaları da bu 22 kararın tam metnini doğrulamaya yetmiyor. Kullanıcının güncel devir kaydı 123–140. kararların tamamlandığını bildiriyor; ancak 101–122. kararların özgün metinleri doğrulanmadan yeniden yazılmayacak veya varsayımla doldurulmayacak. Bu aralık kullanıcıyla birlikte doğrulanıp kaynak metinleri elde edildikçe karar defterine eklenecek.
 
-Önceki sohbette verilen tavsiye: **3. seçenek.** Kullanıcı henüz seçim yapmadı. Yeni sohbet doğrudan bu soruyla başlamalı; önceki 1–100 kararları yeniden sorulmamalıdır.
+### Kesinleşmiş kararlar: 123–132
 
-### Yol haritası — bağlayıcı sıra
-1. 101. karardan itibaren tasarım kararlarına devam et. Küçük/ayrıntılı seçimleri asistan belirlesin; programın önemli çalışma mantığını veya kapsamını etkileyen kararları kullanıcıyla birlikte netleştir. Her seferinde yalnızca bir ana karar sor.
-2. Kararlar tamamlanana kadar kodlamaya başlama. Her 100 karar tamamlandığında karar aralığını bu README'ye numaralı şekilde ekle ve yeni sohbetler için devir noktasını güncelle.
-3. Bütün tasarım kararları bittikten sonra mevcut `main` dalındaki programı incele; dosyaları, gerçek işlevleri ve testleri doğrula, eksikleri gider. Bir özellik kod ve test kanıtıyla doğrulanmadıkça uygulanmış sayma.
-4. Mevcut programın doğrulanmış, tam bir sürüm adayı olarak Sürüm 1'i hazırla. Kullanıcının Windows bilgisayarındaki son testini ve açık onayını bekle. Bunlar olmadan Sürüm 1 kabul edilmiş sayılmaz.
-5. Sürüm 1 kabul edilince sabitle. Yeni tasarım kararlarını, Sürüm 1'in eksiksiz kopyasından oluşturulan Sürüm 2'ye uygula. Sürüm 1'i geriye dönük değiştirme ve mevcut işlevleri gereksiz yere yeniden yazma.
-6. Kullanıcıya eksik/ara ZIP teslim etme. Sürümün özellikleri tamamlandıktan ve gerekli testler geçtikten sonra tam paket oluştur. Kullanıcının son kabulü olmadan sonraki sürüme geçme.
+- **123. Sinyal ve ölçüm olaylarının benzersizliği:** Her sinyal ve ölçüm olayı benzersiz kimlikle kaydedilir; aynı olay ikinci kez oluşturulmaz.
+- **124. Teknik işlem planının ana kimliği:** Her teknik işlem planının ana kimliği bulunur. Giriş, hedef, zarar durdurma ve geçersizleşme olayları bu kimliğe bağlanır.
+- **125. Zaman gösterimi:** Zamanlar UTC (Eşgüdümlü Evrensel Zaman) olarak saklanır, Türkiye saatiyle gösterilir.
+- **126. Olay zamanı ve veri ulaşma zamanı:** Piyasa olayının zamanı ile verinin programa ulaşma zamanı ayrı saklanır.
+- **127. Ölçüm veri kaynağı ve yeterliliği:** Ölçümde kullanılan kaynak, zaman dilimi, son güvenilir mum zamanı ve veri yeterliliği kaydedilir.
+- **128. Ölçüm koşullarının korunması:** Ölçüm koşulları ve kullanılan eşikler saklanır. Sonraki ayar değişiklikleri geçmiş ölçümlerin koşullarını değiştirmez.
+- **129. Hesaplama mantığının sürümü:** Sonucu üreten hesaplama mantığının sürümü kaydedilir.
+- **130. Belirsizlik nedenleri:** Belirsiz sonuçlarda belirsizlik nedeni de kaydedilir. Birden fazla neden bulunabilir.
+- **131. Güvenilir geçmiş mumlar ve düzeltmeler:** Mum kapandıktan sonra güvenilir geçmiş mum verisi esas alınır. Sonradan gelen güvenilir düzeltmelerin eski kayıtları nasıl etkileyeceği önceki kararlar doğrultusunda yürütülür.
+- **132. Ölçüm pencerelerinin başlangıcı:** 1 saat, 4 saat ve 24 saatlik ölçümler sinyal zamanından başlar; veri gecikmesi ölçüm süresini uzatmaz.
 
-**Kodlama ve GitHub sınırı:** Bu kayıt bir plan/devir güncellemesidir, kodlama izni değildir. Program kodu değiştirilmemiştir. Tasarım kararları tamamlanmadan kodlama yapılmayacaktır.
+### Kesinleşmiş kararlar: 133–141
 
-**Yeni sohbetin ilk mesajı:** 101. tasarım kararını yukarıdaki seçeneklerle sor; 3. seçeneğin önceki tavsiye olduğunu ama henüz seçilmediğini belirt. Ardından kullanıcının cevabından sonra 102. karara geç.
+- **133. Sinyal başarısının ölçülmesi:** Aynı fiyat geçmişi üzerinden iki ayrı değerlendirme yapılır. **Radar başarısı:** Yükselişin ne kadar erken tespit edildiği, dönem içindeki en yüksek yükseliş ve en büyük düşüş. **Teknik plan başarısı:** Giriş, hedefler, zarar durdurma ve geçersizleşme koşullarının gerçekleşmesi. Aynı fiyat verisi iki ayrı sistemde yeniden toplanmaz.
+- **134. Birden fazla hedefin ölçülmesi:** Her hedefin durumu ayrı değerlendirilir. Hangi hedeflere ulaşıldığı ve en yüksek ulaşılan hedef, gerçekleşen olay kayıtlarından türetilir. Aynı bilgi için ikinci bir olay kaydı oluşturulmaz.
+- **135. Sonuçların sınıflandırılması:** Hedefe ulaşma, zarar durdurma, geçersizleşme, sürenin dolması, girişin gerçekleşmemesi ve belirsizlik değerlendirilir. Birden fazla olay gerçekleşebileceğinden yalnızca tek sonuç etiketiyle yetinilmez. Olayların sırası korunur. Sıra güvenilir biçimde belirlenemiyorsa tahmin yürütülmez; sonuç belirsiz kaydedilir.
+- **136. Maliyet hesabının kapsamı:** Komisyon, kayma ve maliyet sonrası kazanç hesabı kapsam dışıdır. Program gerçek işlem performansını hesaplamaz; teknik fırsatları ve teknik planların fiyat hareketleri karşısındaki başarısını ölçer.
+- **137. Teknik planın başarı koşulu:** Bir planın hedef başarısı sayılabilmesi için giriş koşulu gerçekleşmiş olmalıdır. Giriş gerçekleşmeden hedefe ulaşılması radarın fiyat hareketini tespit başarısına yazılır; teknik planın hedef başarısı sayılmaz. Giriş gerçekleşmişse hedef, zarar durdurma ve geçersizleşme olayları değerlendirilir. Giriş gerçekleşmezse plan, gerçekleşmiş işlem gibi başarılı veya başarısız sayılmaz. Olay sırası güvenilir biçimde belirlenemiyorsa sonuç belirsizdir.
+- **138. Giriş koşulunun belirlenmesi:** Sinyalden sonraki kapanmış ve güvenilir mumun en düşük ve en yüksek fiyatı giriş bölgesiyle kesişirse giriş bölgesine temas kaydedilir. Teknik plan ayrıca kapanış, kırılım veya başka bir teyit koşulu gerektiriyorsa giriş ancak bu koşul gerçekleştiğinde doğrulanır. Ek teyit yoksa bölgeye temas yeterlidir. Geçmiş plan koşulları sonradan değiştirilerek eski sonuçlar yeniden yazılmaz. Aynı mumda giriş, hedef veya zarar durdurma olaylarının sırası belirlenemiyorsa tahmin yapılmaz.
+- **139. Giriş öncesinde geçersizleşme:** Giriş gerçekleşmeden geçersizleşme koşulu oluşursa plan **“Giriş öncesi geçersizleşti”** olarak kaydedilir. Gerçekleşmiş işlem zararı sayılmaz. Radarın fiyat hareketini tespit başarısı ölçülmeye devam eder. Teknik planın geçersizleşmesi, 1 saatlik, 4 saatlik ve 24 saatlik radar ölçümlerini sonlandırmaz.
+- **140. Hedefe ulaşıldığında zarar durdurma seviyesi:** Başlangıçta belirlenen hedefler ve zarar durdurma seviyesi sabit kalır. Bir hedefe ulaşılması zarar durdurma seviyesini kendiliğinden değiştirmez. Seviyeyi değiştiren bir kural varsa önceden belirlenmiş olmalıdır. Geçmiş plan koşulları sonradan oluşan fiyat hareketlerine göre geriye dönük değiştirilmez. Hedef ve zarar durdurma temasları ortak fiyat verisinden değerlendirilir.
+- **141. Radar ölçümünün başlangıç fiyatı — kesinleşti:** 1 saatlik, 4 saatlik ve 24 saatlik sinyal sonrası radar ölçümlerinde başlangıç fiyatı, sinyali oluşturan kapanmış mumun kapanış fiyatıdır. Veri gecikmesi nedeniyle daha sonraki bir fiyat başlangıç referansı yapılmaz. Bu karar, **81–82. kararlardaki erken/geç/kaçırılan yükseliş sınıflandırması için kullanılan izleme başlangıcı fiyatını değiştirmez**; iki referans farklı ölçüm amaçlarına aittir. Geçmiş ölçümlerin başlangıç fiyatı sonradan değiştirilmez.
+
+### Aynı sinyalin yeniden oluşması ve ortak kayıt ilkesi
+
+- Önceki sinyalin 24 saatlik ölçümü devam ederken mevcut kayıt korunur.
+- Aynı sinyalin tekrar bildirilmesi yeni ölçüm oluşturmaz.
+- Gerçekten yeni bir sinyal oluşursa benzersiz kimliğiyle yeni ölçüm kaydı açılır.
+- Önceki ve yeni ölçümler birbirini değiştirmeden sürer.
+- 133–135. kararlar birlikte uygulanır: fiyat verisi ve olaylar ortak tutulur; farklı başarı ölçümleri bu kayıtlardan türetilir.
+
+### Güncel devir noktası
+
+- **Son kesinleşen karar:** 141.
+- **Sıradaki karar:** 142.
+- **Açık kayıt işi:** 101–122. kararların özgün metinlerini kullanıcıyla birlikte doğrulamak ve doğrulanan metinleri bu deftere eklemek.
+- **Kodlama:** Açık kullanıcı onayı gelmeden başlanmayacak.
+- **GitHub kapsamı:** Bu değişiklik yalnızca README'deki tasarım kararları ve devir kaydı içindir. Program kaynak kodu ve uygulama davranışı değiştirilmedi.
+- **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu anlamına gelmez. Uygulama durumu ancak daha sonraki inceleme ve doğrulamayla belirlenir.
+
+Yeni sohbet veya devam adımı 142. tasarım kararından başlamalıdır. 101–122. kararlar doğrulanana kadar eksik metinler tamamlanmış veya kaynakta doğrulanmış gibi sunulmamalıdır.
