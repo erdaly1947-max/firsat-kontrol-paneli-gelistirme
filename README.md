@@ -572,7 +572,6 @@ Bir sonraki sohbet, Naratif Avcısı sayfasının **hangi bilgileri göstereceğ
 - **Kodlama:** Açık kullanıcı onayı gelmeden başlanmayacak.
 
 - ** kural:** Karar defterinin tek yetkili kaynağı bu README'nin `main` dalındaki güncel sürümüdür; kullanıcıya danışmadan yazılacak metin kendisine sunulmadan buraya kayıt yapılamaz burda düzeltme yapılamaz.
-- **Kodlama:** Açık kullanıcı onayı gelmeden başlanmayacak.
 
 - **Mevcut program durumu:** Tasarım kararlarında hedef olarak yazılması, ilgili işlevin programda mevcut veya test edilmiş olduğu kontrol edilir, inceleme ve doğrulamayla belirlenir kullanıcı onayıyla koda uygulanır.
 
