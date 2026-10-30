@@ -1452,6 +1452,8 @@ class ControlPanel(tk.Tk):
         return True
 
     def _overview_selection_changed(self, _event: Any = None) -> None:
+        if getattr(self, "_overview_refreshing", False):
+            return
         selection = self.overview_tree.selection()
         if selection:
             self._select_candidate_by_symbol(selection[0])
@@ -1464,6 +1466,7 @@ class ControlPanel(tk.Tk):
     def _refresh_overview_page(self) -> None:
         if not hasattr(self, "overview_tree"):
             return
+        self._overview_refreshing = True
         state = self.current_state if isinstance(self.current_state, dict) else {}
         count = state.get("scan_symbol_count", state.get("common_pair_count", "—"))
         strong = sum(
@@ -1521,6 +1524,7 @@ class ControlPanel(tk.Tk):
         else:
             detail = "Henüz seçilmiş teknik aday yok.\n\nFırsat Radarı ekranından bir coin seçin."
         self._set_text(self.overview_detail_text, detail)
+        self._overview_refreshing = False
 
     def _tracking_add_selected(self) -> None:
         candidate = self._selected_candidate()
