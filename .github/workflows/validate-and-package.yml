@@ -247,6 +247,8 @@ jobs:
               names = archive.namelist()
               if "btcturk_usdt_spot.json" not in names:
                   raise SystemExit("btcturk_usdt_spot.json paket içinde bulunamadı.")
+              if "btcturk_pro.py" not in names:
+                  raise SystemExit("btcturk_pro.py paket içinde bulunamadı.")
               if "market_data_relay.json" not in names:
                   raise SystemExit("market_data_relay.json paket içinde bulunamadı.")
               relay_member = json.loads(archive.read("market_data_relay.json").decode("utf-8"))
