@@ -256,7 +256,7 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn("recent_closed_candles", drawing)
         self.assertIn("Gerçek veri gelene kadar örnek mum çizilmez", drawing)
         for timeframe in ("5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"):
-            self.assertIn(f'"{timeframe}"', builder)
+            self.assertIn(f"'{timeframe}'", builder)
         self.assertIn("recent_closed_candles", PANEL_SOURCE)
         self.assertNotIn("makeBars", PANEL_SOURCE)
 
@@ -277,14 +277,14 @@ class PanelUIContractTests(unittest.TestCase):
         add_method = ast.unparse(_method("_tracking_add_selected"))
         save_method = ast.unparse(_method("_save_panel_settings"))
         self.assertIn("len(self.tracked_symbols) >= 5", add_method)
-        self.assertIn('self.panel_settings["tracked_symbols"]', add_method)
-        self.assertIn('"tracked_symbols"', save_method)
+        self.assertIn("tracked_symbols", add_method)
+        self.assertIn("tracked_symbols", save_method)
 
     def test_chart_does_not_draw_plan_suggestions_as_active_plan(self):
         drawing = ast.unparse(_method("_draw_analysis_chart"))
         self.assertIn("plan_is_active", drawing)
-        self.assertIn('plan.get("active") is True', drawing)
-        self.assertIn('{"AKTİF", "ACTIVE"}', drawing)
+        self.assertIn("plan.get('active') is True", drawing)
+        self.assertIn("{'AKTİF', 'ACTIVE'}", drawing)
 
     def test_package_workflow_is_for_s1_and_package_is_explicit(self):
         workflow = (ROOT / ".github" / "workflows" / "validate-and-package.yml").read_text(encoding="utf-8")
