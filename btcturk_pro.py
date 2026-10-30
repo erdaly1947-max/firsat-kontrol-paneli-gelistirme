@@ -503,9 +503,13 @@ def analyze_btcturk_pro(symbol: str, markets: dict[str, dict[str, Any]],
     book_ms = int(book.get("timestamp_ms") or 0)
     book_age = max(0, (now_ms - book_ms) / 1000) if book_ms else None
     book_fresh = book_age is not None and book_age <= 45
+    price_scale_available = (
+        market.get("has_fraction") is False
+        or market.get("denominator_scale") is not None
+    )
     market_rules_available = (
         market.get("numerator_scale") is not None
-        and market.get("denominator_scale") is not None
+        and price_scale_available
         and market.get("minimum_order_usdt") is not None
     )
     plan_available = (
