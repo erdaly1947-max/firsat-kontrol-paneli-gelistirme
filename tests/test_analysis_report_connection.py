@@ -139,6 +139,41 @@ class AnalysisReportTests(unittest.TestCase):
         sleep.assert_called_once_with(1.0)
         self.assertTrue(result["ok"])
 
+    def test_analysis_upload_falls_back_to_render_after_cloudflare_rejects_request(self):
+        payload = {
+            "report_type": "analysis",
+            "schema_version": 1,
+            "candidate_count": 1,
+            "candidates": [{"symbol": "ABCUSDT"}],
+        }
+        compressed = gzip.compress(json.dumps(payload).encode("utf-8"))
+        config = {"upload_url": UPLOAD_URL, "upload_token": "test-upload-token", "read_url": READ_URL}
+        direct_denied = urllib.error.HTTPError(
+            f"{WORKER_BASE_URL}/api/report", 401, "Unauthorized", {},
+            io.BytesIO(b'{"ok":false,"error":"direct token rejected"}'),
+        )
+        fallback_response = mock.MagicMock()
+        fallback_response.__enter__.return_value = fallback_response
+        fallback_response.status = 200
+        fallback_response.read.return_value = json.dumps({
+            "ok": True, "report_type": "analysis", "candidate_count": 1,
+        }).encode("utf-8")
+
+        with mock.patch(
+            "analysis_report.urllib.request.urlopen",
+            side_effect=[direct_denied, fallback_response],
+        ) as urlopen:
+            result = upload_analysis_report(config, compressed)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["transport"], "render_fallback")
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(
+            urlopen.call_args_list[0].args[0].full_url,
+            f"{WORKER_BASE_URL}/api/report",
+        )
+        self.assertEqual(urlopen.call_args_list[1].args[0].full_url, UPLOAD_URL)
+
     def test_analysis_upload_does_not_retry_permanent_http_401(self):
         payload = {
             "report_type": "analysis",
