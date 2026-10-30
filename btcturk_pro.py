@@ -371,24 +371,41 @@ def fetch_binance_comparison(symbol: str, *, timeout: float = 7.0) -> dict[str, 
 
 
 def _orderbook_metrics(ticker: dict[str, Any], book: dict[str, Any]) -> dict[str, Any]:
-    bids, asks = book["bids"], book["asks"]
-    best_bid = _positive(ticker.get("bid")) or bids[0]["price"]
-    best_ask = _positive(ticker.get("ask")) or asks[0]["price"]
-    midpoint = (best_bid + best_ask) / 2.0 if best_bid > 0 and best_ask > 0 else None
-    spread_pct = ((best_ask - best_bid) / midpoint * 100.0
-                  if midpoint and best_ask >= best_bid else None)
-    bid_depth = sum(level["quote_value"] for level in bids
-                    if midpoint and level["price"] >= midpoint * 0.99)
-    ask_depth = sum(level["quote_value"] for level in asks
-                    if midpoint and level["price"] <= midpoint * 1.01)
-    total_depth = bid_depth + ask_depth
-    imbalance_pct = ((bid_depth - ask_depth) / total_depth * 100.0
-                     if total_depth > 0 else None)
+    bids = book.get("bids") if isinstance(book.get("bids"), list) else []
+    asks = book.get("asks") if isinstance(book.get("asks"), list) else []
+    best_bid = _positive(ticker.get("bid")) or (bids[0]["price"] if bids else None)
+    best_ask = _positive(ticker.get("ask")) or (asks[0]["price"] if asks else None)
+    midpoint = (
+        (best_bid + best_ask) / 2.0
+        if best_bid is not None and best_ask is not None and best_bid > 0 and best_ask > 0
+        else None
+    )
+    spread = best_ask - best_bid if best_bid is not None and best_ask is not None else None
+    spread_pct = (
+        spread / midpoint * 100.0
+        if spread is not None and midpoint and spread >= 0 else None
+    )
+    bid_depth = (
+        sum(level["quote_value"] for level in bids if midpoint and level["price"] >= midpoint * 0.99)
+        if midpoint else None
+    )
+    ask_depth = (
+        sum(level["quote_value"] for level in asks if midpoint and level["price"] <= midpoint * 1.01)
+        if midpoint else None
+    )
+    total_depth = (
+        bid_depth + ask_depth
+        if bid_depth is not None and ask_depth is not None else None
+    )
+    imbalance_pct = (
+        (bid_depth - ask_depth) / total_depth * 100.0
+        if total_depth is not None and total_depth > 0 else None
+    )
     return {
         "best_bid": best_bid,
         "best_ask": best_ask,
         "midpoint": midpoint,
-        "spread": best_ask - best_bid,
+        "spread": spread,
         "spread_pct": spread_pct,
         "bid_depth_1pct_usdt": bid_depth,
         "ask_depth_1pct_usdt": ask_depth,
