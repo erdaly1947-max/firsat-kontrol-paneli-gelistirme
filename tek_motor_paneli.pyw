@@ -1194,7 +1194,15 @@ class ControlPanel(tk.Tk):
             for index, target in enumerate(targets[:3], start=1):
                 if isinstance(target, dict) and _safe_float(target.get("price")) is not None:
                     label = target.get("name") or f"Hedef {index}"
-                    target_lines.append(f"Teknik hedef {index}: {label} — {_format_price(target.get('price'))} USDT")
+                    gross_target_rr = _safe_float(target.get("gross_risk_reward", target.get("risk_reward")))
+                    net_target_rr = _safe_float(target.get("net_risk_reward_estimate"))
+                    rr_parts = []
+                    if gross_target_rr is not None:
+                        rr_parts.append(f"brüt {_format_metric(gross_target_rr, 2)}R")
+                    if net_target_rr is not None:
+                        rr_parts.append(f"komisyon sonrası tahmini {_format_metric(net_target_rr, 2)}R")
+                    rr_text = " | " + " / ".join(rr_parts) if rr_parts else ""
+                    target_lines.append(f"Teknik hedef {index}: {label} — {_format_price(target.get('price'))} USDT{rr_text}")
         entry_text = f"{_format_price(entry_low)}–{_format_price(entry_high)} USDT" if entry_low is not None and entry_high is not None else "hesaplanmadı"
         phase = candidate.get("phase") or candidate.get("last_known_phase") or "—"
         timeframe = _display_timeframe(candidate.get("phase_timeframe") or candidate.get("timeframe"))
@@ -1231,6 +1239,9 @@ class ControlPanel(tk.Tk):
             target_price = _safe_float(first_target.get("price"))
             if reference is not None and stop is not None and target_price is not None and reference > stop:
                 risk_reward = (target_price - reference) / (reference - stop)
+        net_risk_reward = _safe_float(plan.get("net_risk_reward_estimate"))
+        if net_risk_reward is None:
+            net_risk_reward = _safe_float(first_target.get("net_risk_reward_estimate"))
         lines = [
             f"PARİTE  {candidate.get('symbol') or candidate.get('base_asset') or '—'}   |   {timeframe}   |   Aşama {phase}",
             f"Fiyat: {price} USDT   |   VERİ: {freshness}",
@@ -1244,7 +1255,9 @@ class ControlPanel(tk.Tk):
             f"Beklenen kırılım: {_format_price(breakout) if breakout is not None else 'mevcut değil'} USDT",
             f"Zarar durdurma: {_format_price(stop) if stop is not None else 'mevcut değil'} USDT",
             *(target_lines or ["Teknik hedefler: mevcut değil"]),
-            f"Risk/getiri: {_format_metric(risk_reward, 2)} kat (brüt; masraflar hariç)",
+            f"Risk/getiri (brüt): {_format_metric(risk_reward, 2)} kat",
+            f"Risk/getiri (komisyon dahil tahmini net; fiyat kayması hariç): {_format_metric(net_risk_reward, 2)} kat" if net_risk_reward is not None else "Risk/getiri (komisyon dahil tahmini net): hedef bulunmadığı için hesaplanmadı",
+            "Komisyon varsayımı: giriş %0,14 + çıkış %0,14. Fiyat kayması için yeterli BtcTurk alış-satış/emir defteri verisi bulunmadığında tahmin eklenmez.",
             f"Geçersizleşme: {_format_price(stop) + ' USDT altındaki zarar durdurma seviyesi görülürse senaryo geçersizdir' if stop is not None else plan.get('reason') or 'plan koşulları bozulduğunda senaryo geçersizdir'}",
             "", "--- KONTROL DURUMU ---",
             f"Canlı fiyat verisi: {freshness}",
@@ -1252,7 +1265,7 @@ class ControlPanel(tk.Tk):
             f"Güçlü alarm uygunluk filtresi (izin): {'GEÇTİ' if candidate.get('strong_alarm_eligible') is True else 'ENGELLİ'}",
             f"Gerçek güçlü fırsat koşulları: {'SAĞLANDI' if candidate.get('strong_opportunity_qualified') is True else 'SAĞLANMADI'}",
             f"Ana engel / teyit bekleyen: {blockers}",
-            "", "A/B/C araştırma aşamalarıdır; emir veya kârlılık garantisi değildir. Giriş bölgesi aşıldıysa fiyat kovalanmamalıdır. Komisyon ve kayma hesaplanmaz; program emir göndermez.",
+            "", "A/B/C araştırma aşamalarıdır; emir veya kârlılık garantisi değildir. Komisyon sonrası değerler sabit ücret varsayımıdır; fiili ücret ve gerçekleşen fiyat kayması farklı olabilir. Program emir göndermez.",
         ]
         self._append_details("\n".join(map(str, lines)))
         self._set_text(self.technical_details, self._format_technical_details(candidate))
