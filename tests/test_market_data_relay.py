@@ -10,7 +10,7 @@ import ortak_piyasa
 class MarketDataRelayTests(unittest.TestCase):
     def test_blank_relay_keeps_official_direct_hosts(self):
         self.assertIsNone(ortak_piyasa.get_market_data_relay_url({}))
-        self.assertEqual(ortak_piyasa.get_binance_rest_bases({}), ortak_piyasa.BINANCE_REST_BASES)
+        self.assertEqual(ortak_piyasa.get_binance_rest_bases({}), ortak_piyasa.BINANCE_REST_BASES[:1])
         self.assertEqual(
             ortak_piyasa.get_binance_ws_bases({})[0],
             "wss://data-stream.binance.vision:443/stream?streams=",
@@ -39,7 +39,14 @@ class MarketDataRelayTests(unittest.TestCase):
         settings = {"market_data_relay_url": "https://firsat.example.workers.dev"}
         self.assertEqual(
             ortak_piyasa.get_binance_rest_bases(settings),
-            ortak_piyasa.BINANCE_REST_BASES,
+            ortak_piyasa.BINANCE_REST_BASES[:1],
+        )
+        self.assertEqual(
+            ortak_piyasa._market_direct_urls(
+                "https://api.binance.com/api/v3/klines?symbol=BTCUSDT",
+                "binance_rest",
+            ),
+            tuple(base + "/api/v3/klines?symbol=BTCUSDT" for base in ortak_piyasa.BINANCE_REST_BASES),
         )
         websocket_bases = ortak_piyasa.get_binance_ws_bases(settings)
         self.assertEqual(
@@ -84,11 +91,14 @@ class MarketDataRelayTests(unittest.TestCase):
             ortak_piyasa.get_market_route_status()["binance_rest"]["mode"], "direct"
         )
 
-    def test_direct_failure_falls_back_to_render_and_sets_cooldown(self):
+    def test_direct_fallback_checks_all_binance_hosts_before_render(self):
         relay_url = "https://firsat.example.workers.dev/binance/api/v3/klines"
+        direct_urls = [
+            base + "/api/v3/klines" for base in ortak_piyasa.BINANCE_REST_BASES
+        ]
 
         def request(url, **kwargs):
-            if url.startswith("https://api.binance.com/"):
+            if url in direct_urls:
                 raise requests.exceptions.ConnectTimeout("direct timeout")
             if url == relay_url:
                 return self._json_response()
@@ -100,17 +110,44 @@ class MarketDataRelayTests(unittest.TestCase):
             patch.object(ortak_piyasa, "_requests_get", side_effect=request) as mocked,
         ):
             response = ortak_piyasa.public_get(
-                "https://api.binance.com/api/v3/klines",
+                direct_urls[0],
                 params={"symbol": "BTCUSDT", "interval": "5m"},
             )
         self.assertEqual(response.json(), {"ok": True})
-        self.assertEqual(mocked.call_count, 2)
-        self.assertTrue(mocked.call_args_list[0].args[0].startswith("https://api.binance.com/"))
-        self.assertEqual(mocked.call_args_list[1].args[0], relay_url)
+        self.assertEqual(mocked.call_count, len(direct_urls) + 1)
+        self.assertEqual(
+            [call.args[0] for call in mocked.call_args_list],
+            direct_urls + [relay_url],
+        )
         status = ortak_piyasa.get_market_route_status()["binance_rest"]
         self.assertEqual(status["mode"], "render")
         self.assertEqual(status["last_transport"], "render")
         self.assertGreater(status["retry_direct_in_seconds"], 0)
+
+    def test_alternate_direct_binance_host_avoids_render(self):
+        direct_urls = [
+            base + "/api/v3/klines" for base in ortak_piyasa.BINANCE_REST_BASES
+        ]
+
+        def request(url, **kwargs):
+            if url == direct_urls[0]:
+                raise requests.exceptions.ConnectTimeout("first host blocked")
+            if url == direct_urls[1]:
+                return self._json_response()
+            raise AssertionError("İkinci doğrudan uç noktadan sonra Render çağrılmamalı.")
+
+        with (
+            patch.object(ortak_piyasa, "get_market_data_relay_url",
+                         return_value="https://firsat.example.workers.dev"),
+            patch.object(ortak_piyasa, "_requests_get", side_effect=request) as mocked,
+        ):
+            response = ortak_piyasa.public_get(direct_urls[0])
+        self.assertEqual(response.json(), {"ok": True})
+        self.assertEqual(mocked.call_count, 2)
+        self.assertEqual([call.args[0] for call in mocked.call_args_list], direct_urls[:2])
+        self.assertEqual(
+            ortak_piyasa.get_market_route_status()["binance_rest"]["mode"], "direct"
+        )
 
     def test_tls_runtime_error_uses_render_fallback(self):
         relay_url = "https://firsat.example.workers.dev/btcturk/api/v2/ticker"

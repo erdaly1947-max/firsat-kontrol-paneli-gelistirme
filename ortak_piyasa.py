@@ -130,8 +130,8 @@ def get_market_data_relay_url(settings: dict[str, Any] | None = None) -> str | N
 
 
 def get_binance_rest_bases(settings: dict[str, Any] | None = None) -> tuple[str, ...]:
-    """Return official Binance REST hosts; public_get adds Render only after direct failure."""
-    return BINANCE_REST_BASES
+    """Return the primary direct base; public_get checks official alternatives before Render."""
+    return BINANCE_REST_BASES[:1]
 
 
 def get_binance_ws_bases(settings: dict[str, Any] | None = None) -> tuple[str, ...]:
@@ -182,6 +182,28 @@ def _market_route_target(url: str, relay_origin: str) -> tuple[str, str] | None:
     else:
         return None
     return key, _relay_public_exchange_url(url, relay_origin)
+
+
+def _market_direct_urls(url: str, route_key: str) -> tuple[str, ...]:
+    """Try all documented Binance hosts locally before considering the Render relay."""
+    if route_key != "binance_rest":
+        return (url,)
+    parsed = urlsplit(url)
+    suffix = parsed.path + (("?" + parsed.query) if parsed.query else "")
+    return tuple(base + suffix for base in BINANCE_REST_BASES)
+
+
+def _market_direct_timeout(
+    timeout: float | tuple[float, float],
+) -> float | tuple[float, float]:
+    """Bound connection establishment per host while preserving the caller's read timeout."""
+    if isinstance(timeout, tuple):
+        connect_timeout, read_timeout = timeout
+    else:
+        connect_timeout, read_timeout = timeout, timeout
+    if connect_timeout is None:
+        return (None, read_timeout)
+    return (min(float(connect_timeout), 3.5), read_timeout)
 
 
 def _market_route_state(route_key: str) -> dict[str, Any]:
@@ -999,7 +1021,7 @@ def _requests_get(url: str, *, params: dict[str, Any] | None,
 def public_get(url: str, *, params: dict[str, Any] | None = None,
                timeout: float | tuple[float, float] = 12.0,
                headers: dict[str, str] | None = None) -> requests.Response:
-    """Prefer the local direct exchange route and fall back to Render per exchange API."""
+    """Try local exchange hosts first, then use Render as an automatic per-route fallback."""
     request_headers = {"User-Agent": USER_AGENT}
     if headers:
         request_headers.update(headers)
@@ -1010,37 +1032,62 @@ def public_get(url: str, *, params: dict[str, Any] | None = None,
         return _requests_get(url, params=params, timeout=timeout, headers=request_headers)
 
     route_key, relay_url = route
+    direct_urls = _market_direct_urls(url, route_key)
+    direct_timeout = _market_direct_timeout(timeout)
     state = _market_route_state(route_key)
     cooling_down = (
         state.get("mode") == "render"
         and time.monotonic() < float(state.get("retry_direct_at") or 0.0)
     )
-    attempts = (
-        (("render", relay_url), ("direct", url))
-        if cooling_down else (("direct", url), ("render", relay_url))
-    )
     errors: list[tuple[str, Exception]] = []
 
-    for transport, target_url in attempts:
+    # While Render is active, use it during the short cooldown; a failed relay
+    # immediately reopens the direct route so a changed network can recover early.
+    if cooling_down:
         try:
             response = _requests_get(
-                target_url, params=params, timeout=timeout, headers=request_headers
+                relay_url, params=params, timeout=timeout, headers=request_headers
             )
-            # Every allowlisted market endpoint is JSON. Do not mark a route healthy
-            # merely because a proxy/filter returned an HTTP 200 HTML page.
             response.json()
-            _record_market_route_success(route_key, transport)
+            _record_market_route_success(route_key, "render")
             return response
         except Exception as exc:
-            errors.append((transport, exc))
-            if transport == "direct":
-                if not _market_error_allows_fallback(exc):
-                    raise
-                _record_market_direct_failure(route_key, exc)
-            else:
-                _record_market_render_failure(route_key, exc)
+            errors.append(("render", exc))
+            _record_market_render_failure(route_key, exc)
 
-    direct_error = next((error for transport, error in errors if transport == "direct"), None)
+    last_direct_error: Exception | None = None
+    for direct_url in direct_urls:
+        try:
+            response = _requests_get(
+                direct_url, params=params, timeout=direct_timeout, headers=request_headers
+            )
+            # Reject HTTP 200 HTML/error pages as a healthy market-data route.
+            response.json()
+            _record_market_route_success(route_key, "direct")
+            return response
+        except Exception as exc:
+            errors.append(("direct", exc))
+            last_direct_error = exc
+            if not _market_error_allows_fallback(exc):
+                raise
+
+    if last_direct_error is not None:
+        _record_market_direct_failure(route_key, last_direct_error)
+
+    # In normal operation Render is contacted only after all applicable direct hosts fail.
+    if not cooling_down:
+        try:
+            response = _requests_get(
+                relay_url, params=params, timeout=timeout, headers=request_headers
+            )
+            response.json()
+            _record_market_route_success(route_key, "render")
+            return response
+        except Exception as exc:
+            errors.append(("render", exc))
+            _record_market_render_failure(route_key, exc)
+
+    direct_error = last_direct_error
     if direct_error is not None and not _market_error_allows_fallback(direct_error):
         raise direct_error
     details = " | ".join(
