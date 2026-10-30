@@ -760,16 +760,32 @@ class ControlPanel(tk.Tk):
             self.workspace_navigation, text="ÇALIŞMA ALANI",
             style="Section.TLabel", wraplength=132,
         ).pack(fill="x", anchor="w", pady=(0, 12))
-        self.nav_radar_button = ttk.Button(
-            self.workspace_navigation, text="Fırsat Radarı",
-            command=lambda: self._show_workspace_page("radar"),
+        self.workspace_nav_buttons: dict[str, ttk.Button] = {}
+        navigation_items = (
+            ("overview", "Genel Bakış"),
+            ("radar", "Fırsat Radarı"),
+            ("tracking", "Aktif Takip"),
+            ("analysis", "Parite Analizi"),
+            ("market", "BTC ve Piyasa"),
+            ("plans", "Planlar ve Uyarılar"),
+            ("reports", "Raporlar"),
+            ("btcturk", "BtcTurk PRO"),
+            ("settings", "Sistem ve Ayarlar"),
         )
-        self.nav_radar_button.pack(fill="x", pady=(0, 6))
-        self.nav_btcturk_button = ttk.Button(
-            self.workspace_navigation, text="BtcTurk PRO",
-            command=self._open_btcturk_pro_from_radar,
-        )
-        self.nav_btcturk_button.pack(fill="x", pady=(0, 6))
+        for page_key, page_label in navigation_items:
+            button = ttk.Button(
+                self.workspace_navigation,
+                text=page_label,
+                command=lambda selected=page_key: (
+                    self._open_btcturk_pro_from_radar()
+                    if selected == "btcturk"
+                    else self._show_workspace_page(selected)
+                ),
+            )
+            button.pack(fill="x", pady=(0, 5))
+            self.workspace_nav_buttons[page_key] = button
+        self.nav_radar_button = self.workspace_nav_buttons["radar"]
+        self.nav_btcturk_button = self.workspace_nav_buttons["btcturk"]
         ttk.Label(
             self.workspace_navigation,
             text="Binance: fırsat keşfi\nBtcTurk PRO: işlem analizi",
@@ -781,8 +797,8 @@ class ControlPanel(tk.Tk):
         self.radar_page.pack(fill="both", expand=True)
         self.btcturk_page = ttk.Frame(self.workspace_pages)
 
-        status_row = ttk.Frame(self.radar_page, padding=(12, 8, 12, 7))
-        status_row.pack(fill="x")
+        status_row = ttk.Frame(self, padding=(12, 5, 12, 5))
+        status_row.pack(fill="x", before=self.workspace)
         self.live_status_label = ttk.Label(status_row, textvariable=self.live_status_var, style="LiveBad.TLabel")
         self.live_status_label.pack(side="left", padx=(0, 12))
         self.history_status_label = ttk.Label(status_row, textvariable=self.history_status_var, style="HistoryPending.TLabel")
@@ -808,9 +824,9 @@ class ControlPanel(tk.Tk):
         btc_details_scroll.grid(row=0, column=1, sticky="ns")
         btc_detail_inner.rowconfigure(0, weight=1)
         btc_detail_inner.columnconfigure(0, weight=1)
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
+        ttk.Separator(self.radar_page, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
 
-        controls = ttk.Frame(self.radar_page, padding=(12, 0, 12, 7))
+        controls = ttk.Frame(self, padding=(12, 3, 12, 5))
         controls.pack(fill="x")
         self.controls_inner = ttk.Frame(controls)
         self.controls_inner.pack(fill="x")
@@ -877,7 +893,7 @@ class ControlPanel(tk.Tk):
         self.toolbar_items.append(camera_group)
         self.controls_inner.bind("<Configure>", self._layout_toolbar, add="+")
         self.after(120, self._layout_toolbar)
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
+        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=12, pady=(0, 5), before=self.workspace)
 
         self.pane = ttk.Panedwindow(self.radar_page, orient="horizontal")
         self.pane.pack(fill="both", expand=True, padx=12, pady=(0, 6))
@@ -887,6 +903,17 @@ class ControlPanel(tk.Tk):
         self.pane.add(self.right_pane, weight=4)
         self.left_heading = ttk.Label(self.left_pane, textvariable=self.candidates_heading_var, style="SectionPending.TLabel")
         self.left_heading.pack(anchor="w", pady=(0, 5))
+        radar_filter_row = ttk.Frame(self.left_pane)
+        radar_filter_row.pack(fill="x", pady=(0, 5))
+        self.radar_search_var = tk.StringVar(value="")
+        self.radar_search_entry = ttk.Entry(radar_filter_row, textvariable=self.radar_search_var)
+        self.radar_search_entry.pack(side="left", fill="x", expand=True)
+        self.radar_search_entry.insert(0, "")
+        self.radar_search_entry.bind("<KeyRelease>", lambda _event: self._apply_radar_filters())
+        ttk.Button(
+            radar_filter_row, text="Temizle",
+            command=lambda: (self.radar_search_var.set(""), self._apply_radar_filters()),
+        ).pack(side="left", padx=(5, 0))
         tree_frame = ttk.Frame(self.left_pane)
         tree_frame.pack(fill="both", expand=True)
         columns = ("symbol", "price", "btcturk_price", "score", "timeframe", "phase", "freshness", "btc_relative", "decision")
@@ -998,9 +1025,1060 @@ class ControlPanel(tk.Tk):
         self.bind("<Configure>", self._adapt_panes, add="+")
         self.bind("<Configure>", self._resize_wraplengths, add="+")
         self._build_btcturk_pro_ui()
+        self._build_additional_workspace_pages()
         self._apply_font_scale()
         self._refresh_status_indicators()
+        self._show_workspace_page("overview")
         self.after(15000, self._schedule_btcturk_pro_quote_refresh)
+
+    def _build_additional_workspace_pages(self) -> None:
+        """Create the remaining workspaces and connect them to existing engine state."""
+        self.workspace_page_frames: dict[str, ttk.Frame] = {
+            "radar": self.radar_page,
+            "btcturk": self.btcturk_page,
+        }
+
+        self.overview_page = ttk.Frame(self.workspace_pages)
+        self.tracking_page = ttk.Frame(self.workspace_pages)
+        self.analysis_page = ttk.Frame(self.workspace_pages)
+        self.market_page = ttk.Frame(self.workspace_pages)
+        self.plans_page = ttk.Frame(self.workspace_pages)
+        self.reports_page = ttk.Frame(self.workspace_pages)
+        self.settings_page = ttk.Frame(self.workspace_pages)
+
+        for key, frame in (
+            ("overview", self.overview_page),
+            ("tracking", self.tracking_page),
+            ("analysis", self.analysis_page),
+            ("market", self.market_page),
+            ("plans", self.plans_page),
+            ("reports", self.reports_page),
+            ("settings", self.settings_page),
+        ):
+            self.workspace_page_frames[key] = frame
+
+        def heading(parent: ttk.Frame, title: str, subtitle: str) -> None:
+            band = ttk.Frame(parent, padding=(14, 12, 14, 7))
+            band.pack(fill="x")
+            ttk.Label(band, text=title, style="Section.TLabel").pack(anchor="w")
+            ttk.Label(band, text=subtitle, wraplength=1000).pack(anchor="w", pady=(3, 0))
+
+        # Genel Bakış
+        heading(
+            self.overview_page, "Genel Bakış",
+            "Piyasa bağlamı, motor/veri durumu ve öne çıkan adaylar tek ekranda.",
+        )
+        overview_metrics = ttk.Frame(self.overview_page, padding=(12, 4, 12, 9))
+        overview_metrics.pack(fill="x")
+        self.overview_metric_vars = {
+            "engine": tk.StringVar(value="Motor hazır"),
+            "universe": tk.StringVar(value="— parite"),
+            "strong": tk.StringVar(value="— güçlü aday"),
+            "freshness": tk.StringVar(value="Veri bekleniyor"),
+        }
+        for title, key in (
+            ("MOTOR DURUMU", "engine"),
+            ("TARAMA EVRENİ", "universe"),
+            ("GÜÇLÜ FIRSAT", "strong"),
+            ("VERİ DURUMU", "freshness"),
+        ):
+            card = ttk.LabelFrame(overview_metrics, text=title, padding=(9, 7))
+            card.pack(side="left", fill="both", expand=True, padx=(0, 7))
+            ttk.Label(card, textvariable=self.overview_metric_vars[key], style="Section.TLabel").pack(anchor="w")
+        overview_split = ttk.Panedwindow(self.overview_page, orient="horizontal")
+        overview_split.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        overview_list = ttk.Frame(overview_split)
+        overview_detail = ttk.Frame(overview_split)
+        overview_split.add(overview_list, weight=6)
+        overview_split.add(overview_detail, weight=4)
+        ttk.Label(overview_list, text="ÖNCELİKLİ ADAYLAR", style="Section.TLabel").pack(anchor="w", pady=(0, 5))
+        overview_columns = ("symbol", "price", "score", "phase", "freshness", "decision")
+        self.overview_tree = ttk.Treeview(
+            overview_list, columns=overview_columns, show="headings", selectmode="browse",
+        )
+        for column, label, width in (
+            ("symbol", "Coin", 100), ("price", "Binance USDT", 105),
+            ("score", "Puan", 55), ("phase", "A/B/C", 52),
+            ("freshness", "Veri", 80), ("decision", "Son karar", 155),
+        ):
+            self.overview_tree.heading(column, text=label)
+            self.overview_tree.column(column, width=width, minwidth=48, stretch=column in ("symbol", "decision"))
+        self.overview_tree.pack(fill="both", expand=True)
+        self.overview_tree.bind("<<TreeviewSelect>>", self._overview_selection_changed)
+        self.overview_tree.bind("<Double-1>", lambda _event: self._overview_open_selected())
+        overview_actions = ttk.Frame(overview_list)
+        overview_actions.pack(fill="x", pady=(6, 0))
+        ttk.Button(overview_actions, text="Parite Analizi", command=lambda: self._show_workspace_page("analysis")).pack(side="left")
+        ttk.Button(overview_actions, text="Fırsat Radarı", command=lambda: self._show_workspace_page("radar")).pack(side="left", padx=(6, 0))
+        ttk.Label(overview_detail, text="SEÇİLİ ADAY VE PİYASA BAĞLAMI", style="Section.TLabel").pack(anchor="w", pady=(0, 5))
+        self.overview_detail_text = tk.Text(
+            overview_detail, wrap="word", height=18, state="disabled",
+            background="#000000", foreground="#FFFFFF", insertbackground="#FFFFFF",
+            relief="flat", padx=8, pady=7, font=("Segoe UI", self.font_size),
+        )
+        self.overview_detail_text.pack(fill="both", expand=True)
+
+        # Aktif Takip
+        heading(
+            self.tracking_page, "Aktif Takip",
+            "En fazla beş kullanıcı seçimi kaydedilir; liste mevcut teknik aday durumundan beslenir.",
+        )
+        tracking_actions = ttk.Frame(self.tracking_page, padding=(12, 3, 12, 8))
+        tracking_actions.pack(fill="x")
+        ttk.Button(
+            tracking_actions, text="Seçili adayı takibe ekle",
+            command=self._tracking_add_selected,
+        ).pack(side="left")
+        ttk.Button(
+            tracking_actions, text="Seçili kaydı çıkar",
+            command=self._tracking_remove_selected,
+        ).pack(side="left", padx=(6, 0))
+        ttk.Button(
+            tracking_actions, text="Parite Analizi",
+            command=self._tracking_open_selected,
+        ).pack(side="left", padx=(6, 0))
+        self.tracking_status_var = tk.StringVar(value="Takip listesi boş.")
+        ttk.Label(self.tracking_page, textvariable=self.tracking_status_var).pack(anchor="w", padx=13, pady=(0, 5))
+        tracking_frame = ttk.Frame(self.tracking_page, padding=(12, 0, 12, 12))
+        tracking_frame.pack(fill="both", expand=True)
+        tracking_columns = ("symbol", "price", "score", "phase", "freshness", "decision")
+        self.tracking_tree = ttk.Treeview(
+            tracking_frame, columns=tracking_columns, show="headings", selectmode="browse",
+        )
+        for column, label, width in (
+            ("symbol", "Coin", 120), ("price", "Binance USDT", 120),
+            ("score", "Puan", 65), ("phase", "A/B/C", 65),
+            ("freshness", "Veri", 110), ("decision", "Son karar", 220),
+        ):
+            self.tracking_tree.heading(column, text=label)
+            self.tracking_tree.column(column, width=width, minwidth=50, stretch=column in ("symbol", "decision"))
+        self.tracking_tree.pack(fill="both", expand=True)
+        self.tracking_tree.bind("<Double-1>", lambda _event: self._tracking_open_selected())
+
+        # Parite Analizi: Binance technical engine's actual last closed candles.
+        heading(
+            self.analysis_page, "Parite Analizi",
+            "Grafik, motorun aday anlık görüntüsünde sunduğu kapanmış mumlardan oluşturulur; eksik mum uydurulmaz.",
+        )
+        analysis_header = ttk.Frame(self.analysis_page, padding=(12, 2, 12, 8))
+        analysis_header.pack(fill="x")
+        self.analysis_symbol_var = tk.StringVar(value="Coin seçilmedi")
+        self.analysis_price_var = tk.StringVar(value="Fiyat: —")
+        ttk.Label(analysis_header, textvariable=self.analysis_symbol_var, style="Section.TLabel").pack(side="left")
+        ttk.Label(analysis_header, textvariable=self.analysis_price_var).pack(side="left", padx=(14, 0))
+        ttk.Button(
+            analysis_header, text="BtcTurk PRO'ya aktar",
+            command=self._open_btcturk_pro_from_radar,
+        ).pack(side="right")
+        timeframe_row = ttk.Frame(self.analysis_page, padding=(12, 0, 12, 5))
+        timeframe_row.pack(fill="x")
+        self.analysis_timeframe_var = tk.StringVar(value="15m")
+        self.analysis_timeframe_buttons: dict[str, ttk.Button] = {}
+        for timeframe in ("5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"):
+            button = ttk.Button(
+                timeframe_row, text=timeframe,
+                command=lambda selected=timeframe: self._analysis_set_timeframe(selected),
+                width=5,
+            )
+            button.pack(side="left", padx=(0, 4))
+            self.analysis_timeframe_buttons[timeframe] = button
+        self.analysis_layer_vars = {
+            "entry": tk.BooleanVar(value=True),
+            "targets": tk.BooleanVar(value=True),
+            "stop": tk.BooleanVar(value=True),
+            "sr": tk.BooleanVar(value=True),
+            "fib": tk.BooleanVar(value=False),
+            "channel": tk.BooleanVar(value=False),
+            "ema": tk.BooleanVar(value=True),
+            "volume": tk.BooleanVar(value=True),
+        }
+        layer_row = ttk.Frame(self.analysis_page, padding=(12, 0, 12, 6))
+        layer_row.pack(fill="x")
+        for key, label in (
+            ("entry", "Giriş bölgesi"), ("targets", "Hedefler"),
+            ("stop", "Zarar-kes / geçersizlik"), ("sr", "Destek / direnç"),
+            ("fib", "Fibonacci"), ("channel", "Kanal"),
+            ("ema", "EMA"), ("volume", "Hacim"),
+        ):
+            ttk.Checkbutton(
+                layer_row, text=label, variable=self.analysis_layer_vars[key],
+                command=self._draw_analysis_chart,
+            ).pack(side="left", padx=(0, 8))
+        drawing_row = ttk.Frame(self.analysis_page, padding=(12, 0, 12, 7))
+        drawing_row.pack(fill="x")
+        ttk.Label(drawing_row, text="Çizim aracı:").pack(side="left", padx=(0, 5))
+        self.analysis_tool_var = tk.StringVar(value="İmleç")
+        self.analysis_tool_combo = ttk.Combobox(
+            drawing_row, textvariable=self.analysis_tool_var,
+            values=("İmleç", "Trend çizgisi", "Paralel kanal"),
+            state="readonly", width=17,
+        )
+        self.analysis_tool_combo.pack(side="left")
+        self.analysis_tool_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: setattr(self, "_analysis_pending_points", []),
+        )
+        ttk.Button(drawing_row, text="Son çizimi sil", command=self._analysis_delete_last).pack(side="left", padx=(8, 0))
+        self.analysis_undo_button = ttk.Button(
+            drawing_row, text="Geri al (5 sn)", command=self._analysis_undo_delete, state="disabled",
+        )
+        self.analysis_undo_button.pack(side="left", padx=(5, 0))
+        self.analysis_hover_var = tk.StringVar(value="İmleç: —")
+        ttk.Label(drawing_row, textvariable=self.analysis_hover_var).pack(side="right")
+        self.analysis_status_var = tk.StringVar(value="Bir coin seçin.")
+        ttk.Label(self.analysis_page, textvariable=self.analysis_status_var, wraplength=1100).pack(anchor="w", padx=13, pady=(0, 5))
+        self.analysis_canvas = tk.Canvas(
+            self.analysis_page, background="#05090e", highlightbackground="#485766",
+            highlightthickness=1, height=390,
+        )
+        self.analysis_canvas.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        self.analysis_canvas.bind("<Configure>", self._draw_analysis_chart, add="+")
+        self.analysis_canvas.bind("<Motion>", self._analysis_chart_motion, add="+")
+        self.analysis_canvas.bind("<Button-1>", self._analysis_chart_click, add="+")
+        indicators_row = ttk.Frame(self.analysis_page, padding=(12, 0, 12, 8))
+        indicators_row.pack(fill="x")
+        self.analysis_indicator_vars = {
+            "rsi": tk.StringVar(value="RSI: veri bekleniyor"),
+            "macd": tk.StringVar(value="MACD: veri bekleniyor"),
+            "momentum": tk.StringVar(value="Momentum bileşeni: veri bekleniyor"),
+        }
+        self.analysis_indicator_frames: dict[str, ttk.LabelFrame] = {}
+        self.analysis_indicator_checks: dict[str, tk.BooleanVar] = {}
+        for key, title in (
+            ("rsi", "RSI · Göreceli Güç Endeksi"),
+            ("macd", "MACD · Ortalama Yakınsaması"),
+            ("momentum", "Momentum · Motor puan bileşeni"),
+        ):
+            card = ttk.LabelFrame(indicators_row, text=title, padding=(8, 5))
+            card.pack(side="left", fill="both", expand=True, padx=(0, 7))
+            show_var = tk.BooleanVar(value=True)
+            self.analysis_indicator_checks[key] = show_var
+            ttk.Checkbutton(
+                card, text="Göster", variable=show_var,
+                command=self._refresh_analysis_indicators,
+            ).pack(anchor="e")
+            ttk.Label(card, textvariable=self.analysis_indicator_vars[key], wraplength=280).pack(anchor="w")
+            self.analysis_indicator_frames[key] = card
+        analysis_plan_frame = ttk.LabelFrame(self.analysis_page, text="Aktif teknik plan ve değerlendirme", padding=5)
+        analysis_plan_frame.pack(fill="x", padx=12, pady=(0, 10))
+        self.analysis_plan_text = tk.Text(
+            analysis_plan_frame, height=5, wrap="word", state="disabled",
+            background="#000000", foreground="#FFFFFF", insertbackground="#FFFFFF",
+            relief="flat", padx=6, pady=4, font=("Segoe UI", max(8, self.font_size - 1)),
+        )
+        self.analysis_plan_text.pack(fill="x")
+
+        # BTC ve Piyasa
+        heading(
+            self.market_page, "BTC ve Piyasa",
+            "BTC ana yönü, seviye durumu, oynaklık ve piyasa verisinin eksiksizliği.",
+        )
+        market_actions = ttk.Frame(self.market_page, padding=(12, 2, 12, 5))
+        market_actions.pack(fill="x")
+        ttk.Button(
+            market_actions, text="BTC ayrıntılarını yenile",
+            command=self._refresh_market_page,
+        ).pack(side="left")
+        self.market_context_text = tk.Text(
+            self.market_page, wrap="word", state="disabled",
+            background="#000000", foreground="#FFFFFF", insertbackground="#FFFFFF",
+            relief="flat", padx=10, pady=8, font=("Consolas", max(8, self.font_size - 1)),
+        )
+        self.market_context_text.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        # Planlar ve Uyarılar
+        heading(
+            self.plans_page, "Planlar ve Uyarılar",
+            "Motorun ürettiği aday planları, koşullu girişleri ve geçersizlik durumlarını takip et.",
+        )
+        plans_actions = ttk.Frame(self.plans_page, padding=(12, 2, 12, 7))
+        plans_actions.pack(fill="x")
+        ttk.Button(
+            plans_actions, text="Seçili planı Parite Analizi'nde aç",
+            command=lambda: self._show_workspace_page("analysis"),
+        ).pack(side="left")
+        self.plans_status_var = tk.StringVar(value="Plan verisi bekleniyor.")
+        ttk.Label(self.plans_page, textvariable=self.plans_status_var).pack(anchor="w", padx=13, pady=(0, 5))
+        plans_frame = ttk.Frame(self.plans_page, padding=(12, 0, 12, 12))
+        plans_frame.pack(fill="both", expand=True)
+        plan_columns = ("symbol", "status", "timeframe", "entry", "stop", "targets", "decision")
+        self.plans_tree = ttk.Treeview(
+            plans_frame, columns=plan_columns, show="headings", selectmode="browse",
+        )
+        for column, label, width in (
+            ("symbol", "Coin", 110), ("status", "Plan durumu", 190),
+            ("timeframe", "Zaman", 75), ("entry", "Koşullu giriş", 145),
+            ("stop", "Zarar-kes", 100), ("targets", "Teknik hedefler", 180),
+            ("decision", "Son karar", 170),
+        ):
+            self.plans_tree.heading(column, text=label)
+            self.plans_tree.column(column, width=width, minwidth=60, stretch=column in ("status", "decision"))
+        self.plans_tree.pack(fill="both", expand=True)
+        self.plans_tree.bind("<Double-1>", lambda _event: self._plans_open_selected())
+
+        # Raporlar
+        heading(
+            self.reports_page, "Raporlar",
+            "Radarın erken tespit başarısı ile teknik işlem planının olay sonuçları ayrı raporlanır.",
+        )
+        report_actions = ttk.Frame(self.reports_page, padding=(12, 5, 12, 8))
+        report_actions.pack(fill="x")
+        ttk.Button(report_actions, text="Günlük Rapor Oluştur", command=self.create_report).pack(side="left")
+        ttk.Button(report_actions, text="Analiz Raporu Oluştur", command=self.create_analysis_report).pack(side="left", padx=(6, 0))
+        ttk.Button(report_actions, text="Sorun Giderme ZIP", command=self.create_handoff_zip).pack(side="left", padx=(6, 0))
+        reports_split = ttk.Panedwindow(self.reports_page, orient="horizontal")
+        reports_split.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        radar_report = ttk.LabelFrame(reports_split, text="Radarın erken tespit performansı", padding=10)
+        plan_report = ttk.LabelFrame(reports_split, text="Teknik işlem planı sonuçları", padding=10)
+        reports_split.add(radar_report, weight=1)
+        reports_split.add(plan_report, weight=1)
+        ttk.Label(
+            radar_report,
+            text="Erken tespit, geç tespit ve kaçırılan yükselişler; 1 saat, 4 saat ve 24 saat ölçümleri.\n\n"
+                 "Ölçüm verileri oluşmadıkça başarı oranı gösterilmez.",
+            wraplength=420, justify="left",
+        ).pack(anchor="w")
+        ttk.Label(
+            plan_report,
+            text="Giriş gerçekleşmesi, hedefler, zarar durdurma, geçersizleşme, süre dolumu ve belirsiz olay sırası.\n\n"
+                 "Gerçek kullanıcı işlemleri değil, motorun önerdiği planların fiyat davranışı ölçülür.",
+            wraplength=420, justify="left",
+        ).pack(anchor="w")
+
+        # Sistem ve Ayarlar
+        heading(
+            self.settings_page, "Sistem ve Ayarlar",
+            "Ortak üst çubukta motor işlemleri ve hızlı kontroller; burada bağlantı ve tanılama özeti.",
+        )
+        setting_actions = ttk.Frame(self.settings_page, padding=(12, 3, 12, 8))
+        setting_actions.pack(fill="x")
+        ttk.Button(setting_actions, text="Pariteleri Güncelle", command=self.update_universe).pack(side="left")
+        ttk.Button(setting_actions, text="Kayıt klasörünü aç", command=self.open_logs).pack(side="left", padx=(6, 0))
+        ttk.Button(setting_actions, text="Ses Testi", command=self._test_sound).pack(side="left", padx=(6, 0))
+        self.settings_status_var = tk.StringVar(value="Sistem durumu bekleniyor.")
+        ttk.Label(self.settings_page, textvariable=self.settings_status_var, wraplength=1100).pack(anchor="w", padx=13, pady=(0, 7))
+        self.settings_diagnostics_text = tk.Text(
+            self.settings_page, wrap="word", state="disabled", height=18,
+            background="#000000", foreground="#FFFFFF", insertbackground="#FFFFFF",
+            relief="flat", padx=9, pady=7, font=("Consolas", max(8, self.font_size - 1)),
+        )
+        self.settings_diagnostics_text.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        drawings = self.panel_settings.get("chart_drawings", {})
+        self.chart_drawings: dict[str, list[dict[str, Any]]] = drawings if isinstance(drawings, dict) else {}
+        tracked = self.panel_settings.get("tracked_symbols", [])
+        self.tracked_symbols: list[str] = [
+            str(value).upper() for value in tracked if isinstance(value, str)
+        ][:5] if isinstance(tracked, list) else []
+        self._analysis_pending_points: list[dict[str, float]] = []
+        self._analysis_chart_geometry: dict[str, float] = {}
+        self._analysis_hover_xy: tuple[float, float] | None = None
+        self._analysis_undo_state: tuple[str, dict[str, Any]] | None = None
+        self._analysis_undo_token = 0
+        self._radar_all_keys: list[str] = []
+        self._refresh_workspace_views()
+
+    def _show_workspace_page(self, page: str) -> None:
+        frames = getattr(self, "workspace_page_frames", {})
+        if page not in frames:
+            page = "radar"
+        for frame in frames.values():
+            try:
+                frame.pack_forget()
+            except tk.TclError:
+                pass
+        frames[page].pack(fill="both", expand=True)
+        self.workspace_current_page = page
+        for page_key, button in getattr(self, "workspace_nav_buttons", {}).items():
+            button.configure(state="disabled" if page_key == page else "normal")
+        if page == "btcturk":
+            if self.btcturk_pro_data is None and not self.btcturk_pro_load_busy:
+                self._btcturk_pro_load_pair(self.btcturk_pro_symbol)
+        elif page == "analysis":
+            self._refresh_analysis_view()
+        elif page == "market":
+            self._refresh_market_page()
+        elif page == "overview":
+            self._refresh_overview_page()
+        elif page == "tracking":
+            self._refresh_tracking_page()
+        elif page == "plans":
+            self._refresh_plans_page()
+        elif page == "settings":
+            self._refresh_settings_page()
+
+    def _refresh_workspace_views(self) -> None:
+        if not hasattr(self, "workspace_page_frames"):
+            return
+        self._refresh_overview_page()
+        self._refresh_tracking_page()
+        self._refresh_plans_page()
+        self._refresh_market_page()
+        self._refresh_settings_page()
+        if self.workspace_current_page == "analysis":
+            self._refresh_analysis_view()
+
+    def _candidate_for_symbol(self, symbol: str) -> dict[str, Any] | None:
+        wanted = str(symbol or "").upper()
+        for candidate in self.current_candidates.values():
+            name = str(candidate.get("symbol") or candidate.get("base_asset") or "").upper()
+            if name == wanted or (name and wanted == name + "USDT"):
+                return candidate
+        return None
+
+    def _select_candidate_by_symbol(self, symbol: str) -> bool:
+        candidate = self._candidate_for_symbol(symbol)
+        if not candidate:
+            messagebox.showinfo(
+                "Aday bulunamadı",
+                f"{symbol} için güncel teknik aday kaydı bulunmuyor. Fırsat Radarı güncellendiğinde tekrar deneyin.",
+            )
+            return False
+        key = self._candidate_key(candidate)
+        if not self.tree.exists(key):
+            self._show_workspace_page("radar")
+            messagebox.showinfo(
+                "Aday görünür değil",
+                "Aday mevcut listede görünmüyor; arama filtresini temizleyip tekrar seçin.",
+            )
+            return False
+        self.tree.selection_set(key)
+        self.tree.focus(key)
+        self.current_candidate_key = key
+        self._selection_changed()
+        return True
+
+    def _overview_selection_changed(self, _event: Any = None) -> None:
+        selection = self.overview_tree.selection()
+        if selection:
+            self._select_candidate_by_symbol(selection[0])
+
+    def _overview_open_selected(self) -> None:
+        selection = self.overview_tree.selection()
+        if selection and self._select_candidate_by_symbol(selection[0]):
+            self._show_workspace_page("analysis")
+
+    def _refresh_overview_page(self) -> None:
+        if not hasattr(self, "overview_tree"):
+            return
+        state = self.current_state if isinstance(self.current_state, dict) else {}
+        count = state.get("scan_symbol_count", state.get("common_pair_count", "—"))
+        strong = sum(
+            1 for item in self.current_candidates.values()
+            if item.get("strong_opportunity_qualified") is True
+            and item.get("strong_alarm_eligible") is True
+            and item.get("data_freshness") == "CANLI AKIŞ GÜNCEL"
+        )
+        self.overview_metric_vars["engine"].set(self.status_var.get())
+        self.overview_metric_vars["universe"].set(f"{count} parite")
+        self.overview_metric_vars["strong"].set(f"{strong} güçlü aday")
+        self.overview_metric_vars["freshness"].set(
+            "Canlı veri güncel" if self.engine and self.engine.poll() is None
+            and state.get("live_stream_status") == "CANLI AKIŞ GÜNCEL"
+            else "Güncellik teyidi yok"
+        )
+        old_selection = self.overview_tree.selection()
+        selected_symbol = old_selection[0] if old_selection else None
+        self.overview_tree.delete(*self.overview_tree.get_children())
+        for key in getattr(self, "_radar_all_keys", []):
+            item = self.current_candidates.get(key)
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol") or item.get("base_asset") or "")
+            phase = item.get("phase") or item.get("last_known_phase") or "—"
+            freshness = "GÜNCEL" if item.get("data_freshness") == "CANLI AKIŞ GÜNCEL" else "UYARI"
+            decision = str(item.get("final_decision") or item.get("decision_class") or item.get("state") or "—")
+            self.overview_tree.insert(
+                "", "end", iid=symbol,
+                values=(
+                    symbol, _format_price(item.get("latest_price", item.get("price"))),
+                    item.get("opportunity_score", item.get("score_0_100", "—")),
+                    phase, freshness, decision,
+                ),
+            )
+        if selected_symbol and self.overview_tree.exists(selected_symbol):
+            self.overview_tree.selection_set(selected_symbol)
+        candidate = self._selected_candidate()
+        if candidate:
+            plan = candidate.get("risk_plan") if isinstance(candidate.get("risk_plan"), dict) else {}
+            detail = "\n".join((
+                f"Seçili coin: {candidate.get('symbol') or candidate.get('base_asset') or '—'}",
+                f"Fiyat: {_format_price(candidate.get('latest_price'))} USDT",
+                f"Teknik puan: {candidate.get('opportunity_score', candidate.get('score_0_100', '—'))}",
+                f"Aşama: {candidate.get('phase') or candidate.get('last_known_phase') or '—'}",
+                f"Karar: {candidate.get('final_decision') or candidate.get('decision_class') or '—'}",
+                f"Neden öne çıkıyor: {candidate.get('decision_reason') or 'Gerekçe mevcut değil'}",
+                f"Plan durumu: {plan.get('status') or 'Plan yok'}",
+                "",
+                _format_candidate_decision_summary(candidate),
+                "",
+                "BTC piyasa özeti:",
+                _format_btc_context_summary(state),
+            ))
+        else:
+            detail = "Henüz seçilmiş teknik aday yok.\n\nFırsat Radarı ekranından bir coin seçin."
+        self._set_text(self.overview_detail_text, detail)
+
+    def _tracking_add_selected(self) -> None:
+        candidate = self._selected_candidate()
+        if not candidate:
+            messagebox.showinfo("Aktif Takip", "Önce Fırsat Radarı ekranında bir coin seçin.")
+            return
+        symbol = str(candidate.get("symbol") or candidate.get("base_asset") or "").upper()
+        if not symbol:
+            return
+        if symbol in self.tracked_symbols:
+            messagebox.showinfo("Aktif Takip", f"{symbol} zaten takip listesinde.")
+            return
+        if len(self.tracked_symbols) >= 5:
+            messagebox.showinfo("Aktif Takip", "Aktif Takip listesinde en fazla beş parite tutulabilir.")
+            return
+        self.tracked_symbols.append(symbol)
+        self.panel_settings["tracked_symbols"] = list(self.tracked_symbols)
+        self._save_panel_settings()
+        self._refresh_tracking_page()
+
+    def _tracking_remove_selected(self) -> None:
+        selection = self.tracking_tree.selection()
+        if not selection:
+            messagebox.showinfo("Aktif Takip", "Listeden çıkarılacak pariteyi seçin.")
+            return
+        symbol = selection[0]
+        self.tracked_symbols = [value for value in self.tracked_symbols if value != symbol]
+        self.panel_settings["tracked_symbols"] = list(self.tracked_symbols)
+        self._save_panel_settings()
+        self._refresh_tracking_page()
+
+    def _tracking_open_selected(self) -> None:
+        selection = self.tracking_tree.selection()
+        if not selection:
+            messagebox.showinfo("Aktif Takip", "İncelenecek pariteyi seçin.")
+            return
+        if self._select_candidate_by_symbol(selection[0]):
+            self._show_workspace_page("analysis")
+
+    def _refresh_tracking_page(self) -> None:
+        if not hasattr(self, "tracking_tree"):
+            return
+        self.tracking_tree.delete(*self.tracking_tree.get_children())
+        present = 0
+        for symbol in self.tracked_symbols:
+            candidate = self._candidate_for_symbol(symbol)
+            if not candidate:
+                self.tracking_tree.insert(
+                    "", "end", iid=symbol,
+                    values=(symbol, "—", "—", "—", "EVRENDE BEKLENİYOR", "Güncel aday kaydı yok"),
+                )
+                continue
+            present += 1
+            plan = candidate.get("risk_plan") if isinstance(candidate.get("risk_plan"), dict) else {}
+            self.tracking_tree.insert(
+                "", "end", iid=symbol,
+                values=(
+                    symbol, _format_price(candidate.get("latest_price")),
+                    candidate.get("opportunity_score", candidate.get("score_0_100", "—")),
+                    candidate.get("phase") or candidate.get("last_known_phase") or "—",
+                    "GÜNCEL" if candidate.get("data_freshness") == "CANLI AKIŞ GÜNCEL" else "UYARI",
+                    plan.get("status") or candidate.get("final_decision") or "Plan yok",
+                ),
+            )
+        self.tracking_status_var.set(
+            f"{len(self.tracked_symbols)}/5 parite takipte · {present} tanesi güncel aday verisiyle eşleşti."
+            if self.tracked_symbols else "Takip listeniz boş. Fırsat Radarı'ndan coin seçip ekleyebilirsiniz."
+        )
+
+    def _analysis_set_timeframe(self, timeframe: str) -> None:
+        if timeframe not in ("5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"):
+            return
+        self.analysis_timeframe_var.set(timeframe)
+        self._analysis_pending_points = []
+        for key, button in self.analysis_timeframe_buttons.items():
+            button.configure(state="disabled" if key == timeframe else "normal")
+        self._refresh_analysis_view()
+
+    def _analysis_current_metrics(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        rows = candidate.get("timeframes")
+        rows = rows if isinstance(rows, dict) else {}
+        row = rows.get(self.analysis_timeframe_var.get())
+        metrics = row.get("metrics") if isinstance(row, dict) else None
+        return metrics if isinstance(metrics, dict) else {}
+
+    def _refresh_analysis_indicators(self) -> None:
+        candidate = self._selected_candidate()
+        metrics = self._analysis_current_metrics(candidate) if candidate else {}
+        components = candidate.get("components") if candidate and isinstance(candidate.get("components"), dict) else {}
+        values = {
+            "rsi": (
+                f"RSI({metrics.get('rsi_period', 14)}): {_format_metric(metrics.get('rsi_14'))} · "
+                f"{metrics.get('rsi_zone') or 'bölge belirlenmedi'}"
+            ),
+            "macd": (
+                f"MACD: {_format_metric(metrics.get('macd_line'))} · Sinyal: "
+                f"{_format_metric(metrics.get('macd_signal'))} · Histogram: {_format_metric(metrics.get('macd_histogram'))}"
+            ),
+            "momentum": (
+                f"Motor momentum bileşeni: {_format_metric(components.get('momentum'))} puan. "
+                "Bağımsız momentum zaman serisi motor durumunda sunulmuyor."
+            ),
+        }
+        for key, value in values.items():
+            self.analysis_indicator_vars[key].set(value)
+            self.analysis_indicator_frames[key].pack_forget() if not self.analysis_indicator_checks[key].get() else None
+            if self.analysis_indicator_checks[key].get():
+                self.analysis_indicator_frames[key].pack(side="left", fill="both", expand=True, padx=(0, 7))
+
+    def _refresh_analysis_view(self) -> None:
+        if not hasattr(self, "analysis_canvas"):
+            return
+        candidate = self._selected_candidate()
+        if not candidate:
+            self.analysis_symbol_var.set("Coin seçilmedi")
+            self.analysis_price_var.set("Fiyat: —")
+            self.analysis_status_var.set("Fırsat Radarı'nda bir aday seçin. Grafik yalnızca motorun sağladığı gerçek mumlarla çizilir.")
+            self._set_text(self.analysis_plan_text, "Seçili aday bulunmuyor.")
+            self._refresh_analysis_indicators()
+            self._draw_analysis_chart()
+            return
+        symbol = str(candidate.get("symbol") or candidate.get("base_asset") or "—")
+        self.analysis_symbol_var.set(f"{symbol} · {self.analysis_timeframe_var.get()}")
+        price = candidate.get("latest_price")
+        self.analysis_price_var.set(f"Fiyat: {_format_price(price)} USDT")
+        candles = candidate.get("recent_closed_candles")
+        candles = candles if isinstance(candles, dict) else {}
+        bars = candles.get(self.analysis_timeframe_var.get())
+        count = len(bars) if isinstance(bars, list) else 0
+        self.analysis_status_var.set(
+            f"Kaynak: Binance Spot · {self.analysis_timeframe_var.get()} · "
+            f"Motor anlık görüntüsünde {count} kapanmış mum mevcut. Daha uzun geçmiş motor durumunda sunulmadığında grafik genişletilmez."
+        )
+        plan = candidate.get("risk_plan") if isinstance(candidate.get("risk_plan"), dict) else {}
+        target_lines = []
+        for index, target in enumerate(plan.get("targets", []) if isinstance(plan.get("targets"), list) else [], start=1):
+            if isinstance(target, dict) and _safe_float(target.get("price")) is not None:
+                target_lines.append(
+                    f"Hedef {index}: {_format_price(target.get('price'))} USDT "
+                    f"({target.get('basis') or target.get('name') or 'teknik hedef'})"
+                )
+        details = [
+            f"Plan durumu: {plan.get('status') or 'plan yok'}",
+            f"Zaman dilimi: {plan.get('timeframe') or candidate.get('phase_timeframe') or '—'}",
+            f"Koşullu giriş alt/üst: {_format_price(plan.get('entry_zone_low'))} / {_format_price(plan.get('entry_zone_high'))} USDT",
+            f"Zarar-kes: {_format_price(plan.get('stop_loss'))} USDT",
+            *(target_lines or ["Teknik hedef: mevcut değil"]),
+            f"Geçersizlik koşulu: {plan.get('invalid_if') or plan.get('reason') or 'belirtilmedi'}",
+            "",
+            "Not: Bu bir işlem planı taslağıdır; emir gönderilmez. Yeni öneri otomatik etkinleştirilmez.",
+        ]
+        self._set_text(self.analysis_plan_text, "\n".join(details))
+        self._refresh_analysis_indicators()
+        self._draw_analysis_chart()
+
+    def _analysis_drawing_key(self) -> str:
+        candidate = self._selected_candidate()
+        symbol = str(candidate.get("symbol") or candidate.get("base_asset") or "") if candidate else ""
+        return f"{symbol}|{self.analysis_timeframe_var.get()}"
+
+    def _save_analysis_drawings(self) -> None:
+        self.panel_settings["chart_drawings"] = self.chart_drawings
+        self._save_panel_settings()
+
+    def _draw_analysis_chart(self, _event: Any = None) -> None:
+        canvas = getattr(self, "analysis_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        width = max(420, canvas.winfo_width())
+        height = max(270, canvas.winfo_height())
+        candidate = self._selected_candidate()
+        timeframe = self.analysis_timeframe_var.get() if hasattr(self, "analysis_timeframe_var") else "15m"
+        if not candidate:
+            canvas.create_text(
+                width / 2, height / 2,
+                text="Grafik için Fırsat Radarı'ndan bir coin seçin.",
+                fill="#FFFFFF", font=("Segoe UI", 12),
+            )
+            self._analysis_chart_geometry = {}
+            return
+        candle_map = candidate.get("recent_closed_candles")
+        candle_map = candle_map if isinstance(candle_map, dict) else {}
+        raw_bars = candle_map.get(timeframe)
+        bars = [
+            bar for bar in raw_bars
+            if isinstance(bar, dict)
+            and all(_safe_float(bar.get(key)) is not None for key in ("t", "o", "h", "l", "c"))
+        ][-8:] if isinstance(raw_bars, list) else []
+        if not bars:
+            canvas.create_text(
+                width / 2, height / 2,
+                text=f"{timeframe}: motor durumunda kapanmış mum bulunmuyor.\nGerçek veri gelene kadar örnek mum çizilmez.",
+                fill="#FFD166", justify="center", font=("Segoe UI", 11),
+            )
+            self._analysis_chart_geometry = {}
+            return
+
+        show_volume = self.analysis_layer_vars["volume"].get()
+        left, right, top = 78.0, width - 88.0, 24.0
+        price_bottom = height * (0.67 if show_volume else 0.88)
+        volume_top, volume_bottom = height * 0.76, height - 27.0
+        prices = [
+            float(bar[key]) for bar in bars for key in ("o", "h", "l", "c")
+        ]
+        low, high = min(prices), max(prices)
+        span = max(high - low, abs(high) * 0.001, 1e-10)
+        low -= span * 0.10
+        high += span * 0.10
+        usable = max(1.0, price_bottom - top)
+        def y_price(value: float) -> float:
+            return top + (high - value) / (high - low) * usable
+        first_time = float(bars[0]["t"])
+        last_time = float(bars[-1]["t"])
+        if last_time <= first_time:
+            last_time = first_time + 1.0
+        def x_time(value: float) -> float:
+            return left + (value - first_time) / (last_time - first_time) * (right - left)
+        step = (right - left) / max(1, len(bars))
+        def x_index(index: int) -> float:
+            return left + (index + 0.5) * step
+        self._analysis_chart_geometry = {
+            "left": left, "right": right, "top": top, "bottom": price_bottom,
+            "low": low, "high": high, "first_time": first_time, "last_time": last_time,
+        }
+
+        for i in range(5):
+            fraction = i / 4
+            yy = top + fraction * usable
+            value = high - fraction * (high - low)
+            canvas.create_line(left, yy, right, yy, fill="#273642")
+            canvas.create_text(left - 7, yy, text=_format_price(value), fill="#B1BEC9", anchor="e", font=("Consolas", 8))
+        max_volume = max((_safe_float(bar.get("v")) or 0.0) for bar in bars) or 1.0
+        body_width = max(4.0, min(18.0, step * 0.55))
+        for index, bar in enumerate(bars):
+            x = x_index(index)
+            open_price, close_price = float(bar["o"]), float(bar["c"])
+            high_price, low_price = float(bar["h"]), float(bar["l"])
+            color = "#39FF88" if close_price >= open_price else "#FF6B72"
+            canvas.create_line(x, y_price(high_price), x, y_price(low_price), fill=color, width=1.5)
+            y_open, y_close = y_price(open_price), y_price(close_price)
+            y_top, y_bottom = min(y_open, y_close), max(y_open, y_close)
+            canvas.create_rectangle(
+                x - body_width / 2, y_top, x + body_width / 2,
+                max(y_top + 2, y_bottom), fill=color, outline=color,
+            )
+            if show_volume:
+                volume = max(0.0, _safe_float(bar.get("v")) or 0.0)
+                bar_height = volume / max_volume * max(1.0, volume_bottom - volume_top)
+                canvas.create_rectangle(
+                    x - body_width / 2, volume_bottom - bar_height,
+                    x + body_width / 2, volume_bottom,
+                    fill=color, outline="", stipple="gray50",
+                )
+            stamp = datetime.fromtimestamp(float(bar["t"]) / 1000, tz=timezone.utc).astimezone()
+            canvas.create_text(
+                x, height - 8, text=stamp.strftime("%d.%m %H:%M"),
+                fill="#98A8B6", anchor="s", font=("Consolas", 7),
+            )
+
+        metrics = self._analysis_current_metrics(candidate)
+        layers = self.analysis_layer_vars
+        plan = candidate.get("risk_plan") if isinstance(candidate.get("risk_plan"), dict) else {}
+        levels: list[tuple[float, str, str]] = []
+        def add_level(raw: Any, label: str, color: str) -> None:
+            value = _safe_float(raw)
+            if value is not None and low <= value <= high:
+                levels.append((value, label, color))
+        if layers["entry"].get():
+            add_level(plan.get("entry_zone_low"), "GİRİŞ ALT", "#E9B65D")
+            add_level(plan.get("entry_zone_high"), "GİRİŞ ÜST", "#E9B65D")
+        if layers["stop"].get():
+            add_level(plan.get("stop_loss"), "ZARAR-KES / GEÇERSİZLİK", "#F06A75")
+        if layers["targets"].get():
+            targets = plan.get("targets")
+            if isinstance(targets, list):
+                for index, target in enumerate(targets[:4], start=1):
+                    if isinstance(target, dict):
+                        add_level(target.get("price"), f"HEDEF {index}", "#C6A4F5")
+        if layers["sr"].get():
+            zones = metrics.get("support_resistance_zones")
+            if isinstance(zones, list):
+                for zone in zones:
+                    if not isinstance(zone, dict):
+                        continue
+                    kind = zone.get("kind")
+                    label = "DESTEK" if kind == "support" else "DİRENÇ" if kind == "resistance" else str(kind or "BÖLGE")
+                    add_level(zone.get("center"), label, "#42B9A1" if kind == "support" else "#D99B62")
+        if layers["fib"].get():
+            fib = metrics.get("fibonacci")
+            if isinstance(fib, dict) and fib.get("available") is True:
+                for group_name, group in (("FIB GERİ ÇEKİLME", fib.get("retracements")), ("FIB UZATMA", fib.get("extensions"))):
+                    if isinstance(group, dict):
+                        for name, value in group.items():
+                            add_level(value, f"{group_name} {str(name).replace('retracement_', '').replace('extension_', '')}", "#69A8E8")
+        if layers["ema"].get():
+            add_level(metrics.get("ema_fast"), "EMA HIZLI", "#72A9ED")
+            add_level(metrics.get("ema_slow"), "EMA YAVAŞ", "#B69BEA")
+        if layers["channel"].get():
+            channel = metrics.get("confirmed_channel")
+            if isinstance(channel, dict) and channel.get("available") is True:
+                add_level(channel.get("upper_now"), "KANAL ÜST", "#B69BEA")
+                add_level(channel.get("lower_now"), "KANAL ALT", "#B69BEA")
+        for value, label, color in levels:
+            yy = y_price(value)
+            canvas.create_line(left, yy, right, yy, fill=color, dash=(5, 4), width=1)
+            canvas.create_text(right - 3, yy - 5, text=f"{label}  {_format_price(value)}", fill=color, anchor="e", font=("Segoe UI", 8, "bold"))
+
+        drawings = self.chart_drawings.get(self._analysis_drawing_key(), [])
+        if isinstance(drawings, list):
+            for drawing in drawings:
+                if not isinstance(drawing, dict):
+                    continue
+                points = drawing.get("points")
+                if not isinstance(points, list) or len(points) < 2:
+                    continue
+                try:
+                    x1, y1 = x_time(float(points[0]["t"])), y_price(float(points[0]["p"]))
+                    x2, y2 = x_time(float(points[1]["t"])), y_price(float(points[1]["p"]))
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    continue
+                canvas.create_line(x1, y1, x2, y2, fill="#E9D27B", width=2, dash=(7, 3))
+                if drawing.get("kind") == "channel":
+                    offset = _safe_float(drawing.get("offset")) or 0.0
+                    if low <= float(points[0]["p"]) + offset <= high and low <= float(points[1]["p"]) + offset <= high:
+                        canvas.create_line(
+                            x1, y_price(float(points[0]["p"]) + offset),
+                            x2, y_price(float(points[1]["p"]) + offset),
+                            fill="#E9D27B", width=1.5, dash=(5, 4),
+                        )
+                canvas.create_oval(x1 - 3, y1 - 3, x1 + 3, y1 + 3, fill="#E9D27B", outline="")
+                canvas.create_oval(x2 - 3, y2 - 3, x2 + 3, y2 + 3, fill="#E9D27B", outline="")
+
+        if self._analysis_pending_points:
+            pending = self._analysis_pending_points
+            for point in pending:
+                try:
+                    px = x_time(float(point["t"]))
+                    py = y_price(float(point["p"]))
+                    canvas.create_oval(px - 4, py - 4, px + 4, py + 4, fill="#FFFFFF", outline="#E9D27B")
+                except (KeyError, TypeError, ValueError):
+                    pass
+            if len(pending) >= 2:
+                canvas.create_line(
+                    x_time(float(pending[0]["t"])), y_price(float(pending[0]["p"])),
+                    x_time(float(pending[1]["t"])), y_price(float(pending[1]["p"])),
+                    fill="#FFFFFF", dash=(4, 3),
+                )
+
+        if self._analysis_hover_xy:
+            hx, hy = self._analysis_hover_xy
+            if left <= hx <= right and top <= hy <= price_bottom:
+                canvas.create_line(hx, top, hx, price_bottom, fill="#8198AC", dash=(2, 3), tags=("hover",))
+                canvas.create_line(left, hy, right, hy, fill="#8198AC", dash=(2, 3), tags=("hover",))
+        fib = metrics.get("fibonacci")
+        fib_note = ""
+        if layers["fib"].get() and (not isinstance(fib, dict) or fib.get("available") is not True):
+            fib_note = " · Fibonacci bu zaman diliminde teyitli değil"
+        canvas.create_text(
+            left, height - 25,
+            text=f"Binance Spot · {timeframe} · {len(bars)} kapanmış mum · hacim{fib_note}",
+            fill="#B8C5D0", anchor="w", font=("Segoe UI", 8),
+        )
+
+    def _analysis_chart_motion(self, event: Any) -> None:
+        geometry = self._analysis_chart_geometry
+        if not geometry:
+            return
+        x, y = float(event.x), float(event.y)
+        left, right = geometry["left"], geometry["right"]
+        top, bottom = geometry["top"], geometry["bottom"]
+        if left <= x <= right and top <= y <= bottom:
+            fraction = (y - top) / max(1.0, bottom - top)
+            price = geometry["high"] - fraction * (geometry["high"] - geometry["low"])
+            self.analysis_hover_var.set(f"Fiyat: {_format_price(price)} USDT")
+            self._analysis_hover_xy = (x, y)
+            self._draw_analysis_chart()
+        else:
+            self.analysis_hover_var.set("İmleç: —")
+            self._analysis_hover_xy = None
+
+    def _analysis_chart_point(self, event: Any) -> dict[str, float] | None:
+        geometry = self._analysis_chart_geometry
+        if not geometry:
+            return None
+        left, right = geometry["left"], geometry["right"]
+        top, bottom = geometry["top"], geometry["bottom"]
+        if not (left <= event.x <= right and top <= event.y <= bottom):
+            return None
+        x_fraction = (float(event.x) - left) / max(1.0, right - left)
+        y_fraction = (float(event.y) - top) / max(1.0, bottom - top)
+        stamp = geometry["first_time"] + x_fraction * (geometry["last_time"] - geometry["first_time"])
+        price = geometry["high"] - y_fraction * (geometry["high"] - geometry["low"])
+        return {"t": float(stamp), "p": float(price)}
+
+    def _analysis_chart_click(self, event: Any) -> None:
+        tool = self.analysis_tool_var.get()
+        if tool == "İmleç":
+            return
+        point = self._analysis_chart_point(event)
+        if point is None:
+            return
+        required = 3 if tool == "Paralel kanal" else 2
+        self._analysis_pending_points.append(point)
+        if len(self._analysis_pending_points) < required:
+            self.analysis_status_var.set(
+                "Çizim noktası seçildi. " +
+                ("Paralel kanal için ikinci ve üçüncü noktayı seçin." if required == 3 else "Çizgiyi tamamlamak için ikinci noktayı seçin.")
+            )
+            self._draw_analysis_chart()
+            return
+        points = self._analysis_pending_points[:2]
+        drawing: dict[str, Any] = {"kind": "channel" if required == 3 else "trend", "points": points}
+        if required == 3:
+            first, second, third = self._analysis_pending_points
+            if abs(second["t"] - first["t"]) < 1:
+                self._analysis_pending_points = []
+                self.analysis_status_var.set("Paralel kanal için iki ana nokta farklı zamanlarda seçilmelidir.")
+                self._draw_analysis_chart()
+                return
+            ratio = (third["t"] - first["t"]) / (second["t"] - first["t"])
+            baseline = first["p"] + ratio * (second["p"] - first["p"])
+            drawing["offset"] = third["p"] - baseline
+        key = self._analysis_drawing_key()
+        existing = self.chart_drawings.get(key, [])
+        existing = existing if isinstance(existing, list) else []
+        existing.append(drawing)
+        self.chart_drawings[key] = existing
+        self._analysis_pending_points = []
+        self._save_analysis_drawings()
+        self.analysis_status_var.set("Çizim kaydedildi; bu zaman dilimi ve coin için korunacak.")
+        self._draw_analysis_chart()
+
+    def _analysis_delete_last(self) -> None:
+        key = self._analysis_drawing_key()
+        drawings = self.chart_drawings.get(key, [])
+        if not isinstance(drawings, list) or not drawings:
+            messagebox.showinfo("Çizimler", "Bu coin ve zaman diliminde silinecek çizim yok.")
+            return
+        removed = drawings.pop()
+        self.chart_drawings[key] = drawings
+        self._analysis_undo_state = (key, removed)
+        self._analysis_undo_token += 1
+        token = self._analysis_undo_token
+        self.analysis_undo_button.configure(state="normal")
+        self.after(5000, lambda: self._analysis_expire_undo(token))
+        self._save_analysis_drawings()
+        self._draw_analysis_chart()
+
+    def _analysis_expire_undo(self, token: int) -> None:
+        if token != self._analysis_undo_token:
+            return
+        self._analysis_undo_state = None
+        if hasattr(self, "analysis_undo_button"):
+            self.analysis_undo_button.configure(state="disabled")
+
+    def _analysis_undo_delete(self) -> None:
+        if not self._analysis_undo_state:
+            return
+        key, drawing = self._analysis_undo_state
+        drawings = self.chart_drawings.get(key, [])
+        drawings = drawings if isinstance(drawings, list) else []
+        drawings.append(drawing)
+        self.chart_drawings[key] = drawings
+        self._analysis_undo_state = None
+        self._analysis_undo_token += 1
+        self.analysis_undo_button.configure(state="disabled")
+        self._save_analysis_drawings()
+        self._draw_analysis_chart()
+
+    def _overview_or_analysis_select(self, symbol: str, open_analysis: bool = False) -> None:
+        if self._select_candidate_by_symbol(symbol) and open_analysis:
+            self._show_workspace_page("analysis")
+
+    def _plans_open_selected(self) -> None:
+        selection = self.plans_tree.selection()
+        if selection and self._select_candidate_by_symbol(selection[0]):
+            self._show_workspace_page("analysis")
+
+    def _refresh_plans_page(self) -> None:
+        if not hasattr(self, "plans_tree"):
+            return
+        self.plans_tree.delete(*self.plans_tree.get_children())
+        count = 0
+        for key in getattr(self, "_radar_all_keys", []):
+            candidate = self.current_candidates.get(key)
+            if not isinstance(candidate, dict):
+                continue
+            plan = candidate.get("risk_plan")
+            if not isinstance(plan, dict):
+                continue
+            targets = plan.get("targets") if isinstance(plan.get("targets"), list) else []
+            target_text = ", ".join(
+                _format_price(item.get("price")) for item in targets[:3]
+                if isinstance(item, dict) and _safe_float(item.get("price")) is not None
+            ) or "—"
+            entry_low = _safe_float(plan.get("entry_zone_low"))
+            entry_high = _safe_float(plan.get("entry_zone_high"))
+            entry = (
+                f"{_format_price(entry_low)} – {_format_price(entry_high)}"
+                if entry_low is not None and entry_high is not None else "—"
+            )
+            symbol = str(candidate.get("symbol") or candidate.get("base_asset") or "")
+            self.plans_tree.insert(
+                "", "end", iid=symbol,
+                values=(
+                    symbol, plan.get("status") or "Plan yok",
+                    plan.get("timeframe") or candidate.get("phase_timeframe") or "—",
+                    entry, _format_price(plan.get("stop_loss")), target_text,
+                    candidate.get("final_decision") or candidate.get("decision_class") or "—",
+                ),
+            )
+            count += 1
+        self.plans_status_var.set(
+            f"{count} aday için motor kaynaklı plan kaydı görüntüleniyor. Yeni plan, kullanıcı onayı olmadan etkinleştirilmez."
+        )
+
+    def _refresh_market_page(self) -> None:
+        if hasattr(self, "market_context_text"):
+            self._set_text(
+                self.market_context_text,
+                _format_btc_context_details(self.current_state)
+                if isinstance(self.current_state, dict) and self.current_state
+                else "BTC piyasa bağlamı için motor verisi bekleniyor.",
+            )
+
+    def _refresh_settings_page(self) -> None:
+        if not hasattr(self, "settings_diagnostics_text"):
+            return
+        self.settings_status_var.set(
+            f"{self.status_var.get()} · {self.live_status_var.get()} · {self.history_status_var.get()}"
+        )
+        payload = "\n".join((
+            self.diagnostics_summary_var.get(),
+            "",
+            "Mevcut kontroller: Başlat, Durdur, Pariteleri Güncelle, Günlük Rapor, Analiz Raporu, "
+            "Sorun Giderme ZIP, Seviye Takibi, Sesli Bildirim, Ses Testi, Ses Düzeyi, Yazı Boyutu ve Ekran Görüntüsü.",
+            "",
+            "Teknik motor ve BtcTurk PRO veri/işlem alanları ayrıdır. Bu sayfa motor ayarlarını değiştirmez; "
+            "üst çubuktaki mevcut işlevleri ve tanılama durumunu tek noktada görünür kılar.",
+        ))
+        self._set_text(self.settings_diagnostics_text, payload)
+
+    def _apply_radar_filters(self) -> None:
+        if not hasattr(self, "tree"):
+            return
+        query = self.radar_search_var.get().strip().casefold() if hasattr(self, "radar_search_var") else ""
+        for key in getattr(self, "_radar_all_keys", []):
+            candidate = self.current_candidates.get(key, {})
+            haystack = " ".join((
+                str(candidate.get("symbol") or candidate.get("base_asset") or ""),
+                str(candidate.get("decision_reason") or ""),
+                str(candidate.get("final_decision") or candidate.get("decision_class") or ""),
+                str(candidate.get("state") or ""),
+            )).casefold()
+            visible = not query or query in haystack
+            if self.tree.exists(key):
+                if visible:
+                    self.tree.reattach(key, "", "end")
+                else:
+                    self.tree.detach(key)
 
     def _build_btcturk_pro_ui(self) -> None:
         page = self.btcturk_page
@@ -1184,21 +2262,6 @@ class ControlPanel(tk.Tk):
         technical_inner.rowconfigure(0, weight=1)
         technical_inner.columnconfigure(0, weight=1)
 
-    def _show_workspace_page(self, page: str) -> None:
-        if page == "btcturk":
-            self.radar_page.pack_forget()
-            self.btcturk_page.pack(fill="both", expand=True)
-            self.workspace_current_page = "btcturk"
-            self.nav_btcturk_button.configure(state="disabled")
-            self.nav_radar_button.configure(state="normal")
-            if self.btcturk_pro_data is None and not self.btcturk_pro_load_busy:
-                self._btcturk_pro_load_pair(self.btcturk_pro_symbol)
-            return
-        self.btcturk_page.pack_forget()
-        self.radar_page.pack(fill="both", expand=True)
-        self.workspace_current_page = "radar"
-        self.nav_btcturk_button.configure(state="normal")
-        self.nav_radar_button.configure(state="disabled")
 
     def _open_btcturk_pro_from_radar(self) -> None:
         candidate = self._selected_candidate()
@@ -2220,6 +3283,7 @@ class ControlPanel(tk.Tk):
         ]
         self._append_details("\n".join(map(str, lines)))
         self._set_text(self.technical_details, self._format_technical_details(candidate))
+        self._refresh_workspace_views()
 
     def _format_technical_details(self, candidate: dict[str, Any]) -> str:
         lines = [
@@ -2605,7 +3669,11 @@ class ControlPanel(tk.Tk):
         ), reverse=True)
         old_selection = self.tree.selection()
         selected = old_selection[0] if old_selection else self.current_candidate_key
+        for old_key in getattr(self, "_radar_all_keys", []):
+            if self.tree.exists(old_key):
+                self.tree.delete(old_key)
         self.tree.delete(*self.tree.get_children())
+        self._radar_all_keys = []
         self.current_candidates = normalized
         for row, key in sortable:
             phase = row.get("phase") or row.get("last_known_phase") or "—"
@@ -2643,6 +3711,7 @@ class ControlPanel(tk.Tk):
                 }.get(str(decision).upper())
                 phase_tag = f"phase_{str(phase).lower()}" if phase in ("A", "B", "C") else None
                 tags = tuple(tag for tag in (phase_tag, decision_tag) if tag)
+            self._radar_all_keys.append(key)
             self.tree.insert("", "end", iid=key, values=(
                 ("★ " if strong else "") + str(symbol),
                 _format_price(row.get("latest_price", row.get("price"))),
@@ -2651,6 +3720,7 @@ class ControlPanel(tk.Tk):
                 _display_timeframe(row.get("phase_timeframe") or row.get("timeframe")),
                 phase, freshness_label, _format_btc_relative(row), decision_label,
             ), tags=tags)
+        self._apply_radar_filters()
         if selected and selected in normalized:
             self.tree.selection_set(selected)
             self.tree.focus(selected)
@@ -2672,6 +3742,7 @@ class ControlPanel(tk.Tk):
             )
         selected_candidate = self.current_candidates.get(self.current_candidate_key) if self.current_candidate_key else None
         self._set_section_freshness(state, selected_candidate)
+        self._refresh_workspace_views()
         if state.get("status") in ("BAŞLATMA HATASI", "TARAMA EVRENİ BEKLENİYOR"):
             if self._last_error_state_stamp != str(state.get("generated_at_utc")):
                 self._last_error_state_stamp = str(state.get("generated_at_utc"))
@@ -2747,6 +3818,9 @@ class ControlPanel(tk.Tk):
                 "alarm_volume": int(self.alarm_volume),
                 "font_size": int(self.font_size),
             })
+            for key in ("tracked_symbols", "chart_drawings"):
+                if key in getattr(self, "panel_settings", {}):
+                    ui[key] = self.panel_settings[key]
             current["panel_ui"] = ui
             _write_json_atomic(SETTINGS_PATH, current)
             self.settings = current
