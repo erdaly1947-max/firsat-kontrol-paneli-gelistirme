@@ -1271,6 +1271,7 @@ class ControlPanel(tk.Tk):
             return
         self.btcturk_pro_symbol = symbol
         self.btcturk_pro_entry_var.set(symbol)
+        self._btcturk_pro_save_last_pair(symbol)
         self.btcturk_pro_status_var.set(f"{symbol} · BtcTurk verileri alınıyor…")
         self.btcturk_pro_open_button.configure(state="disabled")
         self.btcturk_pro_refresh_button.configure(state="disabled")
