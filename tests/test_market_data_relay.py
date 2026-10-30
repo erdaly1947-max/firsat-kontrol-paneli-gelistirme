@@ -46,7 +46,14 @@ class MarketDataRelayTests(unittest.TestCase):
                 "https://api.binance.com/api/v3/klines?symbol=BTCUSDT",
                 "binance_rest",
             ),
-            tuple(base + "/api/v3/klines?symbol=BTCUSDT" for base in ortak_piyasa.BINANCE_REST_BASES),
+            (
+                "https://api.binance.com/api/v3/klines?symbol=BTCUSDT",
+                *(
+                    base + "/api/v3/klines?symbol=BTCUSDT"
+                    for base in ortak_piyasa.BINANCE_REST_BASES
+                    if base != "https://api.binance.com"
+                ),
+            ),
         )
         websocket_bases = ortak_piyasa.get_binance_ws_bases(settings)
         self.assertEqual(

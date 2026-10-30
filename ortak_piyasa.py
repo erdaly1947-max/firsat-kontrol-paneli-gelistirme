@@ -185,12 +185,16 @@ def _market_route_target(url: str, relay_origin: str) -> tuple[str, str] | None:
 
 
 def _market_direct_urls(url: str, route_key: str) -> tuple[str, ...]:
-    """Try all documented Binance hosts locally before considering the Render relay."""
+    """Try the requested Binance host and then all documented alternatives before Render."""
     if route_key != "binance_rest":
         return (url,)
     parsed = urlsplit(url)
     suffix = parsed.path + (("?" + parsed.query) if parsed.query else "")
-    return tuple(base + suffix for base in BINANCE_REST_BASES)
+    requested_origin = f"{parsed.scheme}://{parsed.netloc}"
+    bases = (requested_origin,) + tuple(
+        base for base in BINANCE_REST_BASES if base != requested_origin
+    )
+    return tuple(base + suffix for base in bases)
 
 
 def _market_direct_timeout(
