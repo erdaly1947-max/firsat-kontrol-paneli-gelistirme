@@ -111,6 +111,21 @@ _last_rest_request_started: float | None = None
 _rest_cooldown_until = 0.0
 
 
+
+def _decode_binance_websocket_messages(message: Any) -> list[str]:
+    """Decode a direct text frame or the relay's FKP1 deflate batch in source order."""
+    if isinstance(message, bytes):
+        if message.startswith(b"FKP1"):
+            decoded = zlib.decompress(message[4:]).decode("utf-8")
+        else:
+            decoded = message.decode("utf-8")
+    elif isinstance(message, str):
+        decoded = message
+    else:
+        return []
+    return [item for item in decoded.splitlines() if item.strip()]
+
+
 class BinanceRateLimitError(RuntimeError):
     """The API returned an IP-wide 429/418; don\'t immediately retry another hostname."""
 
@@ -1890,16 +1905,7 @@ class BinanceRadar:
 
                 def on_message(ws, message):
                     try:
-                        if isinstance(message, bytes):
-                            if message.startswith(b"FKP1"):
-                                decoded = zlib.decompress(message[4:]).decode("utf-8")
-                            else:
-                                decoded = message.decode("utf-8")
-                        elif isinstance(message, str):
-                            decoded = message
-                        else:
-                            return
-                        raw_messages = [item for item in decoded.splitlines() if item.strip()]
+                        raw_messages = _decode_binance_websocket_messages(message)
                     except Exception as exc:
                         self.logger.warning("WebSocket toplu mesajı çözülemedi; kesintisiz veri için bağlantı yenilenecek: %s", exc)
                         ws.close()
