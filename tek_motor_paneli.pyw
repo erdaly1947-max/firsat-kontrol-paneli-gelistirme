@@ -827,7 +827,7 @@ class ControlPanel(tk.Tk):
         ttk.Separator(self.radar_page, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
 
         controls = ttk.Frame(self, padding=(12, 3, 12, 5))
-        controls.pack(fill="x")
+        controls.pack(fill="x", before=self.workspace)
         self.controls_inner = ttk.Frame(controls)
         self.controls_inner.pack(fill="x")
         self.toolbar_items: list[tk.Widget] = []
@@ -1438,10 +1438,13 @@ class ControlPanel(tk.Tk):
         if not self.tree.exists(key):
             self._show_workspace_page("radar")
             messagebox.showinfo(
-                "Aday görünür değil",
-                "Aday mevcut listede görünmüyor; arama filtresini temizleyip tekrar seçin.",
+                "Aday bulunamadı",
+                "Bu adayın satırı mevcut radar listesinden kaldırılmış. Motorun sonraki güncellemesinde tekrar seçilebilir.",
             )
             return False
+        if key not in self.tree.get_children():
+            self.radar_search_var.set("")
+            self._apply_radar_filters()
         self.tree.selection_set(key)
         self.tree.focus(key)
         self.current_candidate_key = key
@@ -1786,12 +1789,16 @@ class ControlPanel(tk.Tk):
             value = _safe_float(raw)
             if value is not None and low <= value <= high:
                 levels.append((value, label, color))
-        if layers["entry"].get():
+        plan_is_active = (
+            plan.get("active") is True
+            or str(plan.get("status") or "").strip().upper() in {"AKTİF", "ACTIVE"}
+        )
+        if plan_is_active and layers["entry"].get():
             add_level(plan.get("entry_zone_low"), "GİRİŞ ALT", "#E9B65D")
             add_level(plan.get("entry_zone_high"), "GİRİŞ ÜST", "#E9B65D")
-        if layers["stop"].get():
+        if plan_is_active and layers["stop"].get():
             add_level(plan.get("stop_loss"), "ZARAR-KES / GEÇERSİZLİK", "#F06A75")
-        if layers["targets"].get():
+        if plan_is_active and layers["targets"].get():
             targets = plan.get("targets")
             if isinstance(targets, list):
                 for index, target in enumerate(targets[:4], start=1):
@@ -1876,9 +1883,10 @@ class ControlPanel(tk.Tk):
         fib_note = ""
         if layers["fib"].get() and (not isinstance(fib, dict) or fib.get("available") is not True):
             fib_note = " · Fibonacci bu zaman diliminde teyitli değil"
+        plan_note = "" if plan_is_active else " · etkin plan kaydı yok; öneri yalnızca ayrıntıda"
         canvas.create_text(
             left, height - 25,
-            text=f"Binance Spot · {timeframe} · {len(bars)} kapanmış mum · hacim{fib_note}",
+            text=f"Binance Spot · {timeframe} · {len(bars)} kapanmış mum · hacim{fib_note}{plan_note}",
             fill="#B8C5D0", anchor="w", font=("Segoe UI", 8),
         )
 
@@ -3606,6 +3614,7 @@ class ControlPanel(tk.Tk):
         self.log_view.configure(state="disabled")
 
     def _render_state(self, state: dict[str, Any]) -> None:
+        self.current_state = state
         status = str(state.get("status") or "Durum bilinmiyor")
         if self.engine is None and self.engine_started_epoch is None:
             status = f"MOTOR KAPALI — son kayıt: {status}"
