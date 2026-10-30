@@ -999,6 +999,801 @@ class ControlPanel(tk.Tk):
         self._refresh_status_indicators()
         self.after(15000, self._schedule_btcturk_pro_quote_refresh)
 
+    def _build_btcturk_pro_ui(self) -> None:
+        page = self.btcturk_page
+        page.columnconfigure(0, weight=1)
+        page.rowconfigure(3, weight=1)
+
+        header = ttk.Frame(page, padding=(12, 9, 12, 5))
+        header.grid(row=0, column=0, sticky="ew")
+        ttk.Label(header, text="BtcTurk PRO · BAĞIMSIZ İŞLEM ANALİZİ", style="Section.TLabel").pack(side="left")
+        self.btcturk_pro_status_label = ttk.Label(
+            header, textvariable=self.btcturk_pro_status_var,
+            style="SectionPending.TLabel", wraplength=380, justify="right",
+        )
+        self.btcturk_pro_status_label.pack(side="right", padx=(8, 0))
+        ttk.Separator(page, orient="horizontal").grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 6))
+
+        search_row = ttk.Frame(page, padding=(12, 0, 12, 6))
+        search_row.grid(row=2, column=0, sticky="ew")
+        ttk.Label(search_row, text="BtcTurk USDT paritesi:").pack(side="left", padx=(0, 6))
+        self.btcturk_pro_pair_combo = ttk.Combobox(
+            search_row, textvariable=self.btcturk_pro_entry_var,
+            values=(), width=16,
+        )
+        self.btcturk_pro_pair_combo.pack(side="left", padx=(0, 6))
+        self.btcturk_pro_pair_combo.bind("<Return>", lambda _event: self._btcturk_pro_open_pair())
+        self.btcturk_pro_open_button = ttk.Button(
+            search_row, text="Pariteyi Aç", command=self._btcturk_pro_open_pair,
+        )
+        self.btcturk_pro_open_button.pack(side="left", padx=(0, 6))
+        self.btcturk_pro_refresh_button = ttk.Button(
+            search_row, text="Veriyi Yenile", command=self._btcturk_pro_open_pair,
+        )
+        self.btcturk_pro_refresh_button.pack(side="left", padx=(0, 6))
+        ttk.Button(
+            search_row, text="Binance Seçimini Aktar",
+            command=self._btcturk_pro_import_selected,
+        ).pack(side="left")
+
+        quote_frame = ttk.LabelFrame(page, text="BtcTurk piyasa verisi ve ayrı Binance karşılaştırması", padding=(8, 5))
+        quote_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 6))
+        quote_frame.columnconfigure(0, weight=1)
+        quote_frame.columnconfigure(1, weight=1)
+        ttk.Label(
+            quote_frame, textvariable=self.btcturk_pro_quote_var,
+            justify="left", wraplength=660,
+        ).grid(row=0, column=0, sticky="w", padx=(3, 10))
+        ttk.Label(
+            quote_frame, textvariable=self.btcturk_pro_binance_var,
+            justify="left", wraplength=560,
+        ).grid(row=0, column=1, sticky="w", padx=(10, 3))
+
+        cost_row = ttk.Frame(page, padding=(12, 0, 12, 7))
+        cost_row.grid(row=4, column=0, sticky="ew")
+        ttk.Label(cost_row, text="İşlem tutarı (USDT, isteğe bağlı):").pack(side="left", padx=(0, 5))
+        self.btcturk_pro_amount_entry = ttk.Entry(
+            cost_row, textvariable=self.btcturk_pro_amount_var, width=13,
+        )
+        self.btcturk_pro_amount_entry.pack(side="left", padx=(0, 5))
+        ttk.Button(
+            cost_row, text="Maliyet / kayma tahmini",
+            command=self._btcturk_pro_estimate_cost,
+        ).pack(side="left", padx=(0, 9))
+        ttk.Label(
+            cost_row, textvariable=self.btcturk_pro_market_rules_var,
+            wraplength=680, justify="left",
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Separator(page, orient="horizontal").grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 6))
+
+        main = ttk.Panedwindow(page, orient="horizontal")
+        main.grid(row=6, column=0, sticky="nsew", padx=12, pady=(0, 6))
+        page.rowconfigure(6, weight=5)
+        left = ttk.Frame(main, padding=(0, 0, 6, 0))
+        right = ttk.Frame(main, padding=(6, 0, 0, 0))
+        main.add(left, weight=6)
+        main.add(right, weight=4)
+
+        chart_header = ttk.Frame(left)
+        chart_header.pack(fill="x", pady=(0, 5))
+        ttk.Label(chart_header, text="BtcTurk mum ve hacim grafiği", style="Section.TLabel").pack(side="left")
+        timeframe_row = ttk.Frame(left)
+        timeframe_row.pack(fill="x", pady=(0, 4))
+        self.btcturk_pro_timeframe_buttons: dict[str, ttk.Button] = {}
+        for timeframe in BTCTURK_PRO_TIMEFRAMES:
+            button = ttk.Button(
+                timeframe_row, text=timeframe,
+                command=lambda selected=timeframe: self._btcturk_pro_select_timeframe(selected),
+                width=5,
+            )
+            button.pack(side="left", padx=(0, 3))
+            self.btcturk_pro_timeframe_buttons[timeframe] = button
+        self.btcturk_pro_chart = tk.Canvas(
+            left, background="#000000", highlightbackground="#777777",
+            highlightthickness=1, height=330,
+        )
+        self.btcturk_pro_chart.pack(fill="both", expand=True)
+        self.btcturk_pro_chart.bind(
+            "<Configure>", lambda _event: self._btcturk_pro_draw_chart(),
+            add="+",
+        )
+
+        ttk.Label(right, text="Emir defteri · ilk 10 kademe", style="Section.TLabel").pack(anchor="w", pady=(0, 5))
+        book_frame = ttk.Frame(right)
+        book_frame.pack(fill="both", expand=True)
+        columns = ("side", "price", "quantity", "value")
+        self.btcturk_pro_orderbook_tree = ttk.Treeview(
+            book_frame, columns=columns, show="headings", height=14,
+        )
+        for column, heading, width in (
+            ("side", "Yön", 62), ("price", "Fiyat (USDT)", 118),
+            ("quantity", "Miktar", 105), ("value", "Toplam (USDT)", 120),
+        ):
+            self.btcturk_pro_orderbook_tree.heading(column, text=heading)
+            self.btcturk_pro_orderbook_tree.column(
+                column, width=width, minwidth=48, anchor="center",
+                stretch=column in {"price", "value"},
+            )
+        book_scroll = ttk.Scrollbar(
+            book_frame, orient="vertical",
+            style="Slim.Vertical.TScrollbar",
+            command=self.btcturk_pro_orderbook_tree.yview,
+        )
+        self.btcturk_pro_orderbook_tree.configure(yscrollcommand=book_scroll.set)
+        self.btcturk_pro_orderbook_tree.pack(side="left", fill="both", expand=True)
+        book_scroll.pack(side="right", fill="y")
+        self.btcturk_pro_orderbook_tree.tag_configure("ask", foreground="#FF7777")
+        self.btcturk_pro_orderbook_tree.tag_configure("bid", foreground="#39FF88")
+
+        plan_frame = ttk.LabelFrame(page, text="BtcTurk verisine dayalı işlem planı ve maliyet", padding=5)
+        plan_frame.grid(row=7, column=0, sticky="ew", padx=12, pady=(0, 6))
+        self.btcturk_pro_cost_text = tk.Text(
+            plan_frame, height=7, wrap="word",
+            font=("Consolas", max(9, self.font_size - 1)),
+            background="#000000", foreground="#FFFFFF",
+            insertbackground="#FFFFFF", state="disabled",
+            relief="flat", padx=5, pady=4,
+        )
+        self.btcturk_pro_cost_text.pack(fill="both", expand=True)
+        self.btcturk_pro_cost_text.tag_configure("good", foreground="#39FF88")
+        self.btcturk_pro_cost_text.tag_configure("warning", foreground="#FFD166")
+        self.btcturk_pro_cost_text.tag_configure("bad", foreground="#FF7777")
+
+        technical_frame = ttk.LabelFrame(page, text="Sekiz zaman diliminde teknik değerlendirme", padding=5)
+        technical_frame.grid(row=8, column=0, sticky="nsew", padx=12, pady=(0, 10))
+        page.rowconfigure(8, weight=2)
+        technical_inner = ttk.Frame(technical_frame)
+        technical_inner.pack(fill="both", expand=True)
+        self.btcturk_pro_technical_text = tk.Text(
+            technical_inner, height=8, wrap="none",
+            font=("Consolas", max(9, self.font_size - 1)),
+            background="#000000", foreground="#FFFFFF",
+            insertbackground="#FFFFFF", state="disabled",
+            relief="flat", padx=5, pady=4,
+        )
+        technical_y = ttk.Scrollbar(
+            technical_inner, orient="vertical",
+            style="Slim.Vertical.TScrollbar",
+            command=self.btcturk_pro_technical_text.yview,
+        )
+        technical_x = ttk.Scrollbar(
+            technical_inner, orient="horizontal",
+            style="Slim.Horizontal.TScrollbar",
+            command=self.btcturk_pro_technical_text.xview,
+        )
+        self.btcturk_pro_technical_text.configure(
+            yscrollcommand=technical_y.set, xscrollcommand=technical_x.set,
+        )
+        self.btcturk_pro_technical_text.grid(row=0, column=0, sticky="nsew")
+        technical_y.grid(row=0, column=1, sticky="ns")
+        technical_x.grid(row=1, column=0, sticky="ew")
+        technical_inner.rowconfigure(0, weight=1)
+        technical_inner.columnconfigure(0, weight=1)
+
+    def _show_workspace_page(self, page: str) -> None:
+        if page == "btcturk":
+            self.radar_page.pack_forget()
+            self.btcturk_page.pack(fill="both", expand=True)
+            self.workspace_current_page = "btcturk"
+            self.nav_btcturk_button.configure(state="disabled")
+            self.nav_radar_button.configure(state="normal")
+            if self.btcturk_pro_data is None and not self.btcturk_pro_load_busy:
+                self._btcturk_pro_load_pair(self.btcturk_pro_symbol)
+            return
+        self.btcturk_page.pack_forget()
+        self.radar_page.pack(fill="both", expand=True)
+        self.workspace_current_page = "radar"
+        self.nav_btcturk_button.configure(state="normal")
+        self.nav_radar_button.configure(state="disabled")
+
+    def _open_btcturk_pro_from_radar(self) -> None:
+        candidate = self._selected_candidate()
+        symbol = None
+        if isinstance(candidate, dict):
+            symbol = str(candidate.get("symbol") or candidate.get("base_asset") or "").upper().strip()
+        self._show_workspace_page("btcturk")
+        if symbol:
+            symbol = symbol.replace("/", "").replace("_", "")
+            if not symbol.endswith("USDT"):
+                symbol += "USDT"
+            self.btcturk_pro_entry_var.set(symbol)
+            self._btcturk_pro_load_pair(symbol)
+        elif self.btcturk_pro_data is None and not self.btcturk_pro_load_busy:
+            self._btcturk_pro_load_pair(self.btcturk_pro_symbol)
+
+    def _btcturk_pro_import_selected(self) -> None:
+        candidate = self._selected_candidate()
+        if not isinstance(candidate, dict):
+            messagebox.showinfo(
+                "BtcTurk PRO", "Önce Fırsat Radarı ekranında bir coin seçin.",
+            )
+            return
+        symbol = str(candidate.get("symbol") or candidate.get("base_asset") or "").upper().strip()
+        symbol = symbol.replace("/", "").replace("_", "")
+        if not symbol.endswith("USDT"):
+            symbol += "USDT"
+        self._show_workspace_page("btcturk")
+        self.btcturk_pro_entry_var.set(symbol)
+        self._btcturk_pro_load_pair(symbol)
+
+    def _btcturk_pro_open_pair(self) -> None:
+        symbol = str(self.btcturk_pro_entry_var.get() or "").upper().replace("/", "").replace("_", "").strip()
+        if symbol and not symbol.endswith("USDT"):
+            symbol += "USDT"
+        if not re.fullmatch(r"[A-Z0-9]{2,26}USDT", symbol):
+            messagebox.showwarning(
+                "BtcTurk PRO", "Geçerli bir USDT paritesi girin. Örnek: BTCUSDT.",
+            )
+            return
+        self._btcturk_pro_load_pair(symbol)
+
+    def _btcturk_pro_save_last_pair(self, symbol: str) -> None:
+        destination = DATA_DIR / "btcturk_pro_state.json"
+        temporary = destination.with_name(destination.name + ".tmp")
+        payload = {
+            "last_symbol": symbol,
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(temporary, destination)
+        except OSError as exc:
+            LOGGER.warning("BtcTurk PRO son parite kaydı yazılamadı: %s", exc)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _btcturk_pro_load_pair(self, symbol: str) -> None:
+        symbol = str(symbol or "").upper().replace("/", "").replace("_", "").strip()
+        if symbol and not symbol.endswith("USDT"):
+            symbol += "USDT"
+        if not re.fullmatch(r"[A-Z0-9]{2,26}USDT", symbol):
+            self.btcturk_pro_status_var.set("Geçersiz USDT paritesi")
+            return
+        self.btcturk_pro_symbol = symbol
+        self.btcturk_pro_entry_var.set(symbol)
+        self.btcturk_pro_status_var.set(f"{symbol} · BtcTurk verileri alınıyor…")
+        self.btcturk_pro_open_button.configure(state="disabled")
+        self.btcturk_pro_refresh_button.configure(state="disabled")
+        self.btcturk_pro_import_button_state = "disabled"
+        self.btcturk_pro_request_id += 1
+        request_id = self.btcturk_pro_request_id
+        self.btcturk_pro_load_busy = True
+
+        def worker() -> None:
+            try:
+                markets = fetch_btcturk_pro_markets()
+                market = markets.get(symbol)
+                if market is None:
+                    result = {
+                        "ok": True, "pair_found": False,
+                        "symbol": symbol, "markets": markets,
+                    }
+                else:
+                    quote_error = None
+                    orderbook_error = None
+                    try:
+                        ticker = fetch_btcturk_pro_ticker(symbol)
+                    except Exception as exc:
+                        ticker = {
+                            "symbol": symbol, "last": None, "bid": None, "ask": None,
+                            "timestamp_ms": 0, "base_volume_24h": None,
+                            "change_24h_pct": None, "source": "BtcTurk ticker",
+                        }
+                        quote_error = f"{type(exc).__name__}: {str(exc)[:220]}"
+                    try:
+                        book = fetch_btcturk_pro_orderbook(symbol)
+                    except Exception as exc:
+                        book = {
+                            "symbol": symbol, "bids": [], "asks": [],
+                            "timestamp_ms": 0, "source": "BtcTurk emir defteri",
+                        }
+                        orderbook_error = f"{type(exc).__name__}: {str(exc)[:220]}"
+                    bars = fetch_btcturk_pro_candles(symbol)
+                    data = analyze_btcturk_pro(
+                        symbol, markets, ticker, book, bars,
+                        self.settings if isinstance(self.settings, dict) else {},
+                    )
+                    comparison = fetch_binance_comparison(symbol)
+                    data["binance_comparison"] = comparison
+                    data["quote_error"] = quote_error
+                    data["orderbook_error"] = orderbook_error
+                    result = {
+                        "ok": True, "pair_found": True,
+                        "symbol": symbol, "markets": markets, "data": data,
+                    }
+            except Exception as exc:
+                result = {
+                    "ok": False,
+                    "symbol": symbol,
+                    "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+                }
+            try:
+                self.after(0, self._btcturk_pro_apply_load, request_id, result)
+            except tk.TclError:
+                return
+
+        threading.Thread(
+            target=worker, daemon=True, name="btcturk-pro-load",
+        ).start()
+
+    def _btcturk_pro_apply_load(self, request_id: int, result: dict[str, Any]) -> None:
+        if request_id != self.btcturk_pro_request_id:
+            return
+        self.btcturk_pro_load_busy = False
+        self.btcturk_pro_open_button.configure(state="normal")
+        self.btcturk_pro_refresh_button.configure(state="normal")
+        if not result.get("ok"):
+            error = str(result.get("error") or "BtcTurk verisi alınamadı.")
+            self.btcturk_pro_status_var.set("BtcTurk PRO veri uyarısı")
+            self.btcturk_pro_quote_var.set(error)
+            self.btcturk_pro_binance_var.set("Binance karşılaştırması yapılamadı.")
+            self._set_text(self.btcturk_pro_cost_text, "Piyasa verisi alınamadığı için işlem planı oluşturulmadı.\n" + error)
+            self._set_text(self.btcturk_pro_technical_text, "BtcTurk mum geçmişi alınamadı; teknik değerlendirme yapılmadı.")
+            self.btcturk_pro_chart.delete("all")
+            self.btcturk_pro_orderbook_tree.delete(*self.btcturk_pro_orderbook_tree.get_children())
+            return
+
+        markets = result.get("markets")
+        self.btcturk_pro_markets = markets if isinstance(markets, dict) else {}
+        values = sorted(self.btcturk_pro_markets)
+        self.btcturk_pro_pair_combo.configure(values=values)
+        symbol = str(result.get("symbol") or self.btcturk_pro_symbol)
+        if not result.get("pair_found"):
+            self.btcturk_pro_data = None
+            self.btcturk_pro_status_var.set("İŞLEM PLANI OLUŞTURULAMAZ")
+            self.btcturk_pro_quote_var.set(
+                f"{symbol}: BtcTurk'te etkin USDT Spot paritesi bulunamadı. Coin seçili bırakıldı."
+            )
+            self.btcturk_pro_binance_var.set(
+                "Başka bir BtcTurk USDT paritesi arayabilir veya Binance Fırsat Radarı'na dönebilirsiniz."
+            )
+            self.btcturk_pro_market_rules_var.set("Bu coin için BtcTurk işlem kuralı bulunamadı.")
+            self._set_text(
+                self.btcturk_pro_cost_text,
+                "BtcTurk'te etkin USDT paritesi yok. İşlem planı hesaplanmadı; farklı bir USDT paritesi arayın.",
+            )
+            self._set_text(self.btcturk_pro_technical_text, "BtcTurk USDT mum/hacim verisi bulunmadığı için teknik analiz yapılmadı.")
+            self.btcturk_pro_chart.delete("all")
+            self.btcturk_pro_orderbook_tree.delete(*self.btcturk_pro_orderbook_tree.get_children())
+            messagebox.showwarning(
+                "BtcTurk USDT paritesi bulunamadı",
+                f"{symbol} BtcTurk'te etkin USDT Spot paritesi değil. Seçili coin korundu; başka parite arayabilirsiniz.",
+            )
+            return
+
+        self.btcturk_pro_data = result.get("data")
+        if not isinstance(self.btcturk_pro_data, dict):
+            self.btcturk_pro_status_var.set("BtcTurk PRO veri hatası")
+            return
+        self.btcturk_pro_symbol = symbol
+        self.btcturk_pro_entry_var.set(symbol)
+        self._btcturk_pro_save_last_pair(symbol)
+        self._btcturk_pro_render_data()
+
+    def _btcturk_pro_render_data(self) -> None:
+        data = self.btcturk_pro_data
+        if not isinstance(data, dict):
+            return
+        market = data.get("market") if isinstance(data.get("market"), dict) else {}
+        ticker = data.get("ticker") if isinstance(data.get("ticker"), dict) else {}
+        metrics = data.get("market_metrics") if isinstance(data.get("market_metrics"), dict) else {}
+        price = ticker.get("last")
+        bid = ticker.get("bid")
+        ask = ticker.get("ask")
+        spread_pct = metrics.get("spread_pct")
+        volume = ticker.get("base_volume_24h")
+        ticker_age = data.get("ticker_age_seconds")
+        book_age = data.get("orderbook_age_seconds")
+        self.btcturk_pro_status_var.set(
+            f"{data.get('readiness') or 'DURUM BİLİNMİYOR'} · {data.get('readiness_reason') or ''}"
+        )
+        if data.get("readiness") == "İŞLEM YAPILABİLİR":
+            self.btcturk_pro_status_label.configure(style="SectionGood.TLabel")
+        elif data.get("readiness") == "DİKKAT":
+            self.btcturk_pro_status_label.configure(style="SectionPending.TLabel")
+        else:
+            self.btcturk_pro_status_label.configure(style="SectionBad.TLabel")
+        self.btcturk_pro_quote_var.set(
+            f"BtcTurk son: {format_exchange_price(price, market)} USDT"
+            f"   |   Alış: {format_exchange_price(bid, market)}"
+            f"   |   Satış: {format_exchange_price(ask, market)}"
+            f"   |   Fark: {spread_pct:.4f}%" if isinstance(spread_pct, (int, float))
+            else f"BtcTurk son: {format_exchange_price(price, market)} USDT"
+                 f"   |   Alış: {format_exchange_price(bid, market)}"
+                 f"   |   Satış: {format_exchange_price(ask, market)}"
+                 "   |   Fark: hesaplanamadı"
+        )
+        if isinstance(volume, (int, float)):
+            self.btcturk_pro_quote_var.set(
+                self.btcturk_pro_quote_var.get() + f"\n24 saat hacim: {volume:,.6g} {market.get('base', '')}"
+            )
+        self.btcturk_pro_quote_var.set(
+            self.btcturk_pro_quote_var.get()
+            + f"\nTicker yaşı: {_format_age(ticker_age)} · Emir defteri yaşı: {_format_age(book_age)}"
+        )
+        comparison = data.get("binance_comparison")
+        if isinstance(comparison, dict) and comparison.get("last") is not None:
+            change = comparison.get("change_24h_pct")
+            change_text = f"{change:+.2f}%" if isinstance(change, (int, float)) else "24 saat değişimi yok"
+            self.btcturk_pro_binance_var.set(
+                f"Binance karşılaştırması: {format_exchange_price(comparison.get('last'), market)} USDT"
+                f"   |   24 saat: {change_text}\nBu fiyat ve değişim BtcTurk işlem hesabına girmez."
+            )
+        else:
+            self.btcturk_pro_binance_var.set(
+                "Binance karşılaştırması alınamadı. İşlem analizi yalnızca BtcTurk verisiyle sürer."
+            )
+        minimum = market.get("minimum_order_usdt")
+        numerator_scale = market.get("numerator_scale")
+        denominator_scale = market.get("denominator_scale")
+        tick_size = market.get("tick_size")
+        self.btcturk_pro_market_rules_var.set(
+            f"Asgari emir: {format_exchange_price(minimum, {'denominator_scale': 2}) if minimum is not None else 'bilinmiyor'} USDT"
+            f" · Fiyat hassasiyeti: {denominator_scale if denominator_scale is not None else '—'} basamak"
+            f" · Miktar hassasiyeti: {numerator_scale if numerator_scale is not None else '—'} basamak"
+            f" · Fiyat adımı: {tick_size if tick_size is not None else '—'}"
+        )
+        self._btcturk_pro_render_orderbook(data)
+        self._btcturk_pro_draw_chart()
+        self._btcturk_pro_render_details(data)
+
+    def _btcturk_pro_render_orderbook(self, data: dict[str, Any]) -> None:
+        tree = self.btcturk_pro_orderbook_tree
+        tree.delete(*tree.get_children())
+        book = data.get("orderbook") if isinstance(data.get("orderbook"), dict) else {}
+        market = data.get("market") if isinstance(data.get("market"), dict) else {}
+        bids = book.get("bids") if isinstance(book.get("bids"), list) else []
+        asks = book.get("asks") if isinstance(book.get("asks"), list) else []
+        if not bids and not asks:
+            tree.insert("", "end", values=("VERİ YOK", "—", "—", "—"))
+            return
+        for level in asks[:10]:
+            tree.insert("", "end", values=(
+                "SATIŞ",
+                format_exchange_price(level.get("price"), market),
+                f"{level.get('quantity', 0):,.8g}",
+                f"{level.get('quote_value', 0):,.2f}",
+            ), tags=("ask",))
+        for level in bids[:10]:
+            tree.insert("", "end", values=(
+                "ALIŞ",
+                format_exchange_price(level.get("price"), market),
+                f"{level.get('quantity', 0):,.8g}",
+                f"{level.get('quote_value', 0):,.2f}",
+            ), tags=("bid",))
+
+    def _btcturk_pro_select_timeframe(self, timeframe: str) -> None:
+        if timeframe not in BTCTURK_PRO_TIMEFRAMES:
+            return
+        self.btcturk_pro_timeframe_var.set(timeframe)
+        self._btcturk_pro_draw_chart()
+
+    def _btcturk_pro_draw_chart(self) -> None:
+        canvas = getattr(self, "btcturk_pro_chart", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        width = max(300, canvas.winfo_width())
+        height = max(220, canvas.winfo_height())
+        data = self.btcturk_pro_data
+        if not isinstance(data, dict):
+            canvas.create_text(width / 2, height / 2, text="BtcTurk mum verisi bekleniyor", fill="#FFFFFF")
+            return
+        timeframe = self.btcturk_pro_timeframe_var.get()
+        bars_by_timeframe = data.get("bars_by_timeframe")
+        bars = bars_by_timeframe.get(timeframe) if isinstance(bars_by_timeframe, dict) else None
+        bars = [bar for bar in bars if isinstance(bar, dict) and bar.get("closed") is True][-80:] if isinstance(bars, list) else []
+        if not bars:
+            canvas.create_text(width / 2, height / 2, text=f"{timeframe}: kapanmış BtcTurk mumu yok", fill="#FFD166")
+            return
+        top, price_bottom = 22.0, height * 0.69
+        volume_top, volume_bottom = height * 0.75, height - 30.0
+        left, right = 72.0, width - 20.0
+        highs = [float(bar["h"]) for bar in bars]
+        lows = [float(bar["l"]) for bar in bars]
+        upper, lower = max(highs), min(lows)
+        spread = max(upper - lower, abs(upper) * 0.001, 1e-12)
+        upper += spread * 0.06
+        lower -= spread * 0.06
+        usable_height = max(1.0, price_bottom - top)
+        def y_price(value: float) -> float:
+            return top + (upper - value) / (upper - lower) * usable_height
+        for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
+            value = upper - (upper - lower) * fraction
+            y = top + usable_height * fraction
+            canvas.create_line(left, y, right, y, fill="#303030")
+            canvas.create_text(left - 6, y, text=f"{value:.6g}", fill="#DDDDDD", anchor="e", font=("Consolas", 8))
+        step = (right - left) / max(1, len(bars))
+        body_width = max(2.0, min(9.0, step * 0.62))
+        max_volume = max(float(bar.get("v", 0) or 0) for bar in bars) or 1.0
+        for index, bar in enumerate(bars):
+            x = left + step * (index + 0.5)
+            open_, close = float(bar["o"]), float(bar["c"])
+            high, low = float(bar["h"]), float(bar["l"])
+            color = "#39FF88" if close >= open_ else "#FF6666"
+            canvas.create_line(x, y_price(high), x, y_price(low), fill=color, width=1)
+            y_open, y_close = y_price(open_), y_price(close)
+            body_top, body_bottom = min(y_open, y_close), max(y_open, y_close)
+            if body_bottom - body_top < 1.5:
+                body_bottom = body_top + 1.5
+            canvas.create_rectangle(
+                x - body_width / 2, body_top, x + body_width / 2, body_bottom,
+                fill=color, outline=color,
+            )
+            volume = max(0.0, float(bar.get("v", 0) or 0))
+            volume_height = (volume / max_volume) * max(1.0, volume_bottom - volume_top)
+            canvas.create_rectangle(
+                x - body_width / 2, volume_bottom - volume_height,
+                x + body_width / 2, volume_bottom,
+                fill=color, outline=color,
+            )
+        plan = data.get("plan") if isinstance(data.get("plan"), dict) else {}
+        market = data.get("market") if isinstance(data.get("market"), dict) else {}
+        levels = [
+            (plan.get("entry_zone_low"), "#FFD166", "GİRİŞ ALT"),
+            (plan.get("entry_zone_high"), "#FFD166", "GİRİŞ ÜST"),
+            (plan.get("stop_loss"), "#FF6666", "ZARAR-KES"),
+        ]
+        targets = plan.get("targets")
+        if isinstance(targets, list):
+            for index, target in enumerate(targets[:3], start=1):
+                if isinstance(target, dict):
+                    levels.append((target.get("price"), "#D8B4FE", f"HEDEF {index}"))
+        for raw_price, color, label in levels:
+            try:
+                value = float(raw_price)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if not lower <= value <= upper:
+                continue
+            y = y_price(value)
+            canvas.create_line(left, y, right, y, fill=color, dash=(4, 3), width=1)
+            canvas.create_text(right - 3, y - 8, text=f"{label} {format_exchange_price(value, market)}", fill=color, anchor="e", font=("Segoe UI", 8, "bold"))
+        canvas.create_text(
+            left, height - 9,
+            text=f"BtcTurk {timeframe} · {len(bars)} kapanmış mum · alt bölüm hacim",
+            fill="#DDDDDD", anchor="w", font=("Segoe UI", 8),
+        )
+
+    def _btcturk_pro_render_details(self, data: dict[str, Any]) -> None:
+        market = data.get("market") if isinstance(data.get("market"), dict) else {}
+        plan = data.get("plan") if isinstance(data.get("plan"), dict) else {}
+        metrics = data.get("market_metrics") if isinstance(data.get("market_metrics"), dict) else {}
+        assessments = data.get("assessments") if isinstance(data.get("assessments"), dict) else {}
+        lines = [
+            f"PARİTE: {data.get('symbol')} · KAYNAK: BtcTurk Spot",
+            str(data.get("readiness_reason") or ""),
+            f"Alış-satış farkı: {_format_metric(metrics.get('spread_pct'), 4)}% · "
+            f"Alış derinliği (%1): {_format_metric(metrics.get('bid_depth_1pct_usdt'), 2)} USDT · "
+            f"Satış derinliği (%1): {_format_metric(metrics.get('ask_depth_1pct_usdt'), 2)} USDT",
+            f"Emir defteri dengesi: {_format_metric(metrics.get('imbalance_1pct_pct'), 2)}%",
+            f"Asgari emir: {market.get('minimum_order_usdt') if market.get('minimum_order_usdt') is not None else 'BtcTurk verisinde yok'} USDT",
+            "",
+            "--- BTC TURK İŞLEM PLANI ---",
+            f"Plan durumu: {plan.get('status') or 'plan yok'}",
+        ]
+        for label, key in (
+            ("Koşullu giriş alt", "entry_zone_low"),
+            ("Koşullu giriş üst", "entry_zone_high"),
+            ("Kırılım", "breakout_level"),
+            ("Zarar durdurma", "stop_loss"),
+        ):
+            lines.append(f"{label}: {format_exchange_price(plan.get(key), market)} USDT")
+        targets = plan.get("targets")
+        if isinstance(targets, list) and targets:
+            for index, target in enumerate(targets[:3], start=1):
+                if not isinstance(target, dict):
+                    continue
+                lines.append(
+                    f"Hedef {index}: {format_exchange_price(target.get('price'), market)} USDT"
+                    f" · brüt R {target.get('gross_risk_reward', '—')}"
+                    f" · komisyon sonrası tahmini net R {target.get('net_risk_reward_estimate', '—')}"
+                )
+        else:
+            lines.append("Teknik hedef bulunmadı; işlem planı oluşturulamaz.")
+        lines.extend([
+            "Komisyon varsayımı: giriş %0,14 + çıkış %0,14. Fiyat kayması, girilen tutar ve anlık emir defteri yeterli değilse tahmin edilmez.",
+            "Fiyat adımı / miktar hassasiyeti: BtcTurk exchangeInfo değerleri kullanılır; hesapta yuvarlanmış ekran fiyatları kullanılmaz.",
+            "",
+            "--- ZAMAN DİLİMİ TEKNİK DEĞERLENDİRMESİ ---",
+        ])
+        for timeframe in BTCTURK_PRO_TIMEFRAMES:
+            row = assessments.get(timeframe)
+            if not isinstance(row, dict):
+                continue
+            m = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+            lines.append(
+                f"[{timeframe}] {row.get('state') or '—'} · kapanmış mum {row.get('closed_bars', 0)}"
+                f" / gerekli {row.get('required_closed_bars', 0)}"
+            )
+            if m:
+                lines.append(
+                    f"  Kapanış {format_exchange_price(m.get('close'), market)}"
+                    f" · Hacim {m.get('current_volume', '—')}"
+                    f" · EMA hızlı/yavaş {m.get('ema_fast', '—')} / {m.get('ema_slow', '—')}"
+                    f" · MACD {m.get('macd_line', '—')} · RSI {m.get('rsi_14', '—')}"
+                    f" · ADX {m.get('adx_14', '—')} · ATR {m.get('atr_14', '—')}"
+                )
+                zones = m.get("support_resistance_zones")
+                if isinstance(zones, list):
+                    selected = [
+                        f"{'Destek' if z.get('kind') == 'support' else 'Direnç'} "
+                        f"{format_exchange_price(z.get('center'), market)}"
+                        for z in zones[:5] if isinstance(z, dict)
+                    ]
+                    if selected:
+                        lines.append("  Bölgeler: " + " · ".join(selected))
+                channel = m.get("confirmed_channel")
+                if isinstance(channel, dict) and channel.get("available") is True:
+                    lines.append(
+                        f"  Kanal: {channel.get('direction')} · üst {format_exchange_price(channel.get('upper_now'), market)}"
+                    )
+                fibonacci = m.get("fibonacci")
+                if isinstance(fibonacci, dict) and fibonacci.get("available") is True:
+                    lines.append(f"  Fibonacci: {fibonacci.get('direction')} · {fibonacci.get('levels') or fibonacci.get('retracements') or 'seviyeler mevcut'}")
+            missing = row.get("missing_checks")
+            if isinstance(missing, list) and missing:
+                lines.append("  Veri uyarısı: " + "; ".join(str(item) for item in missing[:2]))
+        lines.extend([
+            "",
+            "Veri kaynağı: BtcTurk kendi USDT mumları, hacmi, ticker ve emir defteri. Binance yalnızca ayrı fiyat karşılaştırmasıdır.",
+            "Bu alan emir göndermez, hesap bakiyesi okumaz ve gerçek dolum/kârlılık iddiasında bulunmaz.",
+        ])
+        self._set_text(self.btcturk_pro_technical_text, "\n".join(lines))
+
+        cost_lines = [
+            f"İŞLEM DURUMU: {data.get('readiness') or '—'}",
+            str(data.get("readiness_reason") or ""),
+        ]
+        if data.get("quote_error"):
+            cost_lines.append("Ticker uyarısı: " + str(data["quote_error"]))
+        if data.get("orderbook_error"):
+            cost_lines.append("Emir defteri uyarısı: " + str(data["orderbook_error"]))
+        cost_lines.extend([
+            f"Spread: {_format_metric(metrics.get('spread_pct'), 4)}% "
+            f"· %1 derinlik alış/satış: {_format_metric(metrics.get('bid_depth_1pct_usdt'), 2)} / "
+            f"{_format_metric(metrics.get('ask_depth_1pct_usdt'), 2)} USDT",
+            "Komisyon sonrası net risk/getiri, sabit %0,14 giriş + %0,14 çıkış varsayımıyla hesaplanır.",
+            "Emir tutarı girilmediğinde fiyat kayması tahmini yapılmaz. Girilen tutar için mevcut emir defteri kademeleri üzerinden alış/satış ortalaması hesaplanır.",
+        ])
+        self._set_text(self.btcturk_pro_cost_text, "\n".join(cost_lines))
+
+    def _btcturk_pro_estimate_cost(self) -> None:
+        data = self.btcturk_pro_data
+        if not isinstance(data, dict):
+            messagebox.showinfo("Maliyet tahmini", "Önce geçerli bir BtcTurk paritesi açın.")
+            return
+        amount = _safe_float(self.btcturk_pro_amount_var.get())
+        if amount is None or amount <= 0:
+            messagebox.showwarning("Maliyet tahmini", "Pozitif bir USDT işlem tutarı girin.")
+            return
+        market = data.get("market") if isinstance(data.get("market"), dict) else {}
+        minimum = _safe_float(market.get("minimum_order_usdt"))
+        prefix = []
+        if minimum is not None and amount < minimum:
+            prefix.append(
+                f"UYARI: Girilen {amount:.2f} USDT tutar BtcTurk asgari emir değerinin ({minimum:.2f} USDT) altında."
+            )
+        elif minimum is None:
+            prefix.append("UYARI: BtcTurk exchangeInfo asgari emir değeri vermedi; asgari tutar doğrulanamadı.")
+        try:
+            estimate = estimate_orderbook_execution(
+                data.get("orderbook") or {}, amount,
+                (data.get("market_metrics") or {}).get("midpoint"),
+            )
+        except Exception as exc:
+            self.btcturk_pro_cost_var.set(f"Emir defteri maliyet tahmini yapılamadı: {exc}")
+            existing = self.btcturk_pro_cost_text.get("1.0", "end").strip()
+            self._set_text(
+                self.btcturk_pro_cost_text,
+                existing + "\n" + "\n".join(prefix) + "\n" + self.btcturk_pro_cost_var.get(),
+            )
+            return
+        buy, sell = estimate["buy"], estimate["sell"]
+        if buy.get("filled"):
+            buy_text = (
+                f"Alış ortalaması {buy['average_price']:.8g} USDT · "
+                f"en iyi satışa göre kayma {buy['slippage_pct_vs_best_ask']:.4f}% · "
+                f"komisyon {buy['commission_usdt_estimate']:.4f} USDT"
+            )
+        else:
+            buy_text = "Alış: mevcut satış kademeleri girilen tutarı karşılamıyor."
+        if sell.get("filled"):
+            sell_text = (
+                f"Satış ortalaması {sell['average_price']:.8g} USDT · "
+                f"en iyi alışa göre kayma {sell['slippage_pct_vs_best_bid']:.4f}% · "
+                f"komisyon {sell['commission_usdt_estimate']:.4f} USDT"
+            )
+        else:
+            sell_text = "Satış: mevcut alış kademeleri gereken miktarı karşılamıyor."
+        lines = [
+            f"İŞLEM TUTARI: {amount:,.2f} USDT",
+            *prefix,
+            buy_text,
+            sell_text,
+            "Bu hesap anlık emir defteri derinliğine dayalı tahmindir; gerçek emir, gerçekleşme fiyatı veya ücret tahsilatı değildir.",
+        ]
+        self.btcturk_pro_cost_var.set("\n".join(lines))
+        existing = self.btcturk_pro_cost_text.get("1.0", "end").strip()
+        self._set_text(
+            self.btcturk_pro_cost_text,
+            existing + "\n\n--- GİRİLEN TUTAR İÇİN MALİYET / KAYMA TAHMİNİ ---\n" + "\n".join(lines),
+        )
+
+    def _schedule_btcturk_pro_quote_refresh(self) -> None:
+        if getattr(self, "workspace_current_page", None) == "btcturk":
+            self._btcturk_pro_refresh_quote_async()
+        try:
+            self.after(15000, self._schedule_btcturk_pro_quote_refresh)
+        except tk.TclError:
+            return
+
+    def _btcturk_pro_refresh_quote_async(self) -> None:
+        data = self.btcturk_pro_data
+        if not isinstance(data, dict) or self.btcturk_pro_quote_refresh_busy or self.btcturk_pro_load_busy:
+            return
+        symbol = str(data.get("symbol") or "")
+        request_id = self.btcturk_pro_request_id
+        self.btcturk_pro_quote_refresh_busy = True
+
+        def worker() -> None:
+            old_ticker = data.get("ticker") if isinstance(data.get("ticker"), dict) else {}
+            old_book = data.get("orderbook") if isinstance(data.get("orderbook"), dict) else {}
+            quote_error = None
+            book_error = None
+            try:
+                ticker = fetch_btcturk_pro_ticker(symbol)
+            except Exception as exc:
+                ticker = old_ticker
+                quote_error = f"{type(exc).__name__}: {str(exc)[:180]}"
+            try:
+                book = fetch_btcturk_pro_orderbook(symbol)
+            except Exception as exc:
+                book = old_book
+                book_error = f"{type(exc).__name__}: {str(exc)[:180]}"
+            try:
+                refreshed = analyze_btcturk_pro(
+                    symbol, self.btcturk_pro_markets, ticker, book,
+                    data.get("bars_by_timeframe") or {},
+                    self.settings if isinstance(self.settings, dict) else {},
+                )
+                refreshed["binance_comparison"] = data.get("binance_comparison")
+                refreshed["quote_error"] = quote_error
+                refreshed["orderbook_error"] = book_error
+                result = refreshed
+            except Exception as exc:
+                result = None
+                error = f"{type(exc).__name__}: {str(exc)[:180]}"
+            else:
+                error = None
+            try:
+                self.after(0, self._btcturk_pro_apply_quote_refresh, request_id, symbol, result, error)
+            except tk.TclError:
+                return
+
+        threading.Thread(
+            target=worker, daemon=True, name="btcturk-pro-quote-refresh",
+        ).start()
+
+    def _btcturk_pro_apply_quote_refresh(
+        self, request_id: int, symbol: str,
+        result: dict[str, Any] | None, error: str | None,
+    ) -> None:
+        self.btcturk_pro_quote_refresh_busy = False
+        if request_id != self.btcturk_pro_request_id or symbol != self.btcturk_pro_symbol:
+            return
+        if isinstance(result, dict):
+            self.btcturk_pro_data = result
+            self._btcturk_pro_render_data()
+        elif error:
+            LOGGER.warning("BtcTurk PRO piyasa yenilemesi başarısız: %s", error)
+
     def _apply_windows_titlebar(self) -> None:
         if os.name != "nt":
             return
