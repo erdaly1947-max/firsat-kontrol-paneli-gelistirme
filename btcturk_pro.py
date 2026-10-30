@@ -14,7 +14,7 @@ from typing import Any
 
 import requests
 
-from radar_core import assess_timeframe, build_trade_plan
+from radar_core import assess_timeframe, build_trade_plan, timeframe_bar_end_ms
 
 BTCTURK_API = "https://api.btcturk.com"
 BTCTURK_GRAPH_API = "https://graph-api.btcturk.com"
@@ -373,8 +373,8 @@ def fetch_binance_comparison(symbol: str, *, timeout: float = 7.0) -> dict[str, 
 def _orderbook_metrics(ticker: dict[str, Any], book: dict[str, Any]) -> dict[str, Any]:
     bids = book.get("bids") if isinstance(book.get("bids"), list) else []
     asks = book.get("asks") if isinstance(book.get("asks"), list) else []
-    best_bid = _positive(ticker.get("bid")) or (bids[0]["price"] if bids else None)
-    best_ask = _positive(ticker.get("ask")) or (asks[0]["price"] if asks else None)
+    best_bid = (bids[0]["price"] if bids else None) or _positive(ticker.get("bid"))
+    best_ask = (asks[0]["price"] if asks else None) or _positive(ticker.get("ask"))
     midpoint = (
         (best_bid + best_ask) / 2.0
         if best_bid is not None and best_ask is not None and best_bid > 0 and best_ask > 0
@@ -443,24 +443,57 @@ def analyze_btcturk_pro(symbol: str, markets: dict[str, dict[str, Any]],
     now_ms = int(time.time() * 1000)
     ticker_age = max(0, (now_ms - ticker_ms) / 1000) if ticker_ms else None
     ticker_fresh = ticker_age is not None and ticker_age <= 45
-    last_candle_end = None
-    if phase_timeframe:
-        phase_rows = bars_by_timeframe.get(phase_timeframe) or []
-        if phase_rows:
-            last_candle_end = int(phase_rows[-1]["t"])
+    phase_rows = bars_by_timeframe.get(phase_timeframe) if phase_timeframe else []
+    phase_rows = phase_rows if isinstance(phase_rows, list) else []
+    last_phase_bar = next(
+        (bar for bar in reversed(phase_rows)
+         if isinstance(bar, dict) and bar.get("closed") is True),
+        None,
+    )
+    last_candle_start = int(last_phase_bar["t"]) if last_phase_bar else None
+    last_candle_end = (
+        timeframe_bar_end_ms(phase_timeframe, last_candle_start)
+        if phase_timeframe and last_candle_start is not None else None
+    )
+    candle_age = (
+        max(0.0, (now_ms - last_candle_end) / 1000.0)
+        if last_candle_end is not None else None
+    )
+    # Karar #30: ticker eskiyse en son güvenilir BtcTurk kapanmış mumundan
+    # açıkça TASLAK etiketli plan gösterilebilir. Bu, canlı fiyatın güncel
+    # olduğu anlamına gelmez; planın fiyat referansı ayrıca belirtilir.
+    candle_price = _positive(last_phase_bar.get("c")) if last_phase_bar else None
+    ticker_price = _positive(ticker.get("last"))
+    draft_from_closed_candle = not ticker_fresh and candle_price is not None
+    plan_price = ticker_price if ticker_fresh else candle_price
     candidate = {
         "symbol": symbol,
         "base_asset": market["base"],
         "phase": phase,
         "phase_timeframe": phase_timeframe,
         "timeframes": assessments,
-        "latest_price": _positive(ticker.get("last")),
-        "data_freshness": "CANLI AKIŞ GÜNCEL" if ticker_fresh else "VERİ ESKİ",
+        "latest_price": plan_price,
+        "data_freshness": "CANLI AKIŞ GÜNCEL" if plan_price is not None else "VERİ ESKİ",
     }
-    plan = build_trade_plan(candidate, settings) if phase in ("B", "C") else {
+    plan = build_trade_plan(candidate, settings) if phase in ("B", "C") and plan_price is not None else {
         "status": "UYGUN DEĞİL",
-        "reason": "BtcTurk verisinde aynı zaman diliminde doğrulanmış B/C aşaması yok; giriş/stop/hedef planı üretilmedi.",
+        "reason": (
+            "BtcTurk tarafında güvenilir fiyat referansı yok; işlem planı oluşturulmadı."
+            if phase in ("B", "C")
+            else "BtcTurk verisinde aynı zaman diliminde doğrulanmış B/C aşaması yok; giriş/stop/hedef planı üretilmedi."
+        ),
     }
+    if isinstance(plan, dict) and plan.get("status") not in {"UYGUN DEĞİL", "HESAPLANAMADI", "VERİ ESKİ — PLAN YOK"}:
+        plan["draft_from_closed_candle"] = draft_from_closed_candle
+        plan["price_reference"] = (
+            "SON KAPANMIŞ BTCTURK MUMU — TASLAK"
+            if draft_from_closed_candle else "BTCTURK TICKER"
+        )
+        plan["price_reference_age_seconds"] = candle_age if draft_from_closed_candle else ticker_age
+        plan["draft_warning"] = (
+            "Canlı ticker güncel değil. Seviyeler son kapanmış BtcTurk mumunun kapanış fiyatıyla taslak olarak hesaplandı; güncel ticker geldiğinde yeniden değerlendirilmelidir."
+            if draft_from_closed_candle else None
+        )
     market_metrics = _orderbook_metrics(ticker, book)
     book_ms = int(book.get("timestamp_ms") or 0)
     book_age = max(0, (now_ms - book_ms) / 1000) if book_ms else None
@@ -481,9 +514,18 @@ def analyze_btcturk_pro(symbol: str, markets: dict[str, dict[str, Any]],
     elif not plan_available:
         readiness = "İŞLEM PLANI OLUŞTURULAMAZ"
         readiness_reason = str(plan.get("reason") or "Geçerli BtcTurk teknik giriş ve hedef planı üretilemedi.")
-    elif not ticker_fresh or not book_fresh or not market_rules_available:
+    elif not ticker_fresh or not book_fresh or not market_rules_available or draft_from_closed_candle:
         readiness = "DİKKAT"
-        readiness_reason = "Piyasa verisi veya parite işlem kurallarının bir bölümü güncel/tam değil; plan taslak olarak incelenmeli."
+        reasons = []
+        if not ticker_fresh:
+            reasons.append("Canlı ticker güncel değil")
+        if not book_fresh:
+            reasons.append("Emir defteri güncel değil")
+        if not market_rules_available:
+            reasons.append("BtcTurk parite işlem kurallarının bir bölümü eksik")
+        if draft_from_closed_candle:
+            reasons.append("Plan son kapanmış BtcTurk mumundan taslak olarak üretildi")
+        readiness_reason = "; ".join(reasons) + ". Güncel veri geldiğinde plan yeniden değerlendirilmelidir."
     else:
         readiness = "İŞLEM YAPILABİLİR"
         readiness_reason = (
@@ -508,7 +550,11 @@ def analyze_btcturk_pro(symbol: str, markets: dict[str, dict[str, Any]],
         "ticker_fresh": ticker_fresh,
         "orderbook_fresh": book_fresh,
         "market_rules_available": market_rules_available,
+        "last_candle_start_ms": last_candle_start,
         "last_candle_time_ms": last_candle_end,
+        "last_candle_age_seconds": candle_age,
+        "draft_from_closed_candle": draft_from_closed_candle,
+        "price_reference": plan.get("price_reference") if isinstance(plan, dict) else None,
         "generated_at_ms": now_ms,
         "source_note": "İşlem analizi BtcTurk PRO mum, ticker ve emir defteri verileriyle yapılır. Binance yalnızca karşılaştırma alanında gösterilir.",
     }
