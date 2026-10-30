@@ -229,7 +229,9 @@ def build_analysis_report(state: Any) -> dict[str, Any]:
         "interpretation_limits": [
             "A/B/C araştırma aşamalarıdır; emir veya kârlılık garantisi değildir.",
             "Giriş, stop ve hedefler koşullu teknik senaryolardır.",
-            "Komisyon ve kayma hesaplanmaz; otomatik emir gönderilmez.",
+            "Sabit %0,14 giriş ve %0,14 çıkış komisyonuyla tahmini net risk/getiri ayrıca hesaplanır; bu gerçek tahsilat değildir.",
+            "Fiyat kayması yalnızca yeterli BtcTurk alış-satış farkı/emir defteri verisi varsa tahmin edilir; veri yoksa kayma oranı uydurulmaz.",
+            "Otomatik emir gönderilmez.",
         ],
     }
 
