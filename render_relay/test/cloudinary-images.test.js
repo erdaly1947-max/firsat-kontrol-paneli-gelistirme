@@ -115,7 +115,8 @@ test("Cloudinary screenshot commit replaces oldest image and exposes only three 
   assert.equal(signed.overwrite,"false");
   assert.equal(signed.tags,"fkp-staged");
   assert.equal(signed.context,"filename_b64="+Buffer.from("signed-screen.png").toString("base64url"));
-  assert.match(signed.timestamp,/^\\d+$/);
+  assert.equal(/^[0-9]+$/.test(signed.timestamp),true);
+  assert.equal(Object.hasOwn(signed,"api_secret"),false);
   const signedFields={
     context:signed.context,overwrite:signed.overwrite,public_id:signed.public_id,
     tags:signed.tags,timestamp:signed.timestamp,
