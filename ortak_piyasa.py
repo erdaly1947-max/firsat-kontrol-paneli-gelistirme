@@ -203,6 +203,7 @@ def _record_market_route_success(route_key: str, transport: str) -> None:
             "last_transport": "not_tested", "last_error": None,
         })
         previous = state.get("mode", "direct")
+        previous_transport = state.get("last_transport", "not_tested")
         state["mode"] = transport
         state["last_transport"] = transport
         state["last_success_monotonic"] = now
@@ -210,9 +211,11 @@ def _record_market_route_success(route_key: str, transport: str) -> None:
             state["direct_failures"] = 0
             state["retry_direct_at"] = 0.0
             state["last_error"] = None
-    if previous != transport:
+            state["last_render_error"] = None
+        should_log = previous != transport or previous_transport == "not_tested"
+    if should_log:
         logging.getLogger(__name__).info(
-            "Piyasa bağlantı yolu değişti: %s -> %s.",
+            "Piyasa bağlantı yolu doğrulandı/değişti: %s -> %s.",
             route_key, "doğrudan" if transport == "direct" else "Render yedeği",
         )
 
