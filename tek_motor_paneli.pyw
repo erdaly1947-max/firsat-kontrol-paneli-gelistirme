@@ -280,6 +280,31 @@ def _analysis_plan_overlay_levels(
     return label, levels
 
 
+def _analysis_chart_price_range(
+    candle_prices: list[Any],
+    plan_levels: list[tuple[float, str, str]],
+    layers: dict[str, Any],
+) -> tuple[float, float] | None:
+    """Include currently visible, valid trade-plan levels in the chart price scale."""
+    prices = [number for value in candle_prices if (number := _safe_float(value)) is not None]
+    for value, label, _color in plan_levels:
+        key = (
+            "entry" if label.startswith("GİRİŞ")
+            else "stop" if label.startswith("ZARAR-KES")
+            else "targets" if label.startswith("HEDEF")
+            else None
+        )
+        if key is not None and key in layers and layers[key].get():
+            number = _safe_float(value)
+            if number is not None:
+                prices.append(number)
+    if not prices:
+        return None
+    low, high = min(prices), max(prices)
+    span = max(high - low, abs(high) * 0.001, 1e-10)
+    return low - span * 0.10, high + span * 0.10
+
+
 def _format_price(value: Any) -> str:
     """Render market prices as ordinary decimal text, not scientific notation."""
     return _format_market_price(value)
@@ -725,7 +750,8 @@ class ControlPanel(tk.Tk):
         self.btc_details_open = False
         self.technical_details_open = False
         self.diagnostics_open = False
-        self._pane_orientation = "horizontal"
+        # ttk.Panedwindow orient is constructor-only; choose it before widget creation.
+        self._pane_orientation = "vertical" if self.window_width < 1220 else "horizontal"
         saved_btcturk_pro = _read_json(DATA_DIR / "btcturk_pro_state.json", {})
         self.btcturk_pro_symbol = str(
             saved_btcturk_pro.get("last_symbol", "BTCUSDT")
@@ -934,7 +960,7 @@ class ControlPanel(tk.Tk):
         self.after(120, self._layout_toolbar)
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=12, pady=(0, 5), before=self.workspace)
 
-        self.pane = ttk.Panedwindow(self.radar_page, orient="horizontal")
+        self.pane = ttk.Panedwindow(self.radar_page, orient=self._pane_orientation)
         self.pane.pack(fill="both", expand=True, padx=12, pady=(0, 6))
         self.left_pane = ttk.Frame(self.pane, padding=(0, 0, 5, 0))
         self.right_pane = ttk.Frame(self.pane, padding=(5, 0, 0, 0))
@@ -1764,17 +1790,21 @@ class ControlPanel(tk.Tk):
             self._analysis_chart_geometry = {}
             return
 
-        show_volume = self.analysis_layer_vars["volume"].get()
+        layers = self.analysis_layer_vars
+        plan = candidate.get("risk_plan") if isinstance(candidate.get("risk_plan"), dict) else {}
+        plan_label, plan_levels = _analysis_plan_overlay_levels(plan)
+        show_volume = layers["volume"].get()
         left, right, top = 78.0, width - 88.0, 24.0
         price_bottom = height * (0.67 if show_volume else 0.88)
         volume_top, volume_bottom = height * 0.76, height - 27.0
-        prices = [
+        candle_prices = [
             float(bar[key]) for bar in bars for key in ("o", "h", "l", "c")
         ]
-        low, high = min(prices), max(prices)
-        span = max(high - low, abs(high) * 0.001, 1e-10)
-        low -= span * 0.10
-        high += span * 0.10
+        price_range = _analysis_chart_price_range(candle_prices, plan_levels, layers)
+        if price_range is None:
+            self._analysis_chart_geometry = {}
+            return
+        low, high = price_range
         usable = max(1.0, price_bottom - top)
         def y_price(value: float) -> float:
             return top + (high - value) / (high - low) * usable
@@ -1827,8 +1857,6 @@ class ControlPanel(tk.Tk):
             )
 
         metrics = self._analysis_current_metrics(candidate)
-        layers = self.analysis_layer_vars
-        plan_label, plan_levels = _analysis_plan_overlay_levels(plan)
         if plan_levels:
             plan_color = "#39FF88" if plan_label == "AKTİF PLAN" else "#E9B65D"
             canvas.create_text(
@@ -3045,13 +3073,10 @@ class ControlPanel(tk.Tk):
             column += 1
 
     def _adapt_panes(self, _event: Any = None) -> None:
-        if not hasattr(self, "pane"):
-            return
-        wanted = "vertical" if self.winfo_width() < 1220 else "horizontal"
-        if wanted != self._pane_orientation:
-            self.pane.configure(orient=wanted)
-            self._pane_orientation = wanted
-            self.after_idle(self._set_default_pane_position)
+        # ttk.Panedwindow orient is read-only after construction. The initial
+        # window size selects the orientation; resizing keeps the user's sash
+        # position instead of attempting an invalid runtime reconfiguration.
+        return
 
     def _set_default_pane_position(self) -> None:
         try:

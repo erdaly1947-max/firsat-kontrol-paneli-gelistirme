@@ -78,18 +78,47 @@ def main() -> int:
             raise AssertionError("Analysis chart canvas was not created.")
 
         # Exercise the real Canvas event bindings without starting the engine.
-        dispatched = []
+        callback_errors = []
+        app.report_callback_exception = lambda exc_type, exc, _tb: callback_errors.append(
+            f"{exc_type.__name__}: {exc}"
+        )
         app.deiconify()
-        app.update_idletasks()
-        app.start_button.configure(command=lambda: dispatched.append("start"))
+        app.update()
+
+        # Resize across the orientation threshold. The initial ttk orientation is
+        # immutable, so this must never raise a Tk callback error.
+        original_orientation = app._pane_orientation
+        app.geometry("1320x820+0+0")
+        app.update()
+        app.geometry("1000x820+0+0")
+        app.update()
+        if app._pane_orientation != original_orientation:
+            raise AssertionError("Pane orientation changed after construction.")
+        if callback_errors:
+            raise AssertionError("Tk callback errors during resize: " + "; ".join(callback_errors))
+
+        dispatched = []
+        app.start_button.configure(command=lambda: dispatched.append("start"), state="normal")
         app.stop_button.configure(
             state="normal", command=lambda: dispatched.append("stop")
         )
-        app.start_button.event_generate("<Button-1>", x=6, y=6, when="now")
-        app.stop_button.event_generate("<Button-1>", x=6, y=6, when="now")
-        app.update_idletasks()
+        app.update()
+        for name, button in (("start", app.start_button), ("stop", app.stop_button)):
+            if button.winfo_ismapped() != 1:
+                raise AssertionError(f"{name} toolbar button is not mapped.")
+            if not button.bind("<Button-1>"):
+                raise AssertionError(f"{name} toolbar button has no click binding.")
+            button.event_generate(
+                "<Button-1>",
+                x=max(1, button.winfo_width() // 2),
+                y=max(1, button.winfo_height() // 2),
+                when="tail",
+            )
+        app.update()
         if dispatched != ["start", "stop"]:
             raise AssertionError(f"Shared toolbar events failed: {dispatched}")
+        if callback_errors:
+            raise AssertionError("Tk callback errors: " + "; ".join(callback_errors))
 
         print("WINDOWS_TK_WINDOW_CREATE_OK")
         print("WINDOWS_ALL_9_WORKSPACE_NAVIGATION_OK")

@@ -262,6 +262,13 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn("recent_closed_candles", PANEL_SOURCE)
         self.assertNotIn("makeBars", PANEL_SOURCE)
 
+    def test_panedwindow_orientation_is_selected_before_creation_and_never_mutated(self):
+        source = PANEL_SOURCE
+        self.assertIn('self._pane_orientation = "vertical" if self.window_width < 1220 else "horizontal"', source)
+        self.assertIn('ttk.Panedwindow(self.radar_page, orient=self._pane_orientation)', source)
+        adapt = ast.unparse(_method("_adapt_panes"))
+        self.assertNotIn(".configure(orient=", adapt)
+
     def test_chart_drawing_tools_persist_by_symbol_and_timeframe(self):
         source = PANEL_SOURCE
         for method_name in (
@@ -327,8 +334,29 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertEqual(invalid_label, "PLAN SEVİYELERİ GEÇERSİZ")
         self.assertEqual(invalid_levels, [])
 
+        range_node = next(
+            node for node in PANEL_TREE.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_analysis_chart_price_range"
+        )
+        range_namespace = {"Any": Any, "_safe_float": safe_float}
+        exec(compile(ast.Module(body=[range_node], type_ignores=[]), str(PANEL_PATH), "exec"), range_namespace)
+        scale = range_namespace["_analysis_chart_price_range"]
+        layers = {
+            "entry": SimpleNamespace(get=lambda: True),
+            "stop": SimpleNamespace(get=lambda: True),
+            "targets": SimpleNamespace(get=lambda: True),
+        }
+        expanded = scale([98.0, 100.0, 105.0], levels, layers)
+        self.assertIsNotNone(expanded)
+        self.assertGreater(expanded[1], 110.0)
+        targets_hidden = dict(layers, targets=SimpleNamespace(get=lambda: False))
+        reduced = scale([98.0, 100.0, 105.0], levels, targets_hidden)
+        self.assertLess(reduced[1], expanded[1])
+
         drawing = ast.unparse(_method("_draw_analysis_chart"))
         self.assertIn("_analysis_plan_overlay_levels(plan)", drawing)
+        self.assertIn("_analysis_chart_price_range(candle_prices, plan_levels, layers)", drawing)
         self.assertIn("KOŞULLU", drawing)
         self.assertIn("EMİR GÖNDERİLMEZ", drawing)
 
