@@ -669,3 +669,8 @@ Bu sıra onaylanmış geliştirme yöntemidir; kendi başına kod değişikliği
 - İlk uygulama işi, mevcut `main` dalının güncel kod/test durumunu salt okunur biçimde denetlemek ve bulguları önem sırasına koymaktır. Bu denetim sırasında dosya veya kod değiştirilmeyecektir.
 - Tasarım hedefiyle kodda doğrulanmış davranış birbirinden ayrı gösterilecektir.
 - Bu güncellemede yalnızca README karar kaydı değiştirilmektedir; kaynak kod ve test dosyaları değiştirilmemiştir.
+### Bütünleşik arayüz ve motor doğrulaması — 30 Ekim 2026
+
+- `tek_motor_paneli.pyw` çok sayfalı arayüz entegrasyonundan sonra mevcut otomatik doğrulama iş akışı yeniden çalıştırılacaktır.
+- Bu kayıt yalnızca test tetikleme ve sonuç takibi içindir; ZIP oluşturma veya GitHub Release yayımlama izni vermez.
+- Test kapsamı: Python kaynak derleme kontrolü, Python birim testleri, bulut geçidi ve rapor Worker testleri, Render geçidi testleri ve yapılandırılmış canlı bağlantı kontrolleri.
