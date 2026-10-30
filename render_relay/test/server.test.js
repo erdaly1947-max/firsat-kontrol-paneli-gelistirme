@@ -73,6 +73,8 @@ test("only explicitly allowlisted public-market endpoints resolve", () => {
   assert.ok(resolveRestRoute("/binance/api/v3/exchangeInfo"));
   assert.ok(resolveRestRoute("/binance/api/v3/klines"));
   assert.ok(resolveRestRoute("/btcturk/api/v2/server/exchangeinfo"));
+  assert.ok(resolveRestRoute("/btcturk/api/v2/orderbook"));
+  assert.ok(resolveRestRoute("/btcturk-graph/v1/klines/history"));
   assert.equal(resolveRestRoute("/binance/api/v3/account"), null);
   assert.equal(resolveRestRoute("/proxy"), null);
 });
@@ -91,6 +93,39 @@ test("BtcTurk ticker proxy is limited to its public USDT ticker", () => {
   assert.equal(validateRestQuery(route, new URLSearchParams("symbol=usdt")), null);
   assert.notEqual(validateRestQuery(route, new URLSearchParams("symbol=btc")), null);
   assert.notEqual(validateRestQuery(route, new URLSearchParams("symbol=usdt&url=https://example.com")), null);
+});
+
+test("BtcTurk order book and graph-history relay paths validate only required public fields", () => {
+  const orderbook = resolveRestRoute("/btcturk/api/v2/orderbook");
+  assert.ok(orderbook);
+  assert.equal(
+    validateRestQuery(orderbook, new URLSearchParams("pairSymbol=BTCUSDT&limit=25")),
+    null,
+  );
+  assert.notEqual(validateRestQuery(orderbook, new URLSearchParams("limit=25")), null);
+  assert.notEqual(
+    validateRestQuery(orderbook, new URLSearchParams("pairSymbol=BTCUSDT&limit=101")),
+    null,
+  );
+
+  const graph = resolveRestRoute("/btcturk-graph/v1/klines/history");
+  assert.ok(graph);
+  assert.equal(
+    validateRestQuery(graph, new URLSearchParams("symbol=BTCUSDT&resolution=15&from=100&to=200")),
+    null,
+  );
+  assert.notEqual(
+    validateRestQuery(graph, new URLSearchParams("symbol=BTCUSDT&resolution=trade&from=100&to=200")),
+    null,
+  );
+  assert.notEqual(
+    validateRestQuery(graph, new URLSearchParams("symbol=BTCUSDT&resolution=15&from=200&to=100")),
+    null,
+  );
+  assert.equal(
+    cacheTtlMs(graph, new URLSearchParams("symbol=BTCUSDT&resolution=15&from=100&to=200")),
+    30_000,
+  );
 });
 
 test("only the desktop radar's public kline WebSocket streams are accepted", () => {

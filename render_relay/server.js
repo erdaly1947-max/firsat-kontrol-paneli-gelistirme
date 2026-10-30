@@ -59,13 +59,16 @@ const ROUTES = [
   { prefix: "/binance", path: "/api/v3/depth", exchange: "binance", allowedParams: ["symbol", "limit"] },
   { prefix: "/btcturk", path: "/api/v2/server/exchangeinfo", exchange: "btcturk", allowedParams: [] },
   { prefix: "/btcturk", path: "/api/v2/ticker/currency", exchange: "btcturk", allowedParams: ["symbol"] },
-  { prefix: "/btcturk", path: "/api/v2/ticker", exchange: "btcturk", allowedParams: [] },
+  { prefix: "/btcturk", path: "/api/v2/ticker", exchange: "btcturk", allowedParams: ["pairSymbol"] },
+  { prefix: "/btcturk", path: "/api/v2/orderbook", exchange: "btcturk", allowedParams: ["pairSymbol", "limit"] },
+  { prefix: "/btcturk-graph", path: "/v1/klines/history", exchange: "btcturk_graph", allowedParams: ["symbol", "resolution", "from", "to"] },
 ];
 
 const ROUTE_BY_PATH = new Map(ROUTES.map((route) => [route.prefix + route.path, route]));
 const UPSTREAMS = {
   binance: BINANCE_REST_ORIGINS,
   btcturk: ["https://api.btcturk.com"],
+  btcturk_graph: ["https://graph-api.btcturk.com"],
 };
 
 const CACHE_TTL_MS = {
@@ -73,6 +76,7 @@ const CACHE_TTL_MS = {
   "/api/v2/server/exchangeinfo": 60_000,
   "/api/v2/ticker/currency": 3_000,
   "/api/v2/ticker": 2_000,
+  "/v1/klines/history": 30_000,
   "/api/v3/ticker/24hr": 2_000,
   "/api/v3/depth": 1_000,
   "/api/v3/klines": 5_000,
@@ -183,11 +187,44 @@ export function validateRestQuery(route, params) {
     if (timeZone !== null && !/^(?:-?\d{1,2}(?::[0-5]\d)?|[+-]\d{1,2}:[0-5]\d)$/.test(timeZone)) {
       return "timeZone parametresi geçersiz.";
     }
-  } else if (
-    route.path === "/api/v2/ticker/currency"
-    && (params.get("symbol") || "").toLowerCase() !== "usdt"
-  ) {
-    return "Yalnızca USDT ticker sorgusu kabul edilir.";
+  } else if (route.exchange === "btcturk") {
+    if (
+      route.path === "/api/v2/ticker/currency"
+      && (params.get("symbol") || "").toLowerCase() !== "usdt"
+    ) {
+      return "Yalnızca USDT ticker sorgusu kabul edilir.";
+    }
+    const pairSymbol = params.get("pairSymbol");
+    if (pairSymbol !== null && !isSafeSymbol(pairSymbol)) {
+      return "BtcTurk parite kodu geçersiz.";
+    }
+    if (route.path === "/api/v2/orderbook" && pairSymbol === null) {
+      return "BtcTurk emir defteri için pairSymbol zorunludur.";
+    }
+    const orderbookLimit = params.get("limit");
+    if (
+      route.path === "/api/v2/orderbook"
+      && orderbookLimit !== null
+      && (!/^\d+$/.test(orderbookLimit) || Number(orderbookLimit) < 1 || Number(orderbookLimit) > 100)
+    ) {
+      return "BtcTurk emir defteri limit değeri 1 ile 100 arasında olmalıdır.";
+    }
+  } else if (route.exchange === "btcturk_graph") {
+    const symbol = params.get("symbol");
+    const resolution = params.get("resolution");
+    const from = params.get("from");
+    const to = params.get("to");
+    const resolutions = new Set(["1", "15", "30", "60", "240", "1D", "D", "1440"]);
+    if (symbol === null || !isSafeSymbol(symbol)) return "BtcTurk grafik parite kodu geçersiz.";
+    if (resolution === null || !resolutions.has(resolution)) return "BtcTurk grafik zaman aralığı geçersiz.";
+    if (
+      from === null || to === null
+      || !/^\d+$/.test(from) || !/^\d+$/.test(to)
+      || !Number.isSafeInteger(Number(from)) || !Number.isSafeInteger(Number(to))
+      || Number(from) < 1 || Number(to) < Number(from)
+    ) {
+      return "BtcTurk grafik zaman aralığı geçersiz.";
+    }
   }
 
   return null;

@@ -99,6 +99,7 @@ DEFAULT_UNIVERSE_RETRY_SECONDS = 10
 DEFAULT_BOOTSTRAP_RETRY_SECONDS = 60
 MAX_BOOTSTRAP_RETRY_SECONDS = 300
 SHARD_SYMBOLS = 20  # Kısa birleşik WS URL'leri ve bağlantı başına yönetilebilir akış sayısı.
+DIRECT_WS_RECHECK_SECONDS = 300  # Render yedeğinde kalırken 5 dakikada bir doğrudan yol yeniden sınanır.
 REST_MAX_CONCURRENT_REQUESTS = 8
 REST_MIN_REQUEST_INTERVAL_SECONDS = 0.075
 _active_rest_base: str | None = None
@@ -1842,6 +1843,7 @@ class BinanceRadar:
             app: websocket.WebSocketApp | None = None
             connection_error = ""
             connected_at: float | None = None
+            direct_recheck_timer: threading.Timer | None = None
             endpoints = list(get_binance_ws_bases())
             endpoint_index %= len(endpoints)
             endpoint = endpoints[endpoint_index]
@@ -1850,7 +1852,7 @@ class BinanceRadar:
                     self.ws_status[shard_id] = "BAĞLANTI DENENİYOR"
 
                 def on_open(ws):
-                    nonlocal connected_at
+                    nonlocal connected_at, direct_recheck_timer
                     connected_at = time.monotonic()
                     with self.lock:
                         reconnecting = shard_id in self.ever_connected_shards
@@ -1859,8 +1861,24 @@ class BinanceRadar:
                         self.connected_at_by_shard[shard_id] = time.time()
                         # A new handshake must not inherit a previous socket\'s last-data timestamp.
                         self.last_message.pop(shard_id, None)
-                    self.logger.info("Binance WebSocket #%s bağlı (%s parite, %s).",
-                                     shard_id + 1, len(symbols), endpoint.split("?", 1)[0])
+                    is_render_fallback = "/ws/binance/stream?streams=" in endpoint
+                    self.logger.info(
+                        "Binance WebSocket #%s bağlı (%s parite, %s; rota=%s).",
+                        shard_id + 1, len(symbols), endpoint.split("?", 1)[0],
+                        "Render yedeği" if is_render_fallback else "doğrudan",
+                    )
+                    if is_render_fallback:
+                        # Keep the working Render stream, but periodically force a reconnect
+                        # so a newly available local/phone-tethered direct route can take over.
+                        direct_recheck_timer = threading.Timer(
+                            DIRECT_WS_RECHECK_SECONDS, ws.close
+                        )
+                        direct_recheck_timer.daemon = True
+                        direct_recheck_timer.start()
+                        self.logger.info(
+                            "Binance WebSocket #%s Render yedeğinde; doğrudan bağlantı %s saniye sonra yeniden sınanacak.",
+                            shard_id + 1, DIRECT_WS_RECHECK_SECONDS,
+                        )
                     if reconnecting:
                         threading.Thread(target=self._backfill_all_timeframes, args=(list(symbols),),
                                          daemon=True, name=f"binance-backfill-{shard_id}").start()
@@ -1952,6 +1970,8 @@ class BinanceRadar:
                     self.ws_status[shard_id] = "HATA"
                 self.logger.warning("Binance WebSocket #%s bağlantı döngüsü (%s): %s", shard_id + 1, endpoint, exc)
             finally:
+                if direct_recheck_timer is not None:
+                    direct_recheck_timer.cancel()
                 if app is not None:
                     with self.lock:
                         if app in self.ws_apps:
