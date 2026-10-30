@@ -529,7 +529,7 @@ function cloudinaryDirectDeliveryUrls(resource, id, contentType) {
   const marker = "/" + cloudName + "/image/upload/";
   const markerIndex = assetUrl.pathname.indexOf(marker);
   if (assetUrl.protocol !== "https:" || assetUrl.hostname !== "res.cloudinary.com" ||
-      assetUrl.username || assetUrl.password || assetUrl.search || assetUrl.hash || markerIndex < 0) return null;
+      assetUrl.username || assetUrl.password || assetUrl.search || assetUrl.hash || markerIndex !== 0) return null;
   const suffix = assetUrl.pathname.slice(markerIndex + marker.length);
   const remaining = suffix.split("/").filter((part) => !/^v\d+$/.test(part));
   const expectedFile = CLOUDINARY_IMAGE_PREFIX + id + (contentType === "image/png" ? ".png" : ".jpg");
@@ -1171,22 +1171,47 @@ function bridgeBinanceStream(client, streams, frameFormat = null) {
   let batchFrames = [];
   let batchBytes = 0;
   let batchTimer = null;
+  let pendingBatchSends = 0;
+  let pendingClose = null;
+
+  const finishPendingClose = () => {
+    if (!pendingClose || pendingBatchSends > 0 || batchFrames.length > 0) return;
+    const pending = pendingClose;
+    pendingClose = null;
+    if (client.readyState === WebSocket.OPEN) client.close(pending.code, pending.reason);
+  };
 
   const flushBatch = () => {
     if (batchTimer) {
       clearTimeout(batchTimer);
       batchTimer = null;
     }
-    if (!batchFrames.length) return;
+    if (!batchFrames.length) {
+      finishPendingClose();
+      return;
+    }
     const raw = Buffer.from(batchFrames.join("\n"), "utf8");
     batchFrames = [];
     batchBytes = 0;
-    if (client.readyState !== WebSocket.OPEN) return;
+    if (client.readyState !== WebSocket.OPEN) {
+      finishPendingClose();
+      return;
+    }
     const compressed = deflateSync(raw);
     const frame = Buffer.concat([Buffer.from("FKP1", "ascii"), compressed]);
+    pendingBatchSends += 1;
     client.send(frame, { binary: true }, (error) => {
+      pendingBatchSends = Math.max(0, pendingBatchSends - 1);
       if (error) cleanup();
+      else finishPendingClose();
     });
+  };
+
+  const closeAfterBatch = (code, reason) => {
+    if (client.readyState !== WebSocket.OPEN || pendingClose) return;
+    pendingClose = { code, reason };
+    flushBatch();
+    finishPendingClose();
   };
 
   const queueBatchFrame = (data) => {
@@ -1209,6 +1234,7 @@ function bridgeBinanceStream(client, streams, frameFormat = null) {
     }
     batchFrames = [];
     batchBytes = 0;
+    pendingClose = null;
     if (upstream && upstream.readyState !== WebSocket.CLOSED) {
       try {
         upstream.close();
@@ -1272,7 +1298,8 @@ function bridgeBinanceStream(client, streams, frameFormat = null) {
         });
       });
       upstream.on("error", () => {
-        if (client.readyState === WebSocket.OPEN) client.close(1011, "Upstream stream error");
+        if (compressedBatches) closeAfterBatch(1011, "Upstream stream error");
+        else if (client.readyState === WebSocket.OPEN) client.close(1011, "Upstream stream error");
       });
     });
 
@@ -1284,8 +1311,8 @@ function bridgeBinanceStream(client, streams, frameFormat = null) {
       clearTimeout(connectTimer);
       if (!opened) next();
       else if (!closed && client.readyState === WebSocket.OPEN) {
-        if (compressedBatches) flushBatch();
-        client.close(1011, "Upstream stream closed");
+        if (compressedBatches) closeAfterBatch(1011, "Upstream stream closed");
+        else client.close(1011, "Upstream stream closed");
       }
     });
   };

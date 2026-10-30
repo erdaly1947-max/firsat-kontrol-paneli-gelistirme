@@ -1901,7 +1901,8 @@ class BinanceRadar:
                             return
                         raw_messages = [item for item in decoded.splitlines() if item.strip()]
                     except Exception as exc:
-                        self.logger.debug("WebSocket toplu mesaj açma sorunu: %s", exc)
+                        self.logger.warning("WebSocket toplu mesajı çözülemedi; kesintisiz veri için bağlantı yenilenecek: %s", exc)
+                        ws.close()
                         return
 
                     # Process every original Binance event in order; batching does not

@@ -838,11 +838,14 @@ def _validated_cloudinary_delivery_url(
             or parsed.username or parsed.password or parsed.query or parsed.fragment
         ):
             return None
-        marker = "/image/upload/"
-        marker_index = parsed.path.find(marker)
-        if marker_index < 0:
+        path_parts = parsed.path.split("/")
+        if (
+            len(path_parts) < 5
+            or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", path_parts[1])
+            or path_parts[2:4] != ["image", "upload"]
+        ):
             return None
-        suffix = parsed.path[marker_index + len(marker):]
+        suffix = "/".join(path_parts[4:])
         parts = suffix.split("/")
         if preview:
             if not parts or parts[0] != "c_limit,w_1280,f_jpg,q_75":
