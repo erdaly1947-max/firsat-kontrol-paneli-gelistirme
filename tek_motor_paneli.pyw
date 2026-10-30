@@ -994,7 +994,6 @@ class ControlPanel(tk.Tk):
         self.bind("<Configure>", self._adapt_panes, add="+")
         self.bind("<Configure>", self._resize_wraplengths, add="+")
         self._build_btcturk_pro_ui()
-        self.bind("<Configure>", self._adapt_panes, add="+")
         self._apply_font_scale()
         self._refresh_status_indicators()
         self.after(15000, self._schedule_btcturk_pro_quote_refresh)
@@ -1002,7 +1001,6 @@ class ControlPanel(tk.Tk):
     def _build_btcturk_pro_ui(self) -> None:
         page = self.btcturk_page
         page.columnconfigure(0, weight=1)
-        page.rowconfigure(3, weight=1)
 
         header = ttk.Frame(page, padding=(12, 9, 12, 5))
         header.grid(row=0, column=0, sticky="ew")
@@ -1260,7 +1258,6 @@ class ControlPanel(tk.Tk):
         self.btcturk_pro_status_var.set(f"{symbol} · BtcTurk verileri alınıyor…")
         self.btcturk_pro_open_button.configure(state="disabled")
         self.btcturk_pro_refresh_button.configure(state="disabled")
-        self.btcturk_pro_import_button_state = "disabled"
         self.btcturk_pro_request_id += 1
         request_id = self.btcturk_pro_request_id
         self.btcturk_pro_load_busy = True
@@ -1569,6 +1566,7 @@ class ControlPanel(tk.Tk):
         lines = [
             f"PARİTE: {data.get('symbol')} · KAYNAK: BtcTurk Spot",
             str(data.get("readiness_reason") or ""),
+            f"Son kapanmış mum zamanı: {datetime.fromtimestamp(data['last_candle_time_ms'] / 1000, tz=timezone.utc).astimezone().strftime('%d.%m.%Y %H:%M:%S') if data.get('last_candle_time_ms') else 'bulunamadı'} · Yaş: {_format_age(data.get('last_candle_age_seconds'))}",
             f"Alış-satış farkı: {_format_metric(metrics.get('spread_pct'), 4)}% · "
             f"Alış derinliği (%1): {_format_metric(metrics.get('bid_depth_1pct_usdt'), 2)} USDT · "
             f"Satış derinliği (%1): {_format_metric(metrics.get('ask_depth_1pct_usdt'), 2)} USDT",
@@ -1577,6 +1575,9 @@ class ControlPanel(tk.Tk):
             "",
             "--- BTC TURK İŞLEM PLANI ---",
             f"Plan durumu: {plan.get('status') or 'plan yok'}",
+            f"Plan fiyat kaynağı: {plan.get('price_reference') or '—'}",
+            f"Plan fiyat referansı yaşı: {_format_age(plan.get('price_reference_age_seconds'))}",
+            str(plan.get("draft_warning") or ""),
         ]
         for label, key in (
             ("Koşullu giriş alt", "entry_zone_low"),
@@ -1655,7 +1656,11 @@ class ControlPanel(tk.Tk):
             cost_lines.append("Ticker uyarısı: " + str(data["quote_error"]))
         if data.get("orderbook_error"):
             cost_lines.append("Emir defteri uyarısı: " + str(data["orderbook_error"]))
+        plan = data.get("plan") if isinstance(data.get("plan"), dict) else {}
+        if plan.get("draft_warning"):
+            cost_lines.append(str(plan["draft_warning"]))
         cost_lines.extend([
+            f"Plan fiyat kaynağı: {plan.get('price_reference') or '—'}",
             f"Spread: {_format_metric(metrics.get('spread_pct'), 4)}% "
             f"· %1 derinlik alış/satış: {_format_metric(metrics.get('bid_depth_1pct_usdt'), 2)} / "
             f"{_format_metric(metrics.get('ask_depth_1pct_usdt'), 2)} USDT",
