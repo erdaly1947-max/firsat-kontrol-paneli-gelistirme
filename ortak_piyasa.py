@@ -1056,8 +1056,16 @@ def public_get(url: str, *, params: dict[str, Any] | None = None,
             _record_market_route_success(route_key, "render")
             return response
         except Exception as exc:
-            errors.append(("render", exc))
             _record_market_render_failure(route_key, exc)
+            retry_in = max(
+                1, int(float(state.get("retry_direct_at") or 0.0) - time.monotonic())
+            )
+            # Do not hammer all seven direct hosts on every scan while the route
+            # is in cooldown. Retry the direct host set at the scheduled interval.
+            raise RuntimeError(
+                f"{route_key}: Render yedeği de erişilemiyor; doğrudan bağlantı "
+                f"{retry_in} saniye sonra yeniden sınanacak."
+            ) from exc
 
     last_direct_error: Exception | None = None
     for direct_url in direct_urls:

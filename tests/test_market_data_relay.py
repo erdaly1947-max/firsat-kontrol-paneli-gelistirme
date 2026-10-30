@@ -213,6 +213,26 @@ class MarketDataRelayTests(unittest.TestCase):
         self.assertEqual(mocked.call_count, 1)
         self.assertEqual(mocked.call_args.args[0], relay_url)
 
+    def test_render_failure_during_cooldown_waits_for_scheduled_direct_recheck(self):
+        relay_url = "https://firsat.example.workers.dev/binance/api/v3/klines"
+        ortak_piyasa._market_route_states["binance_rest"] = {
+            "mode": "render", "direct_failures": 1,
+            "retry_direct_at": time.monotonic() + 120,
+            "last_transport": "render", "last_error": "ConnectTimeout",
+        }
+        with (
+            patch.object(ortak_piyasa, "get_market_data_relay_url",
+                         return_value="https://firsat.example.workers.dev"),
+            patch.object(
+                ortak_piyasa, "_requests_get",
+                side_effect=requests.exceptions.ConnectionError("Render suspended"),
+            ) as mocked,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Render yedeği de erişilemiyor"):
+                ortak_piyasa.public_get("https://api.binance.com/api/v3/klines")
+        self.assertEqual(mocked.call_count, 1)
+        self.assertEqual(mocked.call_args.args[0], relay_url)
+
     def test_direct_route_is_retested_after_render_cooldown_and_recovers(self):
         ortak_piyasa._market_route_states["binance_rest"] = {
             "mode": "render", "direct_failures": 2,
