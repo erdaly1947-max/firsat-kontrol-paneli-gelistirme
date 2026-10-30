@@ -732,6 +732,9 @@ async function handleCloudinaryImageUpload(request,response,route) {
   const token=bearerToken(request);
   if (!token) { jsonResponse(response,401,{ok:false,error:"Görüntü aktarım kimliği doğrulanamadı."}); request.resume(); return; }
   const expectedToken=process.env.REPORT_RELAY_TOKEN;
+  if (route.kind==="image_sign_upload" && !expectedToken) {
+    jsonResponse(response,503,{ok:false,error:"Doğrudan görüntü aktarım imzası sunucuda yapılandırılmamış."}); request.resume(); return;
+  }
   if (expectedToken && (expectedToken.length>8192 || Buffer.byteLength(token)!==Buffer.byteLength(expectedToken) ||
       !timingSafeEqual(Buffer.from(token),Buffer.from(expectedToken)))) {
     jsonResponse(response,401,{ok:false,error:"Görüntü aktarım kimliği doğrulanamadı."}); request.resume(); return;
