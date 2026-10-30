@@ -8,6 +8,7 @@ from unittest import mock
 from analysis_report import (
     READ_URL,
     UPLOAD_URL,
+    WORKER_BASE_URL,
     build_analysis_report,
     compress_analysis_report,
     gzip_compress_bytes,
@@ -78,7 +79,7 @@ class AnalysisReportTests(unittest.TestCase):
         self.assertLess(len(compressed), len(raw))
         self.assertEqual(compressed, gzip_compress_bytes(raw))
 
-    def test_analysis_upload_posts_gzip_json_to_the_fixed_relay(self):
+    def test_analysis_upload_posts_gzip_json_to_cloudflare_directly(self):
         payload = {
             "report_type": "analysis",
             "schema_version": 1,
@@ -104,7 +105,7 @@ class AnalysisReportTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         headers = {name.lower(): value for name, value in request.header_items()}
         self.assertEqual(request.get_method(), "POST")
-        self.assertEqual(request.full_url, UPLOAD_URL)
+        self.assertEqual(request.full_url, f"{WORKER_BASE_URL}/api/report")
         self.assertEqual(headers["authorization"], "Bearer test-upload-token")
         self.assertEqual(headers["content-encoding"], "gzip")
         self.assertEqual(headers["content-type"], "application/json; charset=utf-8")
@@ -153,10 +154,12 @@ class AnalysisReportTests(unittest.TestCase):
 
         with mock.patch("analysis_report.urllib.request.urlopen", side_effect=denied) as urlopen, \
              mock.patch("analysis_report.time.sleep") as sleep:
-            with self.assertRaisesRegex(RuntimeError, "Sunucu HTTP 401"):
+            with self.assertRaisesRegex(RuntimeError, "Rapor doğrudan Cloudflare"):
                 upload_analysis_report(config, compressed)
 
-        urlopen.assert_called_once()
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(urlopen.call_args_list[0].args[0].full_url, f"{WORKER_BASE_URL}/api/report")
+        self.assertEqual(urlopen.call_args_list[1].args[0].full_url, UPLOAD_URL)
         sleep.assert_not_called()
 
     def test_invalid_nan_is_not_silently_serialized(self):

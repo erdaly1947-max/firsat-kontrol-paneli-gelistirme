@@ -39,7 +39,7 @@ class ImageRelayRoutingTests(unittest.TestCase):
 
         self.assertEqual(analysis_report.IMAGE_RELAY_BASE_URL, production_base)
         self.assertEqual(analysis_report.IMAGE_BASE_URL, production_base)
-        for route in ("stage", "commit", "abort"):
+        for route in ("sign-upload", "stage", "commit", "abort"):
             with self.subTest(route=route):
                 self.assertEqual(
                     analysis_report._image_upload_endpoint(config, route),
