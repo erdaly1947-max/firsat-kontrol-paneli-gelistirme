@@ -61,8 +61,17 @@ BINANCE_RELAY_PATHS = {
     "/api/v3/ticker/24hr", "/api/v3/depth",
 }
 BTCTURK_RELAY_PATHS = {
-    "/api/v2/server/exchangeinfo", "/api/v2/ticker/currency", "/api/v2/ticker",
+    "/api/v2/server/exchangeinfo", "/api/v2/ticker/currency",
+    "/api/v2/ticker", "/api/v2/orderbook",
 }
+BTCTURK_GRAPH_RELAY_PATHS = {"/v1/klines/history"}
+
+# Each REST route is selected independently. Direct exchange access is preferred;
+# Render is a fallback and direct access is periodically re-tested after a failure.
+MARKET_ROUTE_RECHECK_BASE_SECONDS = 30.0
+MARKET_ROUTE_RECHECK_MAX_SECONDS = 60.0
+_market_route_lock = threading.RLock()
+_market_route_states: dict[str, dict[str, Any]] = {}
 
 
 def _validated_market_relay_origin(value: Any) -> str | None:
@@ -121,23 +130,22 @@ def get_market_data_relay_url(settings: dict[str, Any] | None = None) -> str | N
 
 
 def get_binance_rest_bases(settings: dict[str, Any] | None = None) -> tuple[str, ...]:
-    """Use only the relay when configured; otherwise preserve official REST fallbacks."""
-    relay = get_market_data_relay_url(settings)
-    if relay:
-        return (relay + "/binance",)
-    return BINANCE_REST_BASES
+    """Return the primary direct base; public_get checks official alternatives before Render."""
+    return BINANCE_REST_BASES[:1]
 
 
 def get_binance_ws_bases(settings: dict[str, Any] | None = None) -> tuple[str, ...]:
-    """Use the relay WebSocket when configured; otherwise preserve official endpoints."""
-    relay = get_market_data_relay_url(settings)
-    if relay:
-        return ("wss://" + relay[len("https://"):] + "/ws/binance/stream?streams=",)
-    return (
+    """Return direct Binance streams first and the configured Render relay as the last fallback."""
+    direct = (
         "wss://data-stream.binance.vision:443/stream?streams=",
         "wss://stream.binance.com:443/stream?streams=",
         "wss://stream.binance.com:9443/stream?streams=",
     )
+    relay = get_market_data_relay_url(settings)
+    if not relay:
+        return direct
+    relay_ws = "wss://" + relay[len("https://"):] + "/ws/binance/stream?streams="
+    return direct + (relay_ws,)
 
 
 def _relay_public_exchange_url(url: str, relay_origin: str) -> str:
@@ -152,9 +160,162 @@ def _relay_public_exchange_url(url: str, relay_origin: str) -> str:
         if parsed.path not in BTCTURK_RELAY_PATHS:
             raise ValueError("BtcTurk endpoint bulut geçidinin izin listesinden çıkarıldı.")
         prefix = "/btcturk"
+    elif host == "graph-api.btcturk.com":
+        if parsed.path not in BTCTURK_GRAPH_RELAY_PATHS:
+            raise ValueError("BtcTurk grafik endpoint bulut geçidinin izin listesinden çıkarıldı.")
+        prefix = "/btcturk-graph"
     else:
         return url
     return relay_origin + prefix + parsed.path + (("?" + parsed.query) if parsed.query else "")
+
+
+def _market_route_target(url: str, relay_origin: str) -> tuple[str, str] | None:
+    """Return the route-state key and an allowlisted Render URL for known market APIs."""
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").casefold()
+    if host in BINANCE_RELAY_HOSTS and parsed.path in BINANCE_RELAY_PATHS:
+        key = "binance_rest"
+    elif host == "api.btcturk.com" and parsed.path in BTCTURK_RELAY_PATHS:
+        key = "btcturk_rest"
+    elif host == "graph-api.btcturk.com" and parsed.path in BTCTURK_GRAPH_RELAY_PATHS:
+        key = "btcturk_graph"
+    else:
+        return None
+    return key, _relay_public_exchange_url(url, relay_origin)
+
+
+def _market_direct_urls(url: str, route_key: str) -> tuple[str, ...]:
+    """Try the requested Binance host and then all documented alternatives before Render."""
+    if route_key != "binance_rest":
+        return (url,)
+    parsed = urlsplit(url)
+    suffix = parsed.path + (("?" + parsed.query) if parsed.query else "")
+    requested_origin = f"{parsed.scheme}://{parsed.netloc}"
+    bases = (requested_origin,) + tuple(
+        base for base in BINANCE_REST_BASES if base != requested_origin
+    )
+    return tuple(base + suffix for base in bases)
+
+
+def _market_direct_timeout(
+    timeout: float | tuple[float, float],
+) -> float | tuple[float, float]:
+    """Bound connection establishment per host while preserving the caller's read timeout."""
+    if isinstance(timeout, tuple):
+        connect_timeout, read_timeout = timeout
+    else:
+        connect_timeout, read_timeout = timeout, timeout
+    if connect_timeout is None:
+        return (None, read_timeout)
+    return (min(float(connect_timeout), 3.5), read_timeout)
+
+
+def _market_route_state(route_key: str) -> dict[str, Any]:
+    with _market_route_lock:
+        return dict(_market_route_states.get(route_key) or {
+            "mode": "direct",
+            "direct_failures": 0,
+            "retry_direct_at": 0.0,
+            "last_transport": "not_tested",
+            "last_error": None,
+        })
+
+
+def _record_market_route_success(route_key: str, transport: str) -> None:
+    now = time.monotonic()
+    with _market_route_lock:
+        state = _market_route_states.setdefault(route_key, {
+            "mode": "direct", "direct_failures": 0, "retry_direct_at": 0.0,
+            "last_transport": "not_tested", "last_error": None,
+        })
+        previous = state.get("mode", "direct")
+        previous_transport = state.get("last_transport", "not_tested")
+        state["mode"] = transport
+        state["last_transport"] = transport
+        state["last_success_monotonic"] = now
+        if transport == "direct":
+            state["direct_failures"] = 0
+            state["retry_direct_at"] = 0.0
+            state["last_error"] = None
+            state["last_render_error"] = None
+        should_log = previous != transport or previous_transport == "not_tested"
+    if should_log:
+        logging.getLogger(__name__).info(
+            "Piyasa bağlantı yolu doğrulandı/değişti: %s -> %s.",
+            route_key, "doğrudan" if transport == "direct" else "Render yedeği",
+        )
+
+
+def _record_market_direct_failure(route_key: str, error: Exception) -> None:
+    with _market_route_lock:
+        state = _market_route_states.setdefault(route_key, {
+            "mode": "direct", "direct_failures": 0, "retry_direct_at": 0.0,
+            "last_transport": "not_tested", "last_error": None,
+        })
+        previous = state.get("mode", "direct")
+        failures = min(8, int(state.get("direct_failures", 0)) + 1)
+        delay = min(
+            MARKET_ROUTE_RECHECK_MAX_SECONDS,
+            MARKET_ROUTE_RECHECK_BASE_SECONDS * (2 ** min(failures - 1, 3)),
+        )
+        state.update({
+            "mode": "render",
+            "direct_failures": failures,
+            "retry_direct_at": time.monotonic() + delay,
+            "last_error": type(error).__name__,
+        })
+    if previous != "render":
+        logging.getLogger(__name__).warning(
+            "Doğrudan piyasa bağlantısı başarısız: %s; Render yedeği kullanılacak (%ss sonra doğrudan bağlantı yeniden sınanacak). Hata=%s",
+            route_key, int(delay), type(error).__name__,
+        )
+
+
+def _record_market_render_failure(route_key: str, error: Exception) -> None:
+    with _market_route_lock:
+        state = _market_route_states.setdefault(route_key, {
+            "mode": "render", "direct_failures": 0, "retry_direct_at": 0.0,
+            "last_transport": "not_tested", "last_error": None,
+        })
+        state["last_render_error"] = type(error).__name__
+
+
+def get_market_route_status() -> dict[str, dict[str, Any]]:
+    """Return safe per-exchange REST route status without URLs, credentials or query values."""
+    now = time.monotonic()
+    output: dict[str, dict[str, Any]] = {}
+    for key in ("binance_rest", "btcturk_rest", "btcturk_graph"):
+        state = _market_route_state(key)
+        retry_at = float(state.get("retry_direct_at") or 0.0)
+        output[key] = {
+            "mode": state.get("mode", "direct"),
+            "last_transport": state.get("last_transport", "not_tested"),
+            "direct_failures": int(state.get("direct_failures") or 0),
+            "retry_direct_in_seconds": round(max(0.0, retry_at - now), 1),
+            "last_error": state.get("last_error"),
+            "last_render_error": state.get("last_render_error"),
+        }
+    return output
+
+
+def _reset_market_route_state_for_tests() -> None:
+    with _market_route_lock:
+        _market_route_states.clear()
+
+
+def _market_error_allows_fallback(error: Exception) -> bool:
+    """Use Render for transport/server failures, but never route around ordinary 4xx/rate limits."""
+    if isinstance(error, requests.exceptions.HTTPError):
+        response = getattr(error, "response", None)
+        status = getattr(response, "status_code", None)
+        return status in (403, 451) or (
+            isinstance(status, int) and status >= 500
+        )
+    # _requests_get may wrap a TLS/network failure in RuntimeError after its
+    # certificate-verified direct fallbacks have been exhausted.
+    return isinstance(error, (
+        requests.exceptions.RequestException, ValueError, TimeoutError, OSError, RuntimeError,
+    ))
 
 
 def load_settings_snapshot(
@@ -453,7 +614,9 @@ def collect_network_diagnostics(*, tls_probe_host: str | None = None) -> dict[st
                 host: _probe_direct_tls_first_response(host)
                 for host in comparison_hosts
             }
-        return json.loads(json.dumps(_network_diagnostics_cache, ensure_ascii=False))
+        snapshot = json.loads(json.dumps(_network_diagnostics_cache, ensure_ascii=False))
+        snapshot["market_route_status"] = get_market_route_status()
+        return snapshot
 
 
 _doh_cache_lock = threading.Lock()
@@ -469,6 +632,7 @@ def _trusted_market_api_host(host: str) -> bool:
     hostname = (host or "").strip().rstrip(".").casefold()
     approved = {urlsplit(base).hostname.casefold() for base in BINANCE_REST_BASES}
     approved.add("api.btcturk.com")
+    approved.add("graph-api.btcturk.com")
     return hostname in approved
 
 
@@ -861,14 +1025,90 @@ def _requests_get(url: str, *, params: dict[str, Any] | None,
 def public_get(url: str, *, params: dict[str, Any] | None = None,
                timeout: float | tuple[float, float] = 12.0,
                headers: dict[str, str] | None = None) -> requests.Response:
-    """Fetch public exchange data directly or via the configured secure cloud relay."""
+    """Try local exchange hosts first, then use Render as an automatic per-route fallback."""
     request_headers = {"User-Agent": USER_AGENT}
     if headers:
         request_headers.update(headers)
+
     relay_origin = get_market_data_relay_url()
-    if relay_origin:
-        url = _relay_public_exchange_url(url, relay_origin)
-    return _requests_get(url, params=params, timeout=timeout, headers=request_headers)
+    route = _market_route_target(url, relay_origin) if relay_origin else None
+    if route is None:
+        return _requests_get(url, params=params, timeout=timeout, headers=request_headers)
+
+    route_key, relay_url = route
+    direct_urls = _market_direct_urls(url, route_key)
+    direct_timeout = _market_direct_timeout(timeout)
+    state = _market_route_state(route_key)
+    cooling_down = (
+        state.get("mode") == "render"
+        and time.monotonic() < float(state.get("retry_direct_at") or 0.0)
+    )
+    errors: list[tuple[str, Exception]] = []
+
+    # While Render is active, use it during the short cooldown; a failed relay
+    # immediately reopens the direct route so a changed network can recover early.
+    if cooling_down:
+        try:
+            response = _requests_get(
+                relay_url, params=params, timeout=timeout, headers=request_headers
+            )
+            response.json()
+            _record_market_route_success(route_key, "render")
+            return response
+        except Exception as exc:
+            _record_market_render_failure(route_key, exc)
+            retry_in = max(
+                1, int(float(state.get("retry_direct_at") or 0.0) - time.monotonic())
+            )
+            # Do not hammer all seven direct hosts on every scan while the route
+            # is in cooldown. Retry the direct host set at the scheduled interval.
+            raise RuntimeError(
+                f"{route_key}: Render yedeği de erişilemiyor; doğrudan bağlantı "
+                f"{retry_in} saniye sonra yeniden sınanacak."
+            ) from exc
+
+    last_direct_error: Exception | None = None
+    for direct_url in direct_urls:
+        try:
+            response = _requests_get(
+                direct_url, params=params, timeout=direct_timeout, headers=request_headers
+            )
+            # Reject HTTP 200 HTML/error pages as a healthy market-data route.
+            response.json()
+            _record_market_route_success(route_key, "direct")
+            return response
+        except Exception as exc:
+            errors.append(("direct", exc))
+            last_direct_error = exc
+            if not _market_error_allows_fallback(exc):
+                raise
+
+    if last_direct_error is not None:
+        _record_market_direct_failure(route_key, last_direct_error)
+
+    # In normal operation Render is contacted only after all applicable direct hosts fail.
+    if not cooling_down:
+        try:
+            response = _requests_get(
+                relay_url, params=params, timeout=timeout, headers=request_headers
+            )
+            response.json()
+            _record_market_route_success(route_key, "render")
+            return response
+        except Exception as exc:
+            errors.append(("render", exc))
+            _record_market_render_failure(route_key, exc)
+
+    direct_error = last_direct_error
+    if direct_error is not None and not _market_error_allows_fallback(direct_error):
+        raise direct_error
+    details = " | ".join(
+        f"{transport}={type(error).__name__}"
+        for transport, error in errors
+    )
+    raise RuntimeError(
+        f"{route_key} için doğrudan ve Render piyasa bağlantıları başarısız: {details}"
+    ) from (errors[-1][1] if errors else None)
 
 
 def _json_get(url: str, timeout: float = 12.0,

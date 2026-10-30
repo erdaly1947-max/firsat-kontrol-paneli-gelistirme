@@ -1,4 +1,5 @@
 import test from "node:test";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { createRelayServer } from "../server.js";
 
@@ -97,6 +98,46 @@ test("Cloudinary screenshot commit replaces oldest image and exposes only three 
     for(const [key,value] of Object.entries(oldEnv)){if(value===undefined)delete process.env[key];else process.env[key]=value;}
   });
   const base="http://127.0.0.1:"+server.address().port;
+
+  const signResponse=await originalFetch(base+"/api/images/sign-upload",{
+    method:"POST",
+    headers:{Authorization:"Bearer test-token","Content-Type":"application/json"},
+    body:JSON.stringify({filename:"signed-screen.png",content_type:"image/png",size_bytes:PNG.length}),
+  });
+  assert.equal(signResponse.status,200);
+  const signed=await signResponse.json();
+  assert.equal(signed.ok,true);
+  assert.match(signed.staged_id,/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  assert.equal(signed.cloud_name,"CCY85JMZ");
+  assert.equal(signed.upload_url,"https://api.cloudinary.com/v1_1/CCY85JMZ/image/upload");
+  assert.equal(signed.api_key,"test-api-key");
+  assert.equal(signed.public_id,PREFIX+signed.staged_id);
+  assert.equal(signed.overwrite,"false");
+  assert.equal(signed.tags,"fkp-staged");
+  assert.equal(signed.context,"filename_b64="+Buffer.from("signed-screen.png").toString("base64url"));
+  assert.equal(/^[0-9]+$/.test(signed.timestamp),true);
+  assert.equal(Object.hasOwn(signed,"api_secret"),false);
+  const signedFields={
+    context:signed.context,overwrite:signed.overwrite,public_id:signed.public_id,
+    tags:signed.tags,timestamp:signed.timestamp,
+  };
+  const canonical=Object.keys(signedFields).sort()
+    .map((key)=>key+"="+signedFields[key]).join("&")+process.env.CLOUDINARY_API_SECRET;
+  assert.equal(signed.signature,createHash("sha1").update(canonical,"utf8").digest("hex"));
+
+  const invalidSignResponse=await originalFetch(base+"/api/images/sign-upload",{
+    method:"POST",
+    headers:{Authorization:"Bearer test-token","Content-Type":"application/json"},
+    body:JSON.stringify({filename:"not-an-image.txt",content_type:"image/png",size_bytes:PNG.length}),
+  });
+  assert.equal(invalidSignResponse.status,400);
+
+  const unauthorizedSignResponse=await originalFetch(base+"/api/images/sign-upload",{
+    method:"POST",
+    headers:{Authorization:"Bearer wrong-token","Content-Type":"application/json"},
+    body:JSON.stringify({filename:"screen.png",content_type:"image/png",size_bytes:PNG.length}),
+  });
+  assert.equal(unauthorizedSignResponse.status,401);
   const stageResponse=await originalFetch(base+"/api/images/stage",{
     method:"POST",
     headers:{Authorization:"Bearer test-token","Content-Type":"image/png","X-Image-Name-B64":Buffer.from("new.png").toString("base64url")},

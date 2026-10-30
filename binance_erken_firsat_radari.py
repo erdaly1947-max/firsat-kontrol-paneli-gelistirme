@@ -10,6 +10,7 @@ import ssl
 import sys
 import threading
 import time
+import zlib
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -99,6 +100,7 @@ DEFAULT_UNIVERSE_RETRY_SECONDS = 10
 DEFAULT_BOOTSTRAP_RETRY_SECONDS = 60
 MAX_BOOTSTRAP_RETRY_SECONDS = 300
 SHARD_SYMBOLS = 20  # Kısa birleşik WS URL'leri ve bağlantı başına yönetilebilir akış sayısı.
+DIRECT_WS_RECHECK_SECONDS = 300  # Render yedeğinde kalırken 5 dakikada bir doğrudan yol yeniden sınanır.
 REST_MAX_CONCURRENT_REQUESTS = 8
 REST_MIN_REQUEST_INTERVAL_SECONDS = 0.075
 _active_rest_base: str | None = None
@@ -107,6 +109,21 @@ _rest_request_semaphore = threading.BoundedSemaphore(REST_MAX_CONCURRENT_REQUEST
 _rest_rate_lock = threading.Lock()
 _last_rest_request_started: float | None = None
 _rest_cooldown_until = 0.0
+
+
+
+def _decode_binance_websocket_messages(message: Any) -> list[str]:
+    """Decode a direct text frame or the relay's FKP1 deflate batch in source order."""
+    if isinstance(message, bytes):
+        if message.startswith(b"FKP1"):
+            decoded = zlib.decompress(message[4:]).decode("utf-8")
+        else:
+            decoded = message.decode("utf-8")
+    elif isinstance(message, str):
+        decoded = message
+    else:
+        return []
+    return [item for item in decoded.splitlines() if item.strip()]
 
 
 class BinanceRateLimitError(RuntimeError):
@@ -1792,7 +1809,11 @@ class BinanceRadar:
             lower = sym.lower()
             for interval in TIMEFRAMES.values():
                 stream_names.append(f"{lower}@kline_{interval}")
-        return (base or WS_BASES[0]) + "/".join(stream_names)
+        selected_base = base or WS_BASES[0]
+        stream_url = selected_base + "/".join(stream_names)
+        if "/ws/binance/stream?streams=" in selected_base:
+            stream_url += "&format=fkp1"
+        return stream_url
 
     def _backfill_all_timeframes(self, symbols: list[str]) -> None:
         """Restore candle history for all eight frames after a stream interruption.
@@ -1842,6 +1863,7 @@ class BinanceRadar:
             app: websocket.WebSocketApp | None = None
             connection_error = ""
             connected_at: float | None = None
+            direct_recheck_timer: threading.Timer | None = None
             endpoints = list(get_binance_ws_bases())
             endpoint_index %= len(endpoints)
             endpoint = endpoints[endpoint_index]
@@ -1850,7 +1872,7 @@ class BinanceRadar:
                     self.ws_status[shard_id] = "BAĞLANTI DENENİYOR"
 
                 def on_open(ws):
-                    nonlocal connected_at
+                    nonlocal connected_at, direct_recheck_timer
                     connected_at = time.monotonic()
                     with self.lock:
                         reconnecting = shard_id in self.ever_connected_shards
@@ -1859,71 +1881,97 @@ class BinanceRadar:
                         self.connected_at_by_shard[shard_id] = time.time()
                         # A new handshake must not inherit a previous socket\'s last-data timestamp.
                         self.last_message.pop(shard_id, None)
-                    self.logger.info("Binance WebSocket #%s bağlı (%s parite, %s).",
-                                     shard_id + 1, len(symbols), endpoint.split("?", 1)[0])
+                    is_render_fallback = "/ws/binance/stream?streams=" in endpoint
+                    self.logger.info(
+                        "Binance WebSocket #%s bağlı (%s parite, %s; rota=%s).",
+                        shard_id + 1, len(symbols), endpoint.split("?", 1)[0],
+                        "Render yedeği" if is_render_fallback else "doğrudan",
+                    )
+                    if is_render_fallback:
+                        # Keep the working Render stream, but periodically force a reconnect
+                        # so a newly available local/phone-tethered direct route can take over.
+                        direct_recheck_timer = threading.Timer(
+                            DIRECT_WS_RECHECK_SECONDS, ws.close
+                        )
+                        direct_recheck_timer.daemon = True
+                        direct_recheck_timer.start()
+                        self.logger.info(
+                            "Binance WebSocket #%s Render yedeğinde; doğrudan bağlantı %s saniye sonra yeniden sınanacak.",
+                            shard_id + 1, DIRECT_WS_RECHECK_SECONDS,
+                        )
                     if reconnecting:
                         threading.Thread(target=self._backfill_all_timeframes, args=(list(symbols),),
                                          daemon=True, name=f"binance-backfill-{shard_id}").start()
 
-                def on_message(ws, message: str):
+                def on_message(ws, message):
                     try:
-                        payload = json.loads(message)
-                        data = payload.get("data", payload)
-                        if not isinstance(data, dict):
-                            return
-                        if data.get("e") == "serverShutdown":
-                            self.logger.warning("Binance sunucu kapanış bildirimi; yedek bağlantı denenecek.")
-                            ws.close()
-                            return
-                        if data.get("e") != "kline":
-                            return
-                        with self.lock:
-                            self.kline_message_count_by_shard[shard_id] = (
-                                self.kline_message_count_by_shard.get(shard_id, 0) + 1)
-                        k = data.get("k", {})
-                        sym = str(k.get("s", "")).upper()
-                        interval = str(k.get("i", ""))
-                        tf = next((key for key, value in TIMEFRAMES.items() if value == interval), None)
-                        if not sym or not tf or not k:
-                            return
-                        bar = normalize_bar(k.get("t"), k.get("o"), k.get("h"), k.get("l"), k.get("c"),
-                                            k.get("v"), k.get("q"), k.get("n"), closed=bool(k.get("x")))
-                        now_ms = int(time.time() * 1000)
-                        event_ms = int(data.get("E") or now_ms)
-                        fresh_event = -5000 <= now_ms - event_ms <= int(float(self.settings.get(
-                            "websocket_stale_seconds_binance", 45)) * 1000)
-                        with self.lock:
-                            arr = self.bars.setdefault(sym, {key: [] for key in TIMEFRAMES}).setdefault(tf, [])
-                            bar_time = int(bar["t"])
-                            if arr and int(arr[-1]["t"]) == bar_time:
-                                arr[-1] = bar
-                            elif not arr or int(arr[-1]["t"]) < bar_time:
-                                arr.append(bar)
-                                del arr[:-140]
-                            else:
-                                # Eski mum cache'i geriye taşımaz; yalnızca aynı mum varsa güncellenir.
-                                for idx in range(len(arr) - 1, -1, -1):
-                                    if int(arr[idx]["t"]) == bar_time:
-                                        arr[idx] = bar
-                                        break
-                            key = (sym, tf)
-                            prior_event = self.last_symbol_event_ms.get(key, 0)
-                            if fresh_event and event_ms >= prior_event:
-                                self.last_symbol_event_ms[key] = event_ms
-                                self.last_symbol_update[key] = time.time()
-                                self.last_message[shard_id] = time.time()
-                        # Persist only completed candles. An unfinished WebSocket
-                        # update must never replace a durable, closed candle.
-                        if bar.get("closed") is True and getattr(self, "candle_archive", None) is not None:
-                            try:
-                                self.candle_archive.upsert_bars(sym, tf, [bar])
-                                self.last_history_write = time.time()
-                            except Exception as archive_exc:
-                                self._history_storage_warning(
-                                    f"Canlı kapanmış mum arşivlenemedi ({type(archive_exc).__name__}); akış sürecek."
-                                )
+                        raw_messages = _decode_binance_websocket_messages(message)
                     except Exception as exc:
-                        self.logger.debug("WebSocket mesaj ayrıştırma sorunu: %s", exc)
+                        self.logger.warning("WebSocket toplu mesajı çözülemedi; kesintisiz veri için bağlantı yenilenecek: %s", exc)
+                        ws.close()
+                        return
+
+                    # Process every original Binance event in order; batching does not
+                    # merge candles, skip interim events, or alter freshness timestamps.
+                    for raw_message in raw_messages:
+                        try:
+                            payload = json.loads(raw_message)
+                            data = payload.get("data", payload)
+                            if not isinstance(data, dict):
+                                continue
+                            if data.get("e") == "serverShutdown":
+                                self.logger.warning("Binance sunucu kapanış bildirimi; yedek bağlantı denenecek.")
+                                ws.close()
+                                continue
+                            if data.get("e") != "kline":
+                                continue
+                            with self.lock:
+                                self.kline_message_count_by_shard[shard_id] = (
+                                    self.kline_message_count_by_shard.get(shard_id, 0) + 1)
+                            k = data.get("k", {})
+                            sym = str(k.get("s", "")).upper()
+                            interval = str(k.get("i", ""))
+                            tf = next((key for key, value in TIMEFRAMES.items() if value == interval), None)
+                            if not sym or not tf or not k:
+                                continue
+                            bar = normalize_bar(k.get("t"), k.get("o"), k.get("h"), k.get("l"), k.get("c"),
+                                                k.get("v"), k.get("q"), k.get("n"), closed=bool(k.get("x")))
+                            now_ms = int(time.time() * 1000)
+                            event_ms = int(data.get("E") or now_ms)
+                            fresh_event = -5000 <= now_ms - event_ms <= int(float(self.settings.get(
+                                "websocket_stale_seconds_binance", 45)) * 1000)
+                            with self.lock:
+                                arr = self.bars.setdefault(sym, {key: [] for key in TIMEFRAMES}).setdefault(tf, [])
+                                bar_time = int(bar["t"])
+                                if arr and int(arr[-1]["t"]) == bar_time:
+                                    arr[-1] = bar
+                                elif not arr or int(arr[-1]["t"]) < bar_time:
+                                    arr.append(bar)
+                                    del arr[:-140]
+                                else:
+                                    # Eski mum cache'i geriye taşımaz; yalnızca aynı mum varsa güncellenir.
+                                    for idx in range(len(arr) - 1, -1, -1):
+                                        if int(arr[idx]["t"]) == bar_time:
+                                            arr[idx] = bar
+                                            break
+                                key = (sym, tf)
+                                prior_event = self.last_symbol_event_ms.get(key, 0)
+                                if fresh_event and event_ms >= prior_event:
+                                    self.last_symbol_event_ms[key] = event_ms
+                                    self.last_symbol_update[key] = time.time()
+                                    self.last_message[shard_id] = time.time()
+                            # Persist only completed candles. An unfinished WebSocket
+                            # update must never replace a durable, closed candle.
+                            if bar.get("closed") is True and getattr(self, "candle_archive", None) is not None:
+                                try:
+                                    self.candle_archive.upsert_bars(sym, tf, [bar])
+                                    self.last_history_write = time.time()
+                                except Exception as archive_exc:
+                                    self._history_storage_warning(
+                                        f"Canlı kapanmış mum arşivlenemedi ({type(archive_exc).__name__}); akış sürecek."
+                                    )
+                        except Exception as exc:
+                            self.logger.debug("WebSocket mesaj ayrıştırma sorunu: %s", exc)
 
                 def on_error(ws, error):
                     nonlocal connection_error
@@ -1952,6 +2000,8 @@ class BinanceRadar:
                     self.ws_status[shard_id] = "HATA"
                 self.logger.warning("Binance WebSocket #%s bağlantı döngüsü (%s): %s", shard_id + 1, endpoint, exc)
             finally:
+                if direct_recheck_timer is not None:
+                    direct_recheck_timer.cancel()
                 if app is not None:
                     with self.lock:
                         if app in self.ws_apps:

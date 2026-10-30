@@ -4140,7 +4140,8 @@ class ControlPanel(tk.Tk):
                 cloud_images = fetch_image_manifest()
                 for item in cloud_images:
                     raw = download_active_image(
-                        item["id"], item["filename"], item["content_type"]
+                        item["id"], item["filename"], item["content_type"],
+                        delivery_url=item.get("url"),
                     )
                     item["thumbnail_bytes"] = make_image_thumbnail(raw)
 

@@ -8,6 +8,7 @@ from unittest import mock
 from analysis_report import (
     READ_URL,
     UPLOAD_URL,
+    WORKER_BASE_URL,
     build_analysis_report,
     compress_analysis_report,
     gzip_compress_bytes,
@@ -78,7 +79,7 @@ class AnalysisReportTests(unittest.TestCase):
         self.assertLess(len(compressed), len(raw))
         self.assertEqual(compressed, gzip_compress_bytes(raw))
 
-    def test_analysis_upload_posts_gzip_json_to_the_fixed_relay(self):
+    def test_analysis_upload_posts_gzip_json_to_cloudflare_directly(self):
         payload = {
             "report_type": "analysis",
             "schema_version": 1,
@@ -104,7 +105,7 @@ class AnalysisReportTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         headers = {name.lower(): value for name, value in request.header_items()}
         self.assertEqual(request.get_method(), "POST")
-        self.assertEqual(request.full_url, UPLOAD_URL)
+        self.assertEqual(request.full_url, f"{WORKER_BASE_URL}/api/report")
         self.assertEqual(headers["authorization"], "Bearer test-upload-token")
         self.assertEqual(headers["content-encoding"], "gzip")
         self.assertEqual(headers["content-type"], "application/json; charset=utf-8")
@@ -138,6 +139,41 @@ class AnalysisReportTests(unittest.TestCase):
         sleep.assert_called_once_with(1.0)
         self.assertTrue(result["ok"])
 
+    def test_analysis_upload_falls_back_to_render_after_cloudflare_rejects_request(self):
+        payload = {
+            "report_type": "analysis",
+            "schema_version": 1,
+            "candidate_count": 1,
+            "candidates": [{"symbol": "ABCUSDT"}],
+        }
+        compressed = gzip.compress(json.dumps(payload).encode("utf-8"))
+        config = {"upload_url": UPLOAD_URL, "upload_token": "test-upload-token", "read_url": READ_URL}
+        direct_denied = urllib.error.HTTPError(
+            f"{WORKER_BASE_URL}/api/report", 401, "Unauthorized", {},
+            io.BytesIO(b'{"ok":false,"error":"direct token rejected"}'),
+        )
+        fallback_response = mock.MagicMock()
+        fallback_response.__enter__.return_value = fallback_response
+        fallback_response.status = 200
+        fallback_response.read.return_value = json.dumps({
+            "ok": True, "report_type": "analysis", "candidate_count": 1,
+        }).encode("utf-8")
+
+        with mock.patch(
+            "analysis_report.urllib.request.urlopen",
+            side_effect=[direct_denied, fallback_response],
+        ) as urlopen:
+            result = upload_analysis_report(config, compressed)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["report_kind"], "analysis")
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(
+            urlopen.call_args_list[0].args[0].full_url,
+            f"{WORKER_BASE_URL}/api/report",
+        )
+        self.assertEqual(urlopen.call_args_list[1].args[0].full_url, UPLOAD_URL)
+
     def test_analysis_upload_does_not_retry_permanent_http_401(self):
         payload = {
             "report_type": "analysis",
@@ -153,10 +189,12 @@ class AnalysisReportTests(unittest.TestCase):
 
         with mock.patch("analysis_report.urllib.request.urlopen", side_effect=denied) as urlopen, \
              mock.patch("analysis_report.time.sleep") as sleep:
-            with self.assertRaisesRegex(RuntimeError, "Sunucu HTTP 401"):
+            with self.assertRaisesRegex(RuntimeError, "Rapor doğrudan Cloudflare"):
                 upload_analysis_report(config, compressed)
 
-        urlopen.assert_called_once()
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(urlopen.call_args_list[0].args[0].full_url, f"{WORKER_BASE_URL}/api/report")
+        self.assertEqual(urlopen.call_args_list[1].args[0].full_url, UPLOAD_URL)
         sleep.assert_not_called()
 
     def test_invalid_nan_is_not_silently_serialized(self):

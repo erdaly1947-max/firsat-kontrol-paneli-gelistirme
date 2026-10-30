@@ -1,5 +1,6 @@
 import http from "node:http";
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { deflateSync, gzipSync } from "node:zlib";
 import { pathToFileURL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { BoundedRestCache } from "./rest_cache.js";
@@ -23,6 +24,7 @@ const REPORT_UPLOAD_ROUTES = new Map([
   ["/api/report/troubleshooting-zip", { kind: "troubleshooting_zip", contentType: "application/zip", workerPath: "/api/report/troubleshooting-zip", encoding: null }],
 ]);
 const IMAGE_UPLOAD_ROUTES = new Map([
+  ["/api/images/sign-upload", { kind: "image_sign_upload", acceptedContentTypes: ["application/json"], maxBodyBytes: IMAGE_CONTROL_BODY_BYTES }],
   ["/api/images/stage", { kind: "image_stage", acceptedContentTypes: ["image/png", "image/jpeg"], maxBodyBytes: IMAGE_MAX_BODY_BYTES }],
   ["/api/images/commit", { kind: "image_commit", acceptedContentTypes: ["application/json"], maxBodyBytes: IMAGE_CONTROL_BODY_BYTES }],
   ["/api/images/abort", { kind: "image_abort", acceptedContentTypes: ["application/json"], maxBodyBytes: IMAGE_CONTROL_BODY_BYTES }],
@@ -59,13 +61,16 @@ const ROUTES = [
   { prefix: "/binance", path: "/api/v3/depth", exchange: "binance", allowedParams: ["symbol", "limit"] },
   { prefix: "/btcturk", path: "/api/v2/server/exchangeinfo", exchange: "btcturk", allowedParams: [] },
   { prefix: "/btcturk", path: "/api/v2/ticker/currency", exchange: "btcturk", allowedParams: ["symbol"] },
-  { prefix: "/btcturk", path: "/api/v2/ticker", exchange: "btcturk", allowedParams: [] },
+  { prefix: "/btcturk", path: "/api/v2/ticker", exchange: "btcturk", allowedParams: ["pairSymbol"] },
+  { prefix: "/btcturk", path: "/api/v2/orderbook", exchange: "btcturk", allowedParams: ["pairSymbol", "limit"] },
+  { prefix: "/btcturk-graph", path: "/v1/klines/history", exchange: "btcturk_graph", allowedParams: ["symbol", "resolution", "from", "to"] },
 ];
 
 const ROUTE_BY_PATH = new Map(ROUTES.map((route) => [route.prefix + route.path, route]));
 const UPSTREAMS = {
   binance: BINANCE_REST_ORIGINS,
   btcturk: ["https://api.btcturk.com"],
+  btcturk_graph: ["https://graph-api.btcturk.com"],
 };
 
 const CACHE_TTL_MS = {
@@ -73,6 +78,7 @@ const CACHE_TTL_MS = {
   "/api/v2/server/exchangeinfo": 60_000,
   "/api/v2/ticker/currency": 3_000,
   "/api/v2/ticker": 2_000,
+  "/v1/klines/history": 30_000,
   "/api/v3/ticker/24hr": 2_000,
   "/api/v3/depth": 1_000,
   "/api/v3/klines": 5_000,
@@ -183,11 +189,44 @@ export function validateRestQuery(route, params) {
     if (timeZone !== null && !/^(?:-?\d{1,2}(?::[0-5]\d)?|[+-]\d{1,2}:[0-5]\d)$/.test(timeZone)) {
       return "timeZone parametresi geçersiz.";
     }
-  } else if (
-    route.path === "/api/v2/ticker/currency"
-    && (params.get("symbol") || "").toLowerCase() !== "usdt"
-  ) {
-    return "Yalnızca USDT ticker sorgusu kabul edilir.";
+  } else if (route.exchange === "btcturk") {
+    if (
+      route.path === "/api/v2/ticker/currency"
+      && (params.get("symbol") || "").toLowerCase() !== "usdt"
+    ) {
+      return "Yalnızca USDT ticker sorgusu kabul edilir.";
+    }
+    const pairSymbol = params.get("pairSymbol");
+    if (pairSymbol !== null && !isSafeSymbol(pairSymbol)) {
+      return "BtcTurk parite kodu geçersiz.";
+    }
+    if (route.path === "/api/v2/orderbook" && pairSymbol === null) {
+      return "BtcTurk emir defteri için pairSymbol zorunludur.";
+    }
+    const orderbookLimit = params.get("limit");
+    if (
+      route.path === "/api/v2/orderbook"
+      && orderbookLimit !== null
+      && (!/^\d+$/.test(orderbookLimit) || Number(orderbookLimit) < 1 || Number(orderbookLimit) > 100)
+    ) {
+      return "BtcTurk emir defteri limit değeri 1 ile 100 arasında olmalıdır.";
+    }
+  } else if (route.exchange === "btcturk_graph") {
+    const symbol = params.get("symbol");
+    const resolution = params.get("resolution");
+    const from = params.get("from");
+    const to = params.get("to");
+    const resolutions = new Set(["1", "15", "30", "60", "240", "1D", "D", "1440"]);
+    if (symbol === null || !isSafeSymbol(symbol)) return "BtcTurk grafik parite kodu geçersiz.";
+    if (resolution === null || !resolutions.has(resolution)) return "BtcTurk grafik zaman aralığı geçersiz.";
+    if (
+      from === null || to === null
+      || !/^\d+$/.test(from) || !/^\d+$/.test(to)
+      || !Number.isSafeInteger(Number(from)) || !Number.isSafeInteger(Number(to))
+      || Number(from) < 1 || Number(to) < Number(from)
+    ) {
+      return "BtcTurk grafik zaman aralığı geçersiz.";
+    }
   }
 
   return null;
@@ -279,6 +318,40 @@ async function fetchPublicMarketData(route, url) {
   };
 }
 
+
+function acceptsGzip(request) {
+  const header = String(request.headers["accept-encoding"] || "");
+  return header.split(",").some((entry) => {
+    const [coding, ...parameters] = entry.trim().toLowerCase().split(";");
+    if (coding !== "gzip" && coding !== "*") return false;
+    const quality = parameters.map((item) => /^q=([0-9.]+)$/.exec(item.trim()))
+      .find(Boolean)?.[1];
+    return quality === undefined || Number(quality) > 0;
+  });
+}
+
+function writeMarketDataResponse(request, response, result, cacheStatus) {
+  let body = Buffer.from(result.body ?? "", "utf8");
+  const headers = {
+    "Content-Type": result.contentType,
+    "Cache-Control": result.cacheControl,
+    "X-Content-Type-Options": "nosniff",
+    "Access-Control-Allow-Origin": "*",
+    "Vary": "Accept-Encoding",
+    ...(cacheStatus ? { "X-Firsat-Relay-Cache": cacheStatus } : {}),
+    ...(result.upstreamHost ? { "X-Firsat-Relay-Upstream": result.upstreamHost } : {}),
+  };
+  if (body.length >= 512 && acceptsGzip(request)) {
+    const compressed = gzipSync(body, { level: 6 });
+    if (compressed.length < body.length) {
+      body = compressed;
+      headers["Content-Encoding"] = "gzip";
+    }
+  }
+  headers["Content-Length"] = String(body.length);
+  response.writeHead(result.status, headers);
+  response.end(body);
+}
 
 function checkReportRateLimit(ip, now = Date.now()) {
   let bucket = REPORT_RATE_BUCKETS.get(ip);
@@ -447,6 +520,28 @@ function cloudinaryResourceFilename(resource, id, contentType) {
   }
   return id + (contentType === "image/png" ? ".png" : ".jpg");
 }
+function cloudinaryDirectDeliveryUrls(resource, id, contentType) {
+  const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim();
+  if (!cloudName) return null;
+  let assetUrl;
+  try { assetUrl = new URL(resource?.secure_url || ""); }
+  catch { return null; }
+  const marker = "/" + cloudName + "/image/upload/";
+  const markerIndex = assetUrl.pathname.indexOf(marker);
+  if (assetUrl.protocol !== "https:" || assetUrl.hostname !== "res.cloudinary.com" ||
+      assetUrl.username || assetUrl.password || assetUrl.search || assetUrl.hash || markerIndex !== 0) return null;
+  const suffix = assetUrl.pathname.slice(markerIndex + marker.length);
+  const remaining = suffix.split("/").filter((part) => !/^v\d+$/.test(part));
+  const expectedFile = CLOUDINARY_IMAGE_PREFIX + id + (contentType === "image/png" ? ".png" : ".jpg");
+  if (remaining.length !== 1 || remaining[0] !== expectedFile) return null;
+  const deliveryUrl = assetUrl.toString();
+  const previewUrl = new URL(deliveryUrl);
+  const prefix = assetUrl.pathname.slice(0, markerIndex + marker.length);
+  const previewSuffix = suffix.replace(/\.(?:png|jpe?g)$/i, ".jpg");
+  previewUrl.pathname = prefix + "c_limit,w_1280,f_jpg,q_75/" + previewSuffix;
+  return { delivery_url: deliveryUrl, preview_url: previewUrl.toString() };
+}
+
 function cloudinaryImageRecord(resource) {
   const id = cloudinaryImageId(resource?.public_id);
   const contentType = cloudinaryImageMime(resource);
@@ -454,8 +549,51 @@ function cloudinaryImageRecord(resource) {
   const uploadedAt = resource?.created_at;
   if (!id || !contentType || !Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > IMAGE_MAX_BODY_BYTES ||
       typeof uploadedAt !== "string" || !uploadedAt) throw new Error("Cloudinary görüntü kaydı geçersiz.");
-  return { id, filename: cloudinaryResourceFilename(resource, id, contentType), content_type: contentType, size_bytes: sizeBytes, uploaded_at: uploadedAt };
+  const delivery = cloudinaryDirectDeliveryUrls(resource, id, contentType);
+  return {
+    id,
+    filename: cloudinaryResourceFilename(resource, id, contentType),
+    content_type: contentType,
+    size_bytes: sizeBytes,
+    uploaded_at: uploadedAt,
+    ...(delivery || {}),
+  };
 }
+
+function cloudinaryPrepareImageUpload(config, filename, contentType, sizeBytes) {
+  if (typeof filename !== "string" || !imageFilenameMatchesType(filename, contentType) ||
+      filename.length < 1 || filename.length > 255 || filename.includes("/") || filename.includes("\\") ||
+      /[\u0000-\u001f\u007f]/u.test(filename) ||
+      !Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > IMAGE_MAX_BODY_BYTES) {
+    const error = new Error("Doğrudan görüntü aktarım bilgileri geçersiz.");
+    error.status = 400;
+    throw error;
+  }
+  const id = randomUUID().toLowerCase();
+  const publicId = CLOUDINARY_IMAGE_PREFIX + id;
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const context = "filename_b64=" + Buffer.from(filename, "utf8").toString("base64url");
+  const signedParams = {
+    context,
+    overwrite: "false",
+    public_id: publicId,
+    tags: CLOUDINARY_STAGE_TAG,
+    timestamp,
+  };
+  const canonical = Object.keys(signedParams).sort()
+    .map((key) => key + "=" + signedParams[key]).join("&") + config.apiSecret;
+  const signature = createHash("sha1").update(canonical, "utf8").digest("hex");
+  return {
+    ok: true,
+    staged_id: id,
+    upload_url: cloudinaryApiBase(config) + "/image/upload",
+    cloud_name: config.cloudName,
+    api_key: config.apiKey,
+    signature,
+    ...signedParams,
+  };
+}
+
 function cloudinaryTime(resource) {
   const value = Date.parse(resource?.created_at || "");
   return Number.isFinite(value) ? value : 0;
@@ -594,6 +732,9 @@ async function handleCloudinaryImageUpload(request,response,route) {
   const token=bearerToken(request);
   if (!token) { jsonResponse(response,401,{ok:false,error:"Görüntü aktarım kimliği doğrulanamadı."}); request.resume(); return; }
   const expectedToken=process.env.REPORT_RELAY_TOKEN;
+  if (route.kind==="image_sign_upload" && !expectedToken) {
+    jsonResponse(response,503,{ok:false,error:"Doğrudan görüntü aktarım imzası sunucuda yapılandırılmamış."}); request.resume(); return;
+  }
   if (expectedToken && (expectedToken.length>8192 || Buffer.byteLength(token)!==Buffer.byteLength(expectedToken) ||
       !timingSafeEqual(Buffer.from(token),Buffer.from(expectedToken)))) {
     jsonResponse(response,401,{ok:false,error:"Görüntü aktarım kimliği doğrulanamadı."}); request.resume(); return;
@@ -633,8 +774,17 @@ async function handleCloudinaryImageUpload(request,response,route) {
   try {
     const config=cloudinaryConfiguration();
     let result;
-    if (route.kind==="image_stage") result=await cloudinaryStageImage(config,body,filename,contentType);
-    else {
+    if (route.kind==="image_sign_upload") {
+      let payload;
+      try { payload=JSON.parse(body.toString("utf8")); }
+      catch { jsonResponse(response,400,{ok:false,error:"Doğrudan görüntü aktarım bilgileri geçerli JSON değil."}); return; }
+      if (!payload || typeof payload!=="object" || Array.isArray(payload)) {
+        jsonResponse(response,400,{ok:false,error:"Doğrudan görüntü aktarım bilgileri geçersiz."}); return;
+      }
+      result=cloudinaryPrepareImageUpload(config,payload.filename,payload.content_type,payload.size_bytes);
+    } else if (route.kind==="image_stage") {
+      result=await cloudinaryStageImage(config,body,filename,contentType);
+    } else {
       let payload;
       try { payload=JSON.parse(body.toString("utf8")); }
       catch { jsonResponse(response,400,{ok:false,error:"Görüntü kontrol isteği geçerli JSON değil."}); return; }
@@ -976,30 +1126,13 @@ async function handleHttp(request, response) {
   if (ttl > 0) {
     const cached = readCache(cacheKey);
     if (cached) {
-      response.writeHead(cached.status, {
-        "Content-Type": cached.contentType,
-        "Cache-Control": cached.cacheControl,
-        "X-Content-Type-Options": "nosniff",
-        "Access-Control-Allow-Origin": "*",
-        "X-Firsat-Relay-Cache": "HIT",
-        "X-Firsat-Relay-Upstream": cached.upstreamHost,
-      });
-      response.end(cached.body);
+      writeMarketDataResponse(request, response, cached, "HIT");
       return;
     }
   }
 
   const result = await fetchPublicMarketData(route, url);
-  const headers = {
-    "Content-Type": result.contentType,
-    "Cache-Control": result.cacheControl,
-    "X-Content-Type-Options": "nosniff",
-    "Access-Control-Allow-Origin": "*",
-    "X-Firsat-Relay-Cache": "MISS",
-    "X-Firsat-Relay-Upstream": result.upstreamHost,
-  };
-  response.writeHead(result.status, headers);
-  response.end(result.body);
+  writeMarketDataResponse(request, response, result, "MISS");
 
   if (result.status >= 200 && result.status < 300 && ttl > 0) {
     writeCache(cacheKey, { ...result, expiresAt: Date.now() + ttl });
@@ -1033,14 +1166,78 @@ function releaseWebSocketSlot(ip) {
   activeWebSocketCount = Math.max(0, activeWebSocketCount - 1);
 }
 
-function bridgeBinanceStream(client, streams) {
+function bridgeBinanceStream(client, streams, frameFormat = null) {
   let closed = false;
   let upstream = null;
   let endpointIndex = 0;
+  const compressedBatches = frameFormat === "fkp1";
+  let batchFrames = [];
+  let batchBytes = 0;
+  let batchTimer = null;
+  let pendingBatchSends = 0;
+  let pendingClose = null;
+
+  const finishPendingClose = () => {
+    if (!pendingClose || pendingBatchSends > 0 || batchFrames.length > 0) return;
+    const pending = pendingClose;
+    pendingClose = null;
+    if (client.readyState === WebSocket.OPEN) client.close(pending.code, pending.reason);
+  };
+
+  const flushBatch = () => {
+    if (batchTimer) {
+      clearTimeout(batchTimer);
+      batchTimer = null;
+    }
+    if (!batchFrames.length) {
+      finishPendingClose();
+      return;
+    }
+    const raw = Buffer.from(batchFrames.join("\n"), "utf8");
+    batchFrames = [];
+    batchBytes = 0;
+    if (client.readyState !== WebSocket.OPEN) {
+      finishPendingClose();
+      return;
+    }
+    const compressed = deflateSync(raw);
+    const frame = Buffer.concat([Buffer.from("FKP1", "ascii"), compressed]);
+    pendingBatchSends += 1;
+    client.send(frame, { binary: true }, (error) => {
+      pendingBatchSends = Math.max(0, pendingBatchSends - 1);
+      if (error) cleanup();
+      else finishPendingClose();
+    });
+  };
+
+  const closeAfterBatch = (code, reason) => {
+    if (client.readyState !== WebSocket.OPEN || pendingClose) return;
+    pendingClose = { code, reason };
+    flushBatch();
+    finishPendingClose();
+  };
+
+  const queueBatchFrame = (data) => {
+    const frameText = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+    batchFrames.push(frameText);
+    batchBytes += Buffer.byteLength(frameText, "utf8") + 1;
+    if (batchBytes >= 128 * 1024 || batchFrames.length >= 256) {
+      flushBatch();
+    } else if (!batchTimer) {
+      batchTimer = setTimeout(flushBatch, 25);
+    }
+  };
 
   const cleanup = () => {
     if (closed) return;
     closed = true;
+    if (batchTimer) {
+      clearTimeout(batchTimer);
+      batchTimer = null;
+    }
+    batchFrames = [];
+    batchBytes = 0;
+    pendingClose = null;
     if (upstream && upstream.readyState !== WebSocket.CLOSED) {
       try {
         upstream.close();
@@ -1097,10 +1294,15 @@ function bridgeBinanceStream(client, streams) {
       opened = true;
       clearTimeout(connectTimer);
       upstream.on("message", (data, isBinary) => {
-        if (client.readyState === WebSocket.OPEN) client.send(data, { binary: isBinary });
+        if (client.readyState !== WebSocket.OPEN) return;
+        if (compressedBatches && !isBinary) queueBatchFrame(data);
+        else client.send(data, { binary: isBinary }, (error) => {
+          if (error) cleanup();
+        });
       });
       upstream.on("error", () => {
-        if (client.readyState === WebSocket.OPEN) client.close(1011, "Upstream stream error");
+        if (compressedBatches) closeAfterBatch(1011, "Upstream stream error");
+        else if (client.readyState === WebSocket.OPEN) client.close(1011, "Upstream stream error");
       });
     });
 
@@ -1112,7 +1314,8 @@ function bridgeBinanceStream(client, streams) {
       clearTimeout(connectTimer);
       if (!opened) next();
       else if (!closed && client.readyState === WebSocket.OPEN) {
-        client.close(1011, "Upstream stream closed");
+        if (compressedBatches) closeAfterBatch(1011, "Upstream stream closed");
+        else client.close(1011, "Upstream stream closed");
       }
     });
   };
@@ -1150,15 +1353,19 @@ export function createRelayServer() {
       writeUpgradeError(socket, 400, "WebSocket endpoint izin listesinde değil.");
       return;
     }
+    const frameFormatValues = url.searchParams.getAll("format");
     if (
       url.searchParams.getAll("streams").length !== 1
-      || [...url.searchParams.keys()].some((key) => key !== "streams")
+      || frameFormatValues.length > 1
+      || [...url.searchParams.keys()].some((key) => key !== "streams" && key !== "format")
+      || (frameFormatValues.length === 1 && frameFormatValues[0] !== "fkp1")
     ) {
-      writeUpgradeError(socket, 400, "Yalnızca tek streams parametresi kabul edilir.");
+      writeUpgradeError(socket, 400, "WebSocket parametreleri izin listesinde değil.");
       return;
     }
 
     const streams = url.searchParams.get("streams");
+    const frameFormat = frameFormatValues[0] || null;
     const streamError = validateWebSocketStreams(streams);
     if (streamError) {
       writeUpgradeError(socket, 400, streamError);
@@ -1181,7 +1388,7 @@ export function createRelayServer() {
       client.once("close", release);
       client.once("error", release);
       webSocketServer.emit("connection", client, request);
-      bridgeBinanceStream(client, streams);
+      bridgeBinanceStream(client, streams, frameFormat);
     });
   });
 

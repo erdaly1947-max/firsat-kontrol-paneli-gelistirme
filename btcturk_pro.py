@@ -12,8 +12,7 @@ import math
 import time
 from typing import Any
 
-import requests
-
+from ortak_piyasa import public_get
 from radar_core import assess_timeframe, build_trade_plan, timeframe_bar_end_ms
 
 BTCTURK_API = "https://api.btcturk.com"
@@ -50,7 +49,7 @@ def _positive(value: Any) -> float | None:
 
 def _request_json(url: str, *, params: dict[str, Any] | None = None,
                   timeout: float = REQUEST_TIMEOUT) -> Any:
-    response = requests.get(
+    response = public_get(
         url, params=params, timeout=timeout,
         headers={"Accept": "application/json", "User-Agent": USER_AGENT},
     )
