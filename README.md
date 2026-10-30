@@ -39,6 +39,18 @@ Kullanıcı “fotoğraf gönderdim”, “görsel gönderdim” veya “ekran g
 
 Masaüstü kodundaki ilgili işlevler analysis_report.py içindedir: görüntü partisi yükleme, geçici yükleme, commit, manifesti alma ve görüntüyü çekme. Sunucu tarafındaki görüntü uçları render_relay/server.js içindedir. Cloudinary anahtarları yalnızca Render ortamında tutulur. Aktif manifest en fazla üç görüntü gösterir; yükleme PNG/JPEG için tasarlanmıştır ve tek görüntünün boyut sınırı 15 MiB'dir.
 
+### Doğrudan bağlantı ve yedek yollar — 30 Ekim 2026
+
+Bu bölüm, bağlantı maliyetini azaltan ve doğrudan erişim başarısız olduğunda mevcut Render geçidini koruyan uygulama akışını açıklar. Hedef, veri akışını veya tarama sıklığını azaltmak değil; aynı piyasa olaylarını ve rapor/görüntü işlevlerini daha az ara sunucu trafiğiyle taşımaktır.
+
+- **Binance ve BtcTurk REST:** İzin verilen piyasa istekleri önce resmî borsa adreslerine gider. Bağlantı/TLS gibi erişim hatalarında uygun alternatif doğrudan adresler denenir; bunlar başarısız olursa Render geçidine dönülür. Borsa kaynaklı HTTP 429/418 gibi hız sınırı yanıtları, başka bir host üzerinden tekrar edilerek aşılmaya çalışılmaz. REST yol durumu borsa ve veri türü bazında ayrı izlenir; Render yedeğinde geçici bekleme sonunda doğrudan yol yeniden sınanır.
+- **Binance WebSocket:** Resmî doğrudan akış adresleri önce denenir; Render WebSocket yalnızca son yedektir. Render yedeği format=fkp1 ile 25 ms'lik küçük gruplarda kayıpsız deflate sıkıştırması kullanır. Her özgün Binance olayı satır sınırlarıyla korunur; masaüstü FKP1 işaretini ve sıkıştırmayı çözer, olayları sırayla işler. Mumlar birleştirilmez, ara olaylar atlanmaz ve tarama aralığı büyütülmez. Render yedeğinde bağlantı 300 saniyede bir yenilenerek doğrudan erişim yeniden sınanır.
+- **Analiz ve durum raporları:** analysis_report.py önce raporu Cloudflare Worker'a doğrudan gönderir. Doğrudan gönderim başarısız olursa aynı gövde mevcut Render rapor geçidine yedeklenir. Gzip/ZIP biçimleri ve rapor veri yapıları korunur.
+- **Ekran görüntüsü yükleme:** Masaüstü önce Render /api/images/sign-upload uç noktasından kısa bir imzalı yükleme talimatı alır. Render kimlik doğrulamasını yapar ve Cloudinary gizli anahtarını sunucuda tutarak imzayı üretir. Görüntü baytları daha sonra masaüstünden Cloudinary'ye doğrudan gönderilir. Bu doğrudan aktarım başarısız olursa mevcut Render /api/images/stage yolu yedek olarak kullanılır. Commit/abort ve manifest işlemleri Render üzerinden sürer.
+- **Ekran görüntüsü indirme:** Manifestteki Cloudinary teslim adresi yalnızca beklenen Cloudinary alan adı, hesap ve dosya kimliği doğrulanırsa kullanılır. Doğrudan indirme başarısız olursa mevcut Render görüntü indirme yolu yedek olarak denenir. Önizleme, orijinal görüntü dosyasını değiştirmez.
+
+**Çalışma sınırı:** İmzalı doğrudan yükleme, imza almak için hâlâ Render hizmetine erişim gerektirir. Render hizmeti askıdaysa doğrudan Cloudinary bayt aktarımı tek başına yüklemeyi başlatamaz; bu durum, Render yedeğinin hazır olduğu veya canlı görüntü akışının çalıştığı şeklinde yorumlanmamalıdır. Canlı hizmet kontrolü başarısızsa otomatik test sonucu bunu ayrıca belirtmelidir.
+
 ## Programın amacı ve mevcut kapsamı
 
 Program, hızlı yükseliş potansiyeli taşıyan coinleri erken bulmaya yardımcı olan bir teknik analiz ve karar destek aracıdır. Temel amaç, kullanıcının para kazanmasına yardımcı olabilecek fırsatları erkenden tespit edip değerlendirmesini desteklemektir. Otomatik alım-satım yapmaz, borsa hesabına bağlanmaz ve emir göndermez. Güçlü fırsat ya da A/B/C sınıflandırması kârlılık öngörüsü içindir.
@@ -67,7 +79,7 @@ Kodda işlevin bulunması, o işlevin tarihsel piyasa koşullarında kârlı ça
 - render_relay/server.js — Render piyasa/görsel/rapor geçidi sunucusu.
 - render_relay/rest_cache.js — sınırlı boyut ve kayıt sayısı kullanan REST önbelleği.
 - cloudflare/report-worker/src/index.js — rapor Worker'ı.
-- tests/ — Python ve sunucu işlevlerinin otomatik testleri.
+- tests/ — Python işlev testleri ve regresyon kontrolleri. Doğrudan Cloudinary imzalı yükleme/yedek yolu, rapor Cloudflare→Render yedek akışı ve Binance FKP1 WebSocket paket çözme/sıralama testleri bu kapsamda yer alır.
 - .github/workflows/validate-and-package.yml — kaynak doğrulama, test ve açıkça istenen son paketleme akışı.
 
 ## Bağlantılar ve entegrasyon kullanım haritası
@@ -78,7 +90,7 @@ Bu bölüm, bir hizmet/eklenti bağlantısı yeniden kurulacağı veya bir işle
 
 - Ana depo: https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme
 - Güncel dal: main. Kabul edilmiş sürüm zinciri, main tamamlanıp sabitlendikten sonra yeni sürüm dallarına bir önceki sürümün eksiksiz kopyalanması esasına dayanır.
-- .github/workflows/validate-and-package.yml Python derlemesini/birim testlerini, Worker testlerini, Render hizmet testlerini ve canlı piyasa/görüntü manifesti kontrollerini çalıştırır.
+- .github/workflows/validate-and-package.yml Python derlemesini/birim testlerini, Worker testlerini, Render hizmet testlerini, gerçek Windows Tkinter pencere/gezinme testini ve yapılandırılmış canlı piyasa/görüntü manifesti kontrollerini çalıştırır. Yerel otomatik testlerin başarılı olması, askıdaki canlı Render hizmetini veya masaüstü→Cloudinary→manifest uçtan uca aktarımını doğrulamış sayılmaz.
 - Render canlı hizmeti aynı depodaki main dalına bağlıdır ve otomatik dağıtım açıktır.
 - Gizli değerler koda, README'ye, commit mesajlarına veya loglara yazılmaz.
 - Paketleme tamamlandığında kullanıcıya Actions kapsayıcı arşivi değil yalnızca doğrulanmış program ZIP'i teslim edilir.
@@ -102,20 +114,22 @@ Bu bölüm, bir hizmet/eklenti bağlantısı yeniden kurulacağı veya bir işle
 **Kullanılan canlı uçlar**
 - GET /healthz: sunucu sağlığı ve sürüm bilgisi.
 - /binance/api/v3/... ve /btcturk/api/v2/...: izin listesinde bulunan halka açık piyasa REST verisi.
-- /ws/binance/stream?streams=...: Binance genel WebSocket mum akışı.
-- POST /api/report, /api/report/daily, /api/report/troubleshooting, /api/report/troubleshooting-zip: raporları Cloudflare rapor Worker'ına iletir.
-- POST /api/images/stage, /api/images/commit, /api/images/abort: görüntü yükleme grubu.
-- GET /images/manifest: etkin Cloudinary görüntü listesi.
-- GET /images/{UUID}?format=base64: seçilen görüntü baytlarını JSON içinde Base64 biçiminde döndürür.
+- /ws/binance/stream?streams=...: Binance genel WebSocket mum akışı. Masaüstü Render yedeğinde format=fkp1 ister; sunucu özgün olayları 25 ms'lik deflate gruplarında iletir.
+- POST /api/report, /api/report/daily, /api/report/troubleshooting, /api/report/troubleshooting-zip: Cloudflare doğrudan rapor gönderimi başarısız olduğunda raporları Worker'a aktaran yedek yol.
+- POST /api/images/sign-upload: masaüstüne güvenli Cloudinary doğrudan yükleme imzası ve geçici görüntü kimliği verir.
+- POST /api/images/stage: Cloudinary doğrudan aktarımı başarısız olursa kullanılan mevcut Render görüntü yükleme yedeği.
+- POST /api/images/commit, /api/images/abort: görüntü grubunu etkinleştirme veya geçici yüklemeleri iptal etme.
+- GET /images/manifest: etkin Cloudinary görüntü listesi ve doğrulanmış doğrudan teslim adresleri.
+- GET /images/{UUID}?format=base64: seçilen görüntü baytlarını JSON içinde Base64 biçiminde döndürür; küçük görüntü/önizleme sınırları korunur.
 
 Sunucu kodu render_relay/server.js, sınırlı REST önbelleği render_relay/rest_cache.js, sunucu testleri render_relay/test/, canlı piyasa kontrolü render_relay/smoke-check.mjs içindedir. Canlı piyasa kontrolü sağlık, Binance mum verisi, BtcTurk USDT ticker'ı ve gerçek WebSocket mesajını ayrı ayrı doğrular; yalnızca hizmetin live görünmesi yeterli değildir.
 
 ### Cloudinary — görüntü dosyası saklama
 
-- Görüntü dosyalarını Cloudinary saklar; istemci Cloudinary'ye doğrudan bağlanmaz, Render geçidini kullanır.
-- Canlı Render Environment bölümünde CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY ve CLOUDINARY_API_SECRET değişkenleri bulunmalıdır. Gerçek değerler README'ye, sohbete veya masaüstü ZIP'ine yazılmaz.
-- Render tarafındaki stage/commit/abort ve en fazla üç etkin görüntü mantığı render_relay/server.js ile render_relay/test/cloudinary-images.test.js içindedir.
-- Görüntü listesi çalışmıyorsa önce canlı Render /healthz, sonra Cloudinary değişken adları/değerlerinin doğruluğu kontrol edilir. API Secret paylaşılmaz.
+- Görüntü dosyalarını Cloudinary saklar. Masaüstü, yükleme öncesinde Render /api/images/sign-upload üzerinden kimliği doğrulanmış imza bilgisi alır; ardından görüntü baytlarını Cloudinary'ye doğrudan gönderir.
+- Render ortamında CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY ve CLOUDINARY_API_SECRET bulunmalıdır. API Secret yalnızca Render sunucusunda kullanılır; masaüstü kaynak koduna, yanıta veya ZIP'e konmaz. İmzalı yanıt API Key ve imzayı içerir; gizli anahtar içermez.
+- İmzalı aktarım başarısız olursa masaüstü, önceki Render /api/images/stage yükleme yoluna döner. Render stage/commit/abort, en fazla üç etkin görüntü, manifest ve indirme yedekleri render_relay/server.js ile render_relay/test/cloudinary-images.test.js içinde sınanır.
+- Manifestteki doğrudan teslim adresi masaüstünde tekrar doğrulanır; doğrudan Cloudinary indirmesi başarısızsa Render görüntü indirme yolu kullanılır. API Secret paylaşılmaz.
 
 ### Cloudflare — rapor saklama ve okuma
 
@@ -128,7 +142,7 @@ Sunucu kodu render_relay/server.js, sınırlı REST önbelleği render_relay/res
 - Sorun giderme JSON: POST /api/report/troubleshooting, oku GET /troubleshooting
 - Devir ZIP: POST /api/report/troubleshooting-zip, indir GET /troubleshooting.zip
 
-Masaüstü analiz/durum raporlarını yerelde reports klasöründe üretir. analysis_report.py raporları canlı Render geçidine yollar; Render bunları Cloudflare Worker'a aktarır. Okuma URL'leri WORKER_BASE_URL / READ_URL üzerinden doğrudan Worker'a gider. Yükleme Bearer token ile doğrulanır. Render'daki REPORT_RELAY_TOKEN ve CLOUDFLARE_REPORT_TOKEN değerleri, sunucu/Worker tarafındaki ilgili gizli ayarlarla uyumlu tutulur. Anahtarlar koda ve README'ye yazılmaz; raporlara gizli bilgi konmaz.
+Masaüstü analiz/durum raporlarını yerelde reports klasöründe üretir. analysis_report.py yüklemeyi önce WORKER_BASE_URL üzerinden Cloudflare Worker'a doğrudan yapar; bu yol başarısız olursa aynı rapor gövdesini RELAY_BASE_URL üzerinden Render'a gönderir ve Render Cloudflare'a aktarır. Okuma URL'leri WORKER_BASE_URL / READ_URL üzerinden doğrudan Worker'a gider. Her iki yükleme yolu Bearer token ile kimlik doğrular. Render'daki REPORT_RELAY_TOKEN ve Cloudflare Worker'daki CLOUDFLARE_REPORT_TOKEN ayrı sunucu tarafı gizli ayarlardır; değerler koda, README'ye veya masaüstü ZIP'ine yazılmaz. Raporlara gizli bilgi konmaz.
 
 Depodaki cloudflare_worker klasörü tarihsel piyasa-verisi denemesidir; aktif piyasa REST/WebSocket geçidi Render'dır. Rapor saklama Worker'ı ile eski piyasa veri denemesi aynı işlev değildir.
 
