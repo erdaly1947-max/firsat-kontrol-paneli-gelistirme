@@ -52,6 +52,17 @@ from analysis_report import (
 )
 
 from ortak_piyasa import fetch_btcturk_usdt_last_prices
+from btcturk_pro import (
+    TIMEFRAMES as BTCTURK_PRO_TIMEFRAMES,
+    analyze_btcturk_pro,
+    estimate_orderbook_execution,
+    fetch_binance_comparison,
+    fetch_btcturk_pro_candles,
+    fetch_btcturk_pro_markets,
+    fetch_btcturk_pro_orderbook,
+    fetch_btcturk_pro_ticker,
+    format_exchange_price,
+)
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -676,6 +687,25 @@ class ControlPanel(tk.Tk):
         self.technical_details_open = False
         self.diagnostics_open = False
         self._pane_orientation = "horizontal"
+        saved_btcturk_pro = _read_json(DATA_DIR / "btcturk_pro_state.json", {})
+        self.btcturk_pro_symbol = str(
+            saved_btcturk_pro.get("last_symbol", "BTCUSDT")
+            if isinstance(saved_btcturk_pro, dict) else "BTCUSDT"
+        ).upper()
+        self.btcturk_pro_markets: dict[str, dict[str, Any]] = {}
+        self.btcturk_pro_data: dict[str, Any] | None = None
+        self.btcturk_pro_request_id = 0
+        self.btcturk_pro_load_busy = False
+        self.btcturk_pro_quote_refresh_busy = False
+        self.workspace_current_page = "radar"
+        self.btcturk_pro_timeframe_var = tk.StringVar(value="15m")
+        self.btcturk_pro_entry_var = tk.StringVar(value=self.btcturk_pro_symbol)
+        self.btcturk_pro_amount_var = tk.StringVar(value="")
+        self.btcturk_pro_status_var = tk.StringVar(value="BtcTurk PRO verisi bekleniyor")
+        self.btcturk_pro_quote_var = tk.StringVar(value="BtcTurk fiyatı bekleniyor")
+        self.btcturk_pro_binance_var = tk.StringVar(value="Binance karşılaştırması: henüz alınmadı")
+        self.btcturk_pro_market_rules_var = tk.StringVar(value="Parite işlem kuralları bekleniyor")
+        self.btcturk_pro_cost_var = tk.StringVar(value="İşlem tutarı girildiğinde emir defteri maliyet tahmini gösterilir.")
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(250, self._poll)
@@ -717,7 +747,37 @@ class ControlPanel(tk.Tk):
         style.configure("TSeparator", background=white)
         self.configure(background=black)
 
-        status_row = ttk.Frame(self, padding=(12, 8, 12, 7))
+        self.workspace = ttk.Frame(self)
+        self.workspace.pack(fill="both", expand=True)
+        self.workspace_navigation = ttk.Frame(self.workspace, padding=(8, 10), width=154)
+        self.workspace_navigation.pack(side="left", fill="y")
+        self.workspace_navigation.pack_propagate(False)
+        ttk.Label(
+            self.workspace_navigation, text="ÇALIŞMA ALANI",
+            style="Section.TLabel", wraplength=132,
+        ).pack(fill="x", anchor="w", pady=(0, 12))
+        self.nav_radar_button = ttk.Button(
+            self.workspace_navigation, text="Fırsat Radarı",
+            command=lambda: self._show_workspace_page("radar"),
+        )
+        self.nav_radar_button.pack(fill="x", pady=(0, 6))
+        self.nav_btcturk_button = ttk.Button(
+            self.workspace_navigation, text="BtcTurk PRO",
+            command=self._open_btcturk_pro_from_radar,
+        )
+        self.nav_btcturk_button.pack(fill="x", pady=(0, 6))
+        ttk.Label(
+            self.workspace_navigation,
+            text="Binance: fırsat keşfi\nBtcTurk PRO: işlem analizi",
+            justify="left", wraplength=132,
+        ).pack(fill="x", anchor="w", pady=(12, 0))
+        self.workspace_pages = ttk.Frame(self.workspace)
+        self.workspace_pages.pack(side="left", fill="both", expand=True)
+        self.radar_page = ttk.Frame(self.workspace_pages)
+        self.radar_page.pack(fill="both", expand=True)
+        self.btcturk_page = ttk.Frame(self.workspace_pages)
+
+        status_row = ttk.Frame(self.radar_page, padding=(12, 8, 12, 7))
         status_row.pack(fill="x")
         self.live_status_label = ttk.Label(status_row, textvariable=self.live_status_var, style="LiveBad.TLabel")
         self.live_status_label.pack(side="left", padx=(0, 12))
@@ -725,16 +785,16 @@ class ControlPanel(tk.Tk):
         self.history_status_label.pack(side="left", padx=(0, 12))
         self.operation_status_label = ttk.Label(status_row, textvariable=self.status_var, style="TLabel", anchor="e")
         self.operation_status_label.pack(side="right", fill="x", expand=True)
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
+        ttk.Separator(self.radar_page, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
 
-        btc_row = ttk.Frame(self, padding=(12, 0, 12, 4))
+        btc_row = ttk.Frame(self.radar_page, padding=(12, 0, 12, 4))
         btc_row.pack(fill="x")
         ttk.Label(btc_row, text="BTC PİYASA ÖZETİ", style="BTC.TLabel").pack(side="left", anchor="n")
         self.btc_summary_label = ttk.Label(btc_row, textvariable=self.btc_context_var, justify="left", wraplength=max(360, self.window_width - 280), anchor="w")
         self.btc_summary_label.pack(side="left", fill="x", expand=True, padx=(10, 8))
         self.btc_details_button = ttk.Button(btc_row, text="BTC ayrıntıları ▸", command=self._toggle_btc_details)
         self.btc_details_button.pack(side="right")
-        self.btc_details_frame = ttk.Frame(self, padding=(12, 2, 12, 6))
+        self.btc_details_frame = ttk.Frame(self.radar_page, padding=(12, 2, 12, 6))
         btc_detail_inner = ttk.Frame(self.btc_details_frame)
         btc_detail_inner.pack(fill="both", expand=True)
         self.btc_details_text = tk.Text(btc_detail_inner, height=4, wrap="word", font=("Segoe UI", self.font_size - 1), background=black, foreground=white, insertbackground=white, selectbackground="#243447", relief="flat", state="disabled")
@@ -746,7 +806,7 @@ class ControlPanel(tk.Tk):
         btc_detail_inner.columnconfigure(0, weight=1)
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
 
-        controls = ttk.Frame(self, padding=(12, 0, 12, 7))
+        controls = ttk.Frame(self.radar_page, padding=(12, 0, 12, 7))
         controls.pack(fill="x")
         self.controls_inner = ttk.Frame(controls)
         self.controls_inner.pack(fill="x")
@@ -815,7 +875,7 @@ class ControlPanel(tk.Tk):
         self.after(120, self._layout_toolbar)
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
 
-        self.pane = ttk.Panedwindow(self, orient="horizontal")
+        self.pane = ttk.Panedwindow(self.radar_page, orient="horizontal")
         self.pane.pack(fill="both", expand=True, padx=12, pady=(0, 6))
         self.left_pane = ttk.Frame(self.pane, padding=(0, 0, 5, 0))
         self.right_pane = ttk.Frame(self.pane, padding=(5, 0, 0, 0))
@@ -909,12 +969,12 @@ class ControlPanel(tk.Tk):
         tech_text_frame.rowconfigure(0, weight=1)
         tech_text_frame.columnconfigure(0, weight=1)
 
-        diagnostics_controls = ttk.Frame(self, padding=(12, 2, 12, 3))
+        diagnostics_controls = ttk.Frame(self.radar_page, padding=(12, 2, 12, 3))
         diagnostics_controls.pack(fill="x")
         self.diagnostics_toggle_button = ttk.Button(diagnostics_controls, text="Tanılama ve son kayıtlar ▸", command=self._toggle_diagnostics)
         self.diagnostics_toggle_button.pack(side="left")
         ttk.Label(diagnostics_controls, text="A/B/C araştırma aşamalarıdır; teknik senaryolar garanti değildir.", style="TLabel").pack(side="right")
-        self.diagnostics_frame = ttk.LabelFrame(self, text="Tanılama ayrıntıları", padding=5)
+        self.diagnostics_frame = ttk.LabelFrame(self.radar_page, text="Tanılama ayrıntıları", padding=5)
         ttk.Label(self.diagnostics_frame, textvariable=self.diagnostics_summary_var, wraplength=max(400, self.window_width - 50), justify="left").pack(fill="x", anchor="w", pady=(0, 4))
         log_controls = ttk.Frame(self.diagnostics_frame)
         log_controls.pack(fill="x", pady=(0, 4))
@@ -933,8 +993,11 @@ class ControlPanel(tk.Tk):
         log_frame.columnconfigure(0, weight=1)
         self.bind("<Configure>", self._adapt_panes, add="+")
         self.bind("<Configure>", self._resize_wraplengths, add="+")
+        self._build_btcturk_pro_ui()
+        self.bind("<Configure>", self._adapt_panes, add="+")
         self._apply_font_scale()
         self._refresh_status_indicators()
+        self.after(15000, self._schedule_btcturk_pro_quote_refresh)
 
     def _apply_windows_titlebar(self) -> None:
         if os.name != "nt":
