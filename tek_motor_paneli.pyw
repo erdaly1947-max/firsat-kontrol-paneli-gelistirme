@@ -241,6 +241,45 @@ def _safe_float(value: Any) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _analysis_plan_overlay_levels(
+    plan: Any,
+) -> tuple[str, list[tuple[float, str, str]]]:
+    """Return validated chart levels without confusing a proposal with an active plan."""
+    if not isinstance(plan, dict):
+        return "PLAN YOK", []
+
+    status = str(plan.get("status") or "").strip().upper()
+    active = (
+        plan.get("active") is True
+        or status in {"AKTİF", "ACTIVE"}
+    )
+    entry_low = _safe_float(plan.get("entry_zone_low"))
+    entry_high = _safe_float(plan.get("entry_zone_high"))
+    stop_loss = _safe_float(plan.get("stop_loss"))
+
+    if any(value is None or value <= 0 for value in (entry_low, entry_high, stop_loss)):
+        return (status or "PLAN VERİSİ EKSİK", [])
+    if entry_high < entry_low or stop_loss >= entry_low:
+        return "PLAN SEVİYELERİ GEÇERSİZ", []
+
+    levels: list[tuple[float, str, str]] = [
+        (entry_low, "GİRİŞ ALT", "#E9B65D"),
+        (entry_high, "GİRİŞ ÜST", "#E9B65D"),
+        (stop_loss, "ZARAR-KES / GEÇERSİZLİK", "#F06A75"),
+    ]
+    targets = plan.get("targets")
+    if isinstance(targets, list):
+        for index, target in enumerate(targets[:4], start=1):
+            if not isinstance(target, dict):
+                continue
+            price = _safe_float(target.get("price"))
+            if price is not None and price > entry_high:
+                levels.append((price, f"HEDEF {index}", "#C6A4F5"))
+
+    label = "AKTİF PLAN" if active else "KOŞULLU PLAN · ETKİN DEĞİL"
+    return label, levels
+
+
 def _format_price(value: Any) -> str:
     """Render market prices as ordinary decimal text, not scientific notation."""
     return _format_market_price(value)
@@ -1259,7 +1298,7 @@ class ControlPanel(tk.Tk):
             ).pack(anchor="e")
             ttk.Label(card, textvariable=self.analysis_indicator_vars[key], wraplength=280).pack(anchor="w")
             self.analysis_indicator_frames[key] = card
-        analysis_plan_frame = ttk.LabelFrame(self.analysis_page, text="Aktif teknik plan ve değerlendirme", padding=5)
+        analysis_plan_frame = ttk.LabelFrame(self.analysis_page, text="Teknik plan ve değerlendirme", padding=5)
         analysis_plan_frame.pack(fill="x", padx=12, pady=(0, 10))
         self.analysis_plan_text = tk.Text(
             analysis_plan_frame, height=5, wrap="word", state="disabled",
@@ -1659,6 +1698,7 @@ class ControlPanel(tk.Tk):
             f"Motor anlık görüntüsünde {count} kapanmış mum mevcut. Daha uzun geçmiş motor durumunda sunulmadığında grafik genişletilmez."
         )
         plan = candidate.get("risk_plan") if isinstance(candidate.get("risk_plan"), dict) else {}
+        plan_presentation, _ = _analysis_plan_overlay_levels(plan)
         target_lines = []
         for index, target in enumerate(plan.get("targets", []) if isinstance(plan.get("targets"), list) else [], start=1):
             if isinstance(target, dict) and _safe_float(target.get("price")) is not None:
@@ -1668,13 +1708,14 @@ class ControlPanel(tk.Tk):
                 )
         details = [
             f"Plan durumu: {plan.get('status') or 'plan yok'}",
+            f"Plan türü: {plan_presentation}",
             f"Zaman dilimi: {plan.get('timeframe') or candidate.get('phase_timeframe') or '—'}",
             f"Koşullu giriş alt/üst: {_format_price(plan.get('entry_zone_low'))} / {_format_price(plan.get('entry_zone_high'))} USDT",
             f"Zarar-kes: {_format_price(plan.get('stop_loss'))} USDT",
             *(target_lines or ["Teknik hedef: mevcut değil"]),
             f"Geçersizlik koşulu: {plan.get('invalid_if') or plan.get('reason') or 'belirtilmedi'}",
             "",
-            "Not: Bu bir işlem planı taslağıdır; emir gönderilmez. Yeni öneri otomatik etkinleştirilmez.",
+            "Not: Koşullu plan seviyeleri grafik üzerinde ayrı gösterilir; emir gönderilmez ve plan otomatik etkinleştirilmez.",
         ]
         self._set_text(self.analysis_plan_text, "\n".join(details))
         self._refresh_analysis_indicators()
@@ -1787,27 +1828,31 @@ class ControlPanel(tk.Tk):
 
         metrics = self._analysis_current_metrics(candidate)
         layers = self.analysis_layer_vars
-        plan = candidate.get("risk_plan") if isinstance(candidate.get("risk_plan"), dict) else {}
+        plan_label, plan_levels = _analysis_plan_overlay_levels(plan)
+        if plan_levels:
+            plan_color = "#39FF88" if plan_label == "AKTİF PLAN" else "#E9B65D"
+            canvas.create_text(
+                left + 4, top + 7,
+                text=f"{plan_label} · EMİR GÖNDERİLMEZ",
+                fill=plan_color, anchor="nw", font=("Segoe UI", 8, "bold"),
+            )
+
         levels: list[tuple[float, str, str]] = []
         def add_level(raw: Any, label: str, color: str) -> None:
             value = _safe_float(raw)
             if value is not None and low <= value <= high:
                 levels.append((value, label, color))
-        plan_is_active = (
-            plan.get("active") is True
-            or str(plan.get("status") or "").strip().upper() in {"AKTİF", "ACTIVE"}
-        )
-        if plan_is_active and layers["entry"].get():
-            add_level(plan.get("entry_zone_low"), "GİRİŞ ALT", "#E9B65D")
-            add_level(plan.get("entry_zone_high"), "GİRİŞ ÜST", "#E9B65D")
-        if plan_is_active and layers["stop"].get():
-            add_level(plan.get("stop_loss"), "ZARAR-KES / GEÇERSİZLİK", "#F06A75")
-        if plan_is_active and layers["targets"].get():
-            targets = plan.get("targets")
-            if isinstance(targets, list):
-                for index, target in enumerate(targets[:4], start=1):
-                    if isinstance(target, dict):
-                        add_level(target.get("price"), f"HEDEF {index}", "#C6A4F5")
+
+        for value, label, color in plan_levels:
+            if label.startswith("GİRİŞ") and layers["entry"].get():
+                display_label = label if plan_label == "AKTİF PLAN" else f"KOŞULLU {label}"
+                add_level(value, display_label, color)
+            elif label.startswith("ZARAR-KES") and layers["stop"].get():
+                display_label = label if plan_label == "AKTİF PLAN" else f"KOŞULLU {label}"
+                add_level(value, display_label, color)
+            elif label.startswith("HEDEF") and layers["targets"].get():
+                display_label = label if plan_label == "AKTİF PLAN" else f"KOŞULLU {label}"
+                add_level(value, display_label, color)
         if layers["sr"].get():
             zones = metrics.get("support_resistance_zones")
             if isinstance(zones, list):

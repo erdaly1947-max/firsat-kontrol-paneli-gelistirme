@@ -1,9 +1,11 @@
 """Regression checks for the Sürüm 1 desktop-panel contracts."""
 import ast
 import json
+import math
 from pathlib import Path
 import unittest
 from types import SimpleNamespace
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -280,11 +282,55 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn("tracked_symbols", add_method)
         self.assertIn("tracked_symbols", save_method)
 
-    def test_chart_does_not_draw_plan_suggestions_as_active_plan(self):
+    def test_chart_shows_conditional_levels_without_mislabeling_them_active(self):
+        helper_node = next(
+            node for node in PANEL_TREE.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_analysis_plan_overlay_levels"
+        )
+
+        def safe_float(value):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            number = float(value)
+            return number if math.isfinite(number) else None
+
+        namespace = {"Any": Any, "_safe_float": safe_float}
+        exec(compile(ast.Module(body=[helper_node], type_ignores=[]), str(PANEL_PATH), "exec"), namespace)
+        present = namespace["_analysis_plan_overlay_levels"]
+        plan = {
+            "status": "FİYAT GİRİŞ BÖLGESİNDE — KOŞULLU",
+            "entry_zone_low": 100.0,
+            "entry_zone_high": 102.0,
+            "stop_loss": 95.0,
+            "targets": [{"price": 110.0}, {"price": 99.0}, {"price": "bad"}],
+        }
+
+        label, levels = present(plan)
+        self.assertEqual(label, "KOŞULLU PLAN · ETKİN DEĞİL")
+        self.assertEqual(
+            [(level[0], level[1]) for level in levels],
+            [
+                (100.0, "GİRİŞ ALT"),
+                (102.0, "GİRİŞ ÜST"),
+                (95.0, "ZARAR-KES / GEÇERSİZLİK"),
+                (110.0, "HEDEF 1"),
+            ],
+        )
+
+        active_plan = dict(plan, active=True)
+        active_label, active_levels = present(active_plan)
+        self.assertEqual(active_label, "AKTİF PLAN")
+        self.assertEqual(active_levels, levels)
+
+        invalid_label, invalid_levels = present(dict(plan, stop_loss=101.0))
+        self.assertEqual(invalid_label, "PLAN SEVİYELERİ GEÇERSİZ")
+        self.assertEqual(invalid_levels, [])
+
         drawing = ast.unparse(_method("_draw_analysis_chart"))
-        self.assertIn("plan_is_active", drawing)
-        self.assertIn("plan.get('active') is True", drawing)
-        self.assertIn("{'AKTİF', 'ACTIVE'}", drawing)
+        self.assertIn("_analysis_plan_overlay_levels(plan)", drawing)
+        self.assertIn("KOŞULLU", drawing)
+        self.assertIn("EMİR GÖNDERİLMEZ", drawing)
 
     def test_package_workflow_is_for_s1_and_package_is_explicit(self):
         workflow = (ROOT / ".github" / "workflows" / "validate-and-package.yml").read_text(encoding="utf-8")

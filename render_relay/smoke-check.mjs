@@ -10,15 +10,23 @@ async function fetchJson(path, timeoutMs = 30_000) {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(timeoutMs),
   });
-  const text = await response.text();
+  const raw = await response.text();
+  const diagnostic = [
+    "HTTP " + response.status,
+    "content-type=" + (response.headers.get("content-type") || "unknown"),
+    "server=" + (response.headers.get("server") || "unknown"),
+    "retry-after=" + (response.headers.get("retry-after") || "none"),
+    "request-id=" + (response.headers.get("x-request-id") || response.headers.get("rndr-id") || "none"),
+    "body=" + raw.slice(0, 240).replace(/\\s+/g, " "),
+  ].join("; ");
+  if (!response.ok) {
+    throw new Error(path + " isteği başarısız: " + diagnostic);
+  }
   let value;
   try {
-    value = JSON.parse(text);
+    value = JSON.parse(raw);
   } catch {
-    throw new Error(path + " yanıtı JSON değil (HTTP " + response.status + ").");
-  }
-  if (!response.ok) {
-    throw new Error(path + " HTTP " + response.status + ": " + JSON.stringify(value).slice(0, 300));
+    throw new Error(path + " geçerli JSON döndürmedi: " + diagnostic);
   }
   return { response, value };
 }
@@ -35,6 +43,9 @@ async function waitForHealth() {
       lastError = "Beklenmeyen sağlık yanıtı: " + JSON.stringify(value);
     } catch (error) {
       lastError = error.message || String(error);
+    }
+    if ((i + 1) % 6 === 0) {
+      console.warn("RENDER_HEALTH_RETRY attempt=" + (i + 1) + "/60; " + lastError);
     }
     await sleep(5_000);
   }

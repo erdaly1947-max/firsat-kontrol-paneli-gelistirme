@@ -25,7 +25,24 @@ permissions:
   contents: write
 
 jobs:
+  windows-ui-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Kaynak kodu al
+        uses: actions/checkout@v7
+      - name: Python hazırla
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14.8"
+      - name: Masaüstü arayüz bağımlılıklarını kur
+        run: python -m pip install -r requirements.txt
+      - name: Gerçek Windows Tkinter pencere ve gezinme testi
+        run: python tests/windows_ui_smoke.py
+
   test-and-package:
+    needs: windows-ui-smoke
+    if: always()
     runs-on: ubuntu-slim
     timeout-minutes: 20
     steps:
@@ -108,11 +125,15 @@ jobs:
         run: npm test --prefix render_relay
 
       - name: Canlı Render piyasa verisi ve WebSocket doğrulaması
+        id: render_live
+        continue-on-error: true
         env:
           RELAY_URL: https://firsat-kontrol-market-relay.onrender.com
         run: npm run smoke --prefix render_relay
 
       - name: Canlı ekran görüntüsü geçidi ve Cloudinary listeleme doğrulaması
+        id: image_live
+        continue-on-error: true
         env:
           IMAGE_RELAY_URL: https://firsat-kontrol-market-relay.onrender.com
         run: |
@@ -190,6 +211,8 @@ jobs:
           JS
 
       - name: Canlı BtcTurk USDT fiyat doğrulaması
+        id: btcturk_live
+        continue-on-error: true
         run: |
           python - <<'PY'
           from ortak_piyasa import fetch_btcturk_usdt_last_prices
@@ -202,8 +225,33 @@ jobs:
           print(f"Örnek fiyatlar: {sample}")
           PY
 
+      - name: Canlı entegrasyon sonuçlarını birleştir
+        if: always()
+        shell: bash
+        env:
+          RENDER_OUTCOME: ${{ steps.render_live.outcome }}
+          IMAGE_OUTCOME: ${{ steps.image_live.outcome }}
+          BTCTURK_OUTCOME: ${{ steps.btcturk_live.outcome }}
+        run: |
+          failed=0
+          for entry in \
+            "Render piyasa/WebSocket:${RENDER_OUTCOME}" \
+            "Görüntü/Cloudinary:${IMAGE_OUTCOME}" \
+            "BtcTurk doğrudan fiyat:${BTCTURK_OUTCOME}"; do
+            name="${entry%%:*}"
+            result="${entry#*:}"
+            echo "${name} sonucu: ${result}"
+            if [ "${result}" = "failure" ] || [ "${result}" = "cancelled" ]; then
+              failed=1
+            fi
+          done
+          if [ "${failed}" -ne 0 ]; then
+            echo "Bir veya daha fazla canlı entegrasyon kontrolü başarısız. Diğer bağımsız kontroller de çalıştırıldı."
+            exit 1
+          fi
+
       - name: Başarılı testlerden sonra Sürüm 01 ZIP ve SHA-256 oluştur
-        if: success() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
+        if: success() && needs.windows-ui-smoke.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
         run: |
           python - <<'PY'
           import hashlib
@@ -266,7 +314,7 @@ jobs:
           PY
 
       - name: Kalıcı GitHub Release indirme dosyalarını otomatik güncelle
-        if: success() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
+        if: success() && needs.windows-ui-smoke.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_SHA: ${{ github.sha }}
@@ -366,7 +414,7 @@ jobs:
           PY
 
       - name: Sürüm 01 Windows deneme paketini indirilebilir artefakt olarak yayımla
-        if: success() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
+        if: success() && needs.windows-ui-smoke.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
         uses: actions/upload-artifact@v7
         with:
           name: Firsat-Kontrol-Paneli-Surum-01-${{ github.run_number }}

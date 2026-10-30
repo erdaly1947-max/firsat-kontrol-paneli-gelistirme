@@ -51,6 +51,24 @@ test("Cloudinary error diagnostics preserve ordinary letters while removing cred
   );
 });
 
+
+test("health endpoint responds without external credentials or upstream dependencies", async (t) => {
+  const server = createRelayServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  t.after(() => new Promise((resolve) => server.close(() => resolve())));
+
+  const response = await fetch("http://127.0.0.1:" + server.address().port + "/healthz");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    service: "firsat-kontrol-market-relay",
+    version: 2,
+  });
+});
+
 test("only explicitly allowlisted public-market endpoints resolve", () => {
   assert.ok(resolveRestRoute("/binance/api/v3/exchangeInfo"));
   assert.ok(resolveRestRoute("/binance/api/v3/klines"));
