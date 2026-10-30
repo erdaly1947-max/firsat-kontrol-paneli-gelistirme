@@ -210,6 +210,118 @@ class ImageValidationTests(unittest.TestCase):
         self.assertEqual(plan["replace"], [])
 
 
+class CloudinaryDirectUploadTests(unittest.TestCase):
+    STAGED_ID = "33333333-3333-4333-8333-333333333333"
+
+    def _signed_response(self, metadata):
+        import base64
+
+        public_id = "fkp_screenshot_" + self.STAGED_ID
+        return {
+            "ok": True,
+            "staged_id": self.STAGED_ID,
+            "cloud_name": "test-cloud",
+            "upload_url": "https://api.cloudinary.com/v1_1/test-cloud/image/upload",
+            "api_key": "test-api-key",
+            "signature": "a" * 40,
+            "context": "filename_b64=" + base64.urlsafe_b64encode(
+                metadata["filename"].encode("utf-8")
+            ).decode("ascii").rstrip("="),
+            "overwrite": "false",
+            "public_id": public_id,
+            "tags": "fkp-staged",
+            "timestamp": "1793400000",
+        }
+
+    def test_upload_image_stage_sends_original_bytes_directly_to_cloudinary(self):
+        raw = image_bytes("PNG")
+        metadata = analysis_report.validate_image_bytes(raw, "screen.png")
+        signed = self._signed_response(metadata)
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"public_id": signed["public_id"]}
+        config = {"upload_url": analysis_report.UPLOAD_URL, "upload_token": "relay-token"}
+
+        with (
+            mock.patch("analysis_report._image_api_request", return_value=signed) as relay_request,
+            mock.patch("analysis_report.requests.post", return_value=response) as cloudinary_post,
+        ):
+            result = analysis_report.upload_image_stage(config, raw, "screen.png")
+
+        self.assertEqual(result, {
+            "ok": True, "staged_id": self.STAGED_ID, "delivery": "cloudinary_direct",
+        })
+        relay_request.assert_called_once()
+        self.assertEqual(relay_request.call_args.args[1], "sign-upload")
+        sign_body = json.loads(relay_request.call_args.args[2].decode("utf-8"))
+        self.assertEqual(sign_body, {
+            "filename": "screen.png",
+            "content_type": "image/png",
+            "size_bytes": len(raw),
+        })
+        cloudinary_post.assert_called_once()
+        post_args, post_kwargs = cloudinary_post.call_args
+        self.assertEqual(
+            post_args[0], "https://api.cloudinary.com/v1_1/test-cloud/image/upload",
+        )
+        self.assertEqual(post_kwargs["data"]["api_key"], "test-api-key")
+        self.assertEqual(post_kwargs["data"]["signature"], "a" * 40)
+        self.assertEqual(post_kwargs["data"]["public_id"], signed["public_id"])
+        self.assertEqual(post_kwargs["data"]["overwrite"], "false")
+        self.assertEqual(post_kwargs["data"]["tags"], "fkp-staged")
+        self.assertEqual(
+            post_kwargs["files"]["file"], ("screen.png", raw, "image/png"),
+        )
+        self.assertEqual(post_kwargs["timeout"], (10.0, 90.0))
+        self.assertNotIn("api_secret", post_kwargs["data"])
+
+    def test_invalid_cloudinary_upload_url_never_receives_image_bytes_and_uses_render_fallback(self):
+        raw = image_bytes("PNG")
+        metadata = analysis_report.validate_image_bytes(raw, "screen.png")
+        signed = self._signed_response(metadata)
+        signed["upload_url"] = "https://attacker.example/upload"
+        config = {"upload_url": analysis_report.UPLOAD_URL, "upload_token": "relay-token"}
+        with (
+            mock.patch("analysis_report._image_api_request", side_effect=[
+                signed, {"ok": True, "staged_id": self.STAGED_ID},
+            ]) as relay_request,
+            mock.patch("analysis_report.requests.post") as cloudinary_post,
+        ):
+            result = analysis_report.upload_image_stage(config, raw, "screen.png")
+
+        self.assertEqual(result["staged_id"], self.STAGED_ID)
+        self.assertEqual(result["delivery"], "render_fallback")
+        cloudinary_post.assert_not_called()
+        self.assertEqual(
+            [call.args[1] for call in relay_request.call_args_list],
+            ["sign-upload", "stage"],
+        )
+
+    def test_cloudinary_response_with_unexpected_public_id_uses_render_fallback(self):
+        raw = image_bytes("PNG")
+        metadata = analysis_report.validate_image_bytes(raw, "screen.png")
+        signed = self._signed_response(metadata)
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"public_id": "unexpected"}
+        config = {"upload_url": analysis_report.UPLOAD_URL, "upload_token": "relay-token"}
+
+        with (
+            mock.patch("analysis_report._image_api_request", side_effect=[
+                signed, {"ok": True, "staged_id": self.STAGED_ID},
+            ]) as relay_request,
+            mock.patch("analysis_report.requests.post", return_value=response) as cloudinary_post,
+        ):
+            result = analysis_report.upload_image_stage(config, raw, "screen.png")
+
+        self.assertEqual(result["delivery"], "render_fallback")
+        cloudinary_post.assert_called_once()
+        self.assertEqual(
+            [call.args[1] for call in relay_request.call_args_list],
+            ["sign-upload", "stage"],
+        )
+
+
 class ImageBatchUploadTests(unittest.TestCase):
     def _temporary_png(self, directory: str, name: str) -> Path:
         path = Path(directory) / name
