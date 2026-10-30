@@ -29,6 +29,10 @@ for _folder in (DATA_DIR, LOG_DIR, REPORT_DIR, RUN_DIR):
 
 APP_VERSION = "01"
 
+# 136. tasarım kararı: sabit komisyon varsayımı, her yön için ayrı uygulanır.
+ENTRY_COMMISSION_RATE = 0.0014  # %0,14 giriş
+EXIT_COMMISSION_RATE = 0.0014   # %0,14 çıkış
+
 PHASE_ORDER = {"C": 3, "B": 2, "A": 1, None: 0}
 TIMEFRAME_MS = {
     "1m": 60_000, "5m": 5 * 60_000, "15m": 15 * 60_000,
@@ -1192,7 +1196,6 @@ def build_trade_plan(
     settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a conditional technical entry/stop/target plan; no order is sent."""
-    # Komisyon ve kayma hesapları bu programın dışında tutulur.
     if candidate.get("data_freshness") != "CANLI AKIŞ GÜNCEL":
         return {
             "status": "VERİ ESKİ — PLAN YOK",
@@ -1348,15 +1351,66 @@ def build_trade_plan(
         })
     target_levels = target_levels[:3]
 
+    # Long işlem varsayımı: giriş komisyonu maliyete, çıkış komisyonu stop/hedef
+    # satış gelirine uygulanır. Fiyat kayması, yeterli BtcTurk alış-satış/emir
+    # defteri verisi plana bağlanmadığı için burada tahmin edilmez.
+    entry_commission_per_unit = entry_reference * ENTRY_COMMISSION_RATE
+    entry_cost_per_unit = entry_reference + entry_commission_per_unit
+    stop_exit_commission_per_unit = stop * EXIT_COMMISSION_RATE
+    stop_proceeds_after_commission = stop - stop_exit_commission_per_unit
+    estimated_net_risk_per_unit = entry_cost_per_unit - stop_proceeds_after_commission
+    if not math.isfinite(estimated_net_risk_per_unit) or estimated_net_risk_per_unit <= 0:
+        return {
+            "status": "HESAPLANAMADI",
+            "reason": "Sabit giriş/çıkış komisyonları sonrası pozitif net risk hesaplanamadı.",
+            "timeframe": timeframe,
+        }
+
     risk_pct = (risk / entry_reference) * 100.0
     r_targets = []
     for multiple in (1, 2, 3):
         target = entry_reference + risk * multiple
+        gross_reward_per_unit = target - entry_reference
+        exit_commission_per_unit = target * EXIT_COMMISSION_RATE
+        estimated_commission_per_unit = entry_commission_per_unit + exit_commission_per_unit
+        estimated_net_reward_per_unit = target - exit_commission_per_unit - entry_cost_per_unit
         r_targets.append({
             "name": f"{multiple}R karşılaştırması",
             "price": target,
             "risk_multiple": multiple,
-            "change_pct": round(((target / entry_reference) - 1.0) * 100.0, 4),
+            "change_pct": round((gross_reward_per_unit / entry_reference) * 100.0, 4),
+            "gross_risk_reward": round(gross_reward_per_unit / risk, 4),
+            "net_risk_reward_estimate": round(estimated_net_reward_per_unit / estimated_net_risk_per_unit, 4),
+            "estimated_commission_cost_per_unit": estimated_commission_per_unit,
+            "estimated_net_reward_per_unit": estimated_net_reward_per_unit,
+            "estimated_net_change_pct": round((estimated_net_reward_per_unit / entry_reference) * 100.0, 4),
+            "estimated_commission_pct_of_entry": round((estimated_commission_per_unit / entry_reference) * 100.0, 4),
+        })
+
+    targets_with_costs = []
+    for index, item in enumerate(target_levels, start=1):
+        target_price = item["price"]
+        gross_reward_per_unit = target_price - entry_reference
+        exit_commission_per_unit = target_price * EXIT_COMMISSION_RATE
+        estimated_commission_per_unit = entry_commission_per_unit + exit_commission_per_unit
+        estimated_net_reward_per_unit = target_price - exit_commission_per_unit - entry_cost_per_unit
+        gross_risk_reward = gross_reward_per_unit / risk
+        targets_with_costs.append({
+            "name": f"Teknik hedef {index}",
+            "price": target_price,
+            "risk_multiple": round(gross_risk_reward, 4),
+            "change_pct": round((target_price / entry_reference - 1.0) * 100.0, 4),
+            "risk_reward": round(gross_risk_reward, 4),
+            "gross_risk_reward": round(gross_risk_reward, 4),
+            "net_risk_reward_estimate": round(estimated_net_reward_per_unit / estimated_net_risk_per_unit, 4),
+            "gross_reward_per_unit": gross_reward_per_unit,
+            "estimated_commission_cost_per_unit": estimated_commission_per_unit,
+            "estimated_net_reward_per_unit": estimated_net_reward_per_unit,
+            "estimated_net_change_pct": round((estimated_net_reward_per_unit / entry_reference) * 100.0, 4),
+            "estimated_commission_pct_of_entry": round((estimated_commission_per_unit / entry_reference) * 100.0, 4),
+            "basis": item["basis"],
+            "source_timeframes": item["source_timeframes"],
+            "touch_count": item["touch_count"],
         })
 
     if current_price < entry_low:
@@ -1381,27 +1435,34 @@ def build_trade_plan(
         "stop_loss": stop,
         "risk_pct": round(risk_pct, 4),
         "stop_loss_pct": round(-risk_pct, 4),
-        "targets": [
-            {
-                "name": f"Teknik hedef {index}",
-                "price": item["price"],
-                "risk_multiple": round((item["price"] - entry_reference) / risk, 4),
-                "change_pct": round((item["price"] / entry_reference - 1.0) * 100.0, 4),
-                "risk_reward": round((item["price"] - entry_reference) / risk, 4),
-                "basis": item["basis"],
-                "source_timeframes": item["source_timeframes"],
-                "touch_count": item["touch_count"],
-                "gross_risk_reward": round((item["price"] - entry_reference) / risk, 4),
-            }
-            for index, item in enumerate(target_levels, start=1)
-        ],
+        "gross_risk_per_unit": risk,
+        "estimated_net_risk_per_unit": estimated_net_risk_per_unit,
+        "estimated_net_stop_loss_pct": round(-(estimated_net_risk_per_unit / entry_reference) * 100.0, 4),
+        "estimated_stop_commission_per_unit": entry_commission_per_unit + stop_exit_commission_per_unit,
+        "gross_risk_reward": targets_with_costs[0]["gross_risk_reward"] if targets_with_costs else None,
+        "net_risk_reward_estimate": targets_with_costs[0]["net_risk_reward_estimate"] if targets_with_costs else None,
+        "targets": targets_with_costs,
         "technical_targets_available": technical_targets_available,
         "r_targets": r_targets,
+        "cost_estimate": {
+            "commission": {
+                "entry_rate": ENTRY_COMMISSION_RATE,
+                "exit_rate": EXIT_COMMISSION_RATE,
+                "entry_percent": 0.14,
+                "exit_percent": 0.14,
+                "basis": "Sabit varsayım; giriş ve çıkış komisyonu ayrı hesaplanır.",
+            },
+            "slippage": {
+                "status": "NOT_ESTIMATED",
+                "estimate_pct": None,
+                "reason": "Yeterli BtcTurk alış-satış farkı/emir defteri verisi bu teknik planın girdisine bağlı değil; fiyat kayması için oran uydurulmadı.",
+            },
+        },
         "target_basis": (
             "Ana hedefler kapanmış mumlarla doğrulanmış direnç bölgeleri ve 4h/1d/1w/1M Fibonacci uzatmalarından seçilir. "
             "1R/2R/3R yalnızca ikincil karşılaştırmadır."
         ),
-        "risk_reward_basis": "Brüt teknik risk/getiri; komisyon ve kayma hesaplanmaz.",
+        "risk_reward_basis": "Brüt teknik risk/getiri korunur; ayrıca sabit %0,14 giriş + %0,14 çıkış komisyonuyla tahmini net risk/getiri hesaplanır. Fiyat kayması veri yetersizliği nedeniyle dahil değildir.",
         "invalid_if": f"{_display_price(stop)} USDT altındaki zarar durdurma seviyesi görülürse senaryo geçersiz sayılır.",
         "note": "Giriş referansı bölge orta noktasıdır; hedefler teknik seviyelerdir. Otomatik emir gönderilmez.",
     }
