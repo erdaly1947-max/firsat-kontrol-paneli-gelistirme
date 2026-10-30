@@ -66,8 +66,13 @@ def _response_rows(payload: Any) -> list[dict[str, Any]]:
         return []
     data = payload.get("data", payload)
     if isinstance(data, dict):
-        rows = data.get("symbols", data.get("pairs", data.get("data", [])))
-        return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+        rows = data.get("symbols", data.get("pairs", data.get("data")))
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+        # Some pair-specific ticker responses return one object rather than a list.
+        if any(key in data for key in ("pair", "pairSymbol", "name", "last", "lastPrice")):
+            return [data]
+        return []
     return [row for row in data if isinstance(row, dict)] if isinstance(data, list) else []
 
 
@@ -601,7 +606,8 @@ def estimate_orderbook_execution(book: dict[str, Any], notional_usdt: float,
         }
 
     buy = walk(asks, notional_usdt, quote_mode=True)
-    sell = walk(bids, required_base, quote_mode=False)
+    sell_base_quantity = buy["base_quantity"] if buy["filled"] else required_base
+    sell = walk(bids, sell_base_quantity, quote_mode=False)
     buy_average = buy["average_price"]
     sell_average = sell["average_price"]
     buy_impact = ((buy_average / best_ask) - 1.0) * 100.0 if buy_average else None
@@ -623,9 +629,15 @@ def format_exchange_price(value: Any, market: dict[str, Any] | None) -> str:
     number = _positive(value)
     if number is None:
         return "—"
-    scale = market.get("denominator_scale") if isinstance(market, dict) else None
-    try:
-        decimals = max(0, min(16, int(scale)))
-        return f"{number:,.{decimals}f}"
-    except (TypeError, ValueError, OverflowError):
+    if not isinstance(market, dict):
         return f"{number:,.8f}".rstrip("0").rstrip(".")
+    # BtcTurk says denominatorScale applies only when hasFraction is true.
+    if market.get("has_fraction") is False:
+        decimals = 0
+    else:
+        scale = market.get("denominator_scale")
+        try:
+            decimals = max(0, min(16, int(scale)))
+        except (TypeError, ValueError, OverflowError):
+            decimals = 8
+    return f"{number:,.{decimals}f}"
