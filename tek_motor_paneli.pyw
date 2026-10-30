@@ -699,6 +699,10 @@ class ControlPanel(tk.Tk):
         self.btcturk_pro_quote_refresh_busy = False
         self.workspace_current_page = "radar"
         self.btcturk_pro_timeframe_var = tk.StringVar(value="15m")
+        self.btcturk_pro_show_plan = tk.BooleanVar(value=True)
+        self.btcturk_pro_show_support_resistance = tk.BooleanVar(value=True)
+        self.btcturk_pro_show_fibonacci = tk.BooleanVar(value=True)
+        self.btcturk_pro_show_channel = tk.BooleanVar(value=True)
         self.btcturk_pro_entry_var = tk.StringVar(value=self.btcturk_pro_symbol)
         self.btcturk_pro_amount_var = tk.StringVar(value="")
         self.btcturk_pro_status_var = tk.StringVar(value="BtcTurk PRO verisi bekleniyor")
@@ -1086,6 +1090,18 @@ class ControlPanel(tk.Tk):
             )
             button.pack(side="left", padx=(0, 3))
             self.btcturk_pro_timeframe_buttons[timeframe] = button
+        layer_row = ttk.Frame(left)
+        layer_row.pack(fill="x", pady=(0, 4))
+        for label, variable in (
+            ("İşlem planı", self.btcturk_pro_show_plan),
+            ("Destek/direnç", self.btcturk_pro_show_support_resistance),
+            ("Fibonacci", self.btcturk_pro_show_fibonacci),
+            ("Kanal", self.btcturk_pro_show_channel),
+        ):
+            ttk.Checkbutton(
+                layer_row, text=label, variable=variable,
+                command=self._btcturk_pro_draw_chart,
+            ).pack(side="left", padx=(0, 9))
         self.btcturk_pro_chart = tk.Canvas(
             left, background="#000000", highlightbackground="#777777",
             highlightthickness=1, height=330,
@@ -1543,16 +1559,63 @@ class ControlPanel(tk.Tk):
             )
         plan = data.get("plan") if isinstance(data.get("plan"), dict) else {}
         market = data.get("market") if isinstance(data.get("market"), dict) else {}
-        levels = [
-            (plan.get("entry_zone_low"), "#FFD166", "GİRİŞ ALT"),
-            (plan.get("entry_zone_high"), "#FFD166", "GİRİŞ ÜST"),
-            (plan.get("stop_loss"), "#FF6666", "ZARAR-KES"),
-        ]
-        targets = plan.get("targets")
-        if isinstance(targets, list):
-            for index, target in enumerate(targets[:3], start=1):
-                if isinstance(target, dict):
-                    levels.append((target.get("price"), "#D8B4FE", f"HEDEF {index}"))
+        timeframe_rows = data.get("assessments") if isinstance(data.get("assessments"), dict) else {}
+        selected_row = timeframe_rows.get(timeframe) if isinstance(timeframe_rows.get(timeframe), dict) else {}
+        selected_metrics = selected_row.get("metrics") if isinstance(selected_row.get("metrics"), dict) else {}
+        levels: list[tuple[Any, str, str]] = []
+
+        if self.btcturk_pro_show_plan.get():
+            levels.extend([
+                (plan.get("entry_zone_low"), "#FFD166", "GİRİŞ ALT"),
+                (plan.get("entry_zone_high"), "#FFD166", "GİRİŞ ÜST"),
+                (plan.get("stop_loss"), "#FF6666", "ZARAR-KES"),
+            ])
+            targets = plan.get("targets")
+            if isinstance(targets, list):
+                for index, target in enumerate(targets[:3], start=1):
+                    if isinstance(target, dict):
+                        levels.append((target.get("price"), "#D8B4FE", f"HEDEF {index}"))
+
+        if self.btcturk_pro_show_support_resistance.get():
+            zones = selected_metrics.get("support_resistance_zones")
+            if isinstance(zones, list):
+                last_close = float(bars[-1]["c"])
+                supports = sorted(
+                    (zone for zone in zones if isinstance(zone, dict)
+                     and zone.get("kind") == "support"
+                     and _safe_float(zone.get("center")) is not None
+                     and float(zone["center"]) <= last_close),
+                    key=lambda zone: last_close - float(zone["center"]),
+                )[:3]
+                resistances = sorted(
+                    (zone for zone in zones if isinstance(zone, dict)
+                     and zone.get("kind") == "resistance"
+                     and _safe_float(zone.get("center")) is not None
+                     and float(zone["center"]) >= last_close),
+                    key=lambda zone: float(zone["center"]) - last_close,
+                )[:3]
+                for zone in supports:
+                    strength = "GÜÇLÜ DESTEK" if zone.get("strong") is True else "DESTEK"
+                    levels.append((zone.get("center"), "#45B7A5", strength))
+                for zone in resistances:
+                    strength = "GÜÇLÜ DİRENÇ" if zone.get("strong") is True else "DİRENÇ"
+                    levels.append((zone.get("center"), "#E69F5A", strength))
+
+        if self.btcturk_pro_show_fibonacci.get():
+            fibonacci = selected_metrics.get("fibonacci")
+            retracements = fibonacci.get("retracements") if isinstance(fibonacci, dict) else None
+            if isinstance(retracements, dict):
+                for name, price in retracements.items():
+                    levels.append((price, "#56B4E9", "FIB " + str(name).replace("retracement_", "")))
+
+        if self.btcturk_pro_show_channel.get():
+            channel = selected_metrics.get("confirmed_channel")
+            if isinstance(channel, dict) and channel.get("available") is True:
+                levels.extend([
+                    (channel.get("upper_now"), "#B39DDB", "KANAL ÜST"),
+                    (channel.get("lower_now"), "#B39DDB", "KANAL ALT"),
+                ])
+
         for raw_price, color, label in levels:
             try:
                 value = float(raw_price)
@@ -1562,12 +1625,25 @@ class ControlPanel(tk.Tk):
                 continue
             y = y_price(value)
             canvas.create_line(left, y, right, y, fill=color, dash=(4, 3), width=1)
-            canvas.create_text(right - 3, y - 8, text=f"{label} {format_exchange_price(value, market)}", fill=color, anchor="e", font=("Segoe UI", 8, "bold"))
+            canvas.create_text(
+                right - 3, y - 8,
+                text=f"{label} {format_exchange_price(value, market)}",
+                fill=color, anchor="e", font=("Segoe UI", 8, "bold"),
+            )
         canvas.create_text(
-            left, height - 9,
-            text=f"BtcTurk {timeframe} · {len(bars)} kapanmış mum · alt bölüm hacim",
+            left, height - 23,
+            text=f"BtcTurk {timeframe} · {len(bars)} kapanmış mum · hacim",
             fill="#DDDDDD", anchor="w", font=("Segoe UI", 8),
         )
+        for index in sorted({0, len(bars) // 2, len(bars) - 1}):
+            stamp = datetime.fromtimestamp(
+                int(bars[index]["t"]) / 1000, tz=timezone.utc,
+            ).astimezone().strftime("%d.%m %H:%M")
+            x = left + step * (index + 0.5)
+            canvas.create_text(
+                x, height - 9, text=stamp,
+                fill="#DDDDDD", anchor="center", font=("Consolas", 7),
+            )
 
     def _btcturk_pro_render_details(self, data: dict[str, Any]) -> None:
         market = data.get("market") if isinstance(data.get("market"), dict) else {}
