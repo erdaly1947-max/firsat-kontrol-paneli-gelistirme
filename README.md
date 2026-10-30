@@ -17,14 +17,14 @@ Bu README, projenin güncel teknik özeti, gerçek çalışma durumu, kabul edil
 - Dağıtım sonrası canlı /images/manifest uç noktasından JSON biçiminde ok: true yanıtı ve görüntü kayıtları alındı. Bu, canlı hizmetin Cloudinary'den mevcut görüntü listesini okuyabildiğini doğrular; masaüstü programından canlı hizmete tam yükleme akışının uçtan uca çalıştığını tek başına kanıtlamaz.
 - Masaüstü görüntü aktarımının canlı adrese geçirilmesi commit `5ae27ccf19b361c2333d6ccf10a5834dfcc46807` ile yapıldı. Bu commitin GitHub Actions doğrulaması [#40741310609](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40741310609) başarıyla tamamlandı; Render canlı hizmeti yeni kaynaktan çalışıyor. Canlı manifest tekrar `ok: true` döndürdü.
 
-### Görüntü aktarımını canlıya geçirme — mevcut durum
+### Görüntü aktarımını canlıya geçirme — 28 Ekim 2026 tarihli önceki uygulama
 
-- Masaüstündeki analysis_report.py artık görüntü yükleme, manifest ve görüntü indirme işlemleri için https://firsat-kontrol-market-relay.onrender.com adresini kullanacak şekilde değiştirildi.
-- tests/test_image_upload.py canlı geçidi bekleyecek şekilde güncellendi; .github/workflows/validate-and-package.yml içindeki canlı görüntü sağlık/manifest kontrolü de aynı üretim adresini kullanır.
-- Kod değişikliğinin CI doğrulaması ve canlı manifest kontrolü başarılıdır. Bununla birlikte, kullanıcının Windows bilgisayarındaki program sürümü güncellenip ilk gerçek ekran görüntüsü yüklemesi canlı servise yapıldığında tam uçtan uca doğrulama da yapılmalıdır.
-- firsat-kontrol-test-relay test amacıyla durur; masaüstü programının normal görüntü aktarım adresi değildir.
+- 28 Ekim'de doğrulanan önceki sürüm, ekran görüntüsü yükleme, manifest ve görüntü indirme işlemlerini Render görüntü geçidi üzerinden yürütüyordu.
+- O sürümün kaynak değişikliği commit 5ae27ccf19b361c2333d6ccf10a5834dfcc46807 ile yapılmış, ilgili GitHub Actions doğrulaması #40741310609 başarıyla tamamlanmıştı. Bu tarihsel doğrulama, daha sonra eklenen Cloudinary doğrudan aktarım akışını test etmiş sayılmaz.
+- 30 Ekim 2026'da eklenen doğrudan Cloudinary yükleme ve teslim adresi kullanımı, bu eski aktarım tarifinin yerine geçer; güncel akış aşağıdaki “Doğrudan bağlantı ve yedek yollar” bölümünde açıklanır.
+- firsat-kontrol-test-relay ayrı test hizmetidir; masaüstü programının normal hedefi değildir.
 
-Canlı manifestten görüntü listesini okuyabilmek, görüntü stage/commit, listeleme ve indirme akışının masaüstü programından uçtan uca çalıştığını tek başına kanıtlamaz. Bu doğrulama yapılmadan görüntü aktarımı tamamlandı sayılmaz.
+Canlı manifestten görüntü listesini okuyabilmek, masaüstü programından gerçek görüntü yükleme, commit, indirme ve tekrar okuma akışının uçtan uca çalıştığını tek başına kanıtlamaz. Her sürümde bu adımların ayrı doğrulanması gerekir.
 
 ### Görsel gönderme ve doğrudan inceleme — başarıyla doğrulanmış yöntem
 
@@ -49,7 +49,7 @@ Bu bölüm, bağlantı maliyetini azaltan ve doğrudan erişim başarısız oldu
 - **Ekran görüntüsü yükleme:** Masaüstü önce Render /api/images/sign-upload uç noktasından kısa bir imzalı yükleme talimatı alır. Render kimlik doğrulamasını yapar ve Cloudinary gizli anahtarını sunucuda tutarak imzayı üretir. Görüntü baytları daha sonra masaüstünden Cloudinary'ye doğrudan gönderilir. Bu doğrudan aktarım başarısız olursa mevcut Render /api/images/stage yolu yedek olarak kullanılır. Commit/abort ve manifest işlemleri Render üzerinden sürer.
 - **Ekran görüntüsü indirme:** Manifestteki Cloudinary teslim adresi yalnızca beklenen Cloudinary alan adı, hesap ve dosya kimliği doğrulanırsa kullanılır. Doğrudan indirme başarısız olursa mevcut Render görüntü indirme yolu yedek olarak denenir. Önizleme, orijinal görüntü dosyasını değiştirmez.
 
-**Çalışma sınırı:** İmzalı doğrudan yükleme, imza almak için hâlâ Render hizmetine erişim gerektirir. Render hizmeti askıdaysa doğrudan Cloudinary bayt aktarımı tek başına yüklemeyi başlatamaz; bu durum, Render yedeğinin hazır olduğu veya canlı görüntü akışının çalıştığı şeklinde yorumlanmamalıdır. Canlı hizmet kontrolü başarısızsa otomatik test sonucu bunu ayrıca belirtmelidir.
+**Çalışma sınırı:** İmzalı doğrudan yükleme için imza alma, grup commit/abort ve güncel manifest okuma hâlâ Render hizmetine erişim gerektirir. Görüntü baytlarının Cloudinary'ye doğrudan gönderilmesi veya indirilmesi, ancak bu Render kontrol/manifest adımlarından sonra mümkündür. Render hizmeti askıdaysa doğrudan Cloudinary bayt aktarımı tek başına yeni bir yükleme/manifest akışı başlatamaz; bu durum, Render yedeğinin hazır olduğu veya canlı görüntü akışının çalıştığı şeklinde yorumlanmamalıdır. Canlı hizmet kontrolü başarısızsa otomatik test sonucu bunu ayrıca belirtmelidir.
 
 ## Programın amacı ve mevcut kapsamı
 
