@@ -19,6 +19,7 @@ from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
+import requests
 from datetime import datetime, timezone
 from typing import Any
 
@@ -411,6 +412,14 @@ def _report_endpoint(config: dict[str, str], suffix: str = "") -> str:
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
+def _direct_worker_report_endpoint(config: dict[str, str], suffix: str = "") -> str:
+    """Build the same report route on Cloudflare directly; Render remains a fallback."""
+    _report_endpoint(config, suffix)  # Validate the configured legacy relay host/path first.
+    worker = urllib.parse.urlsplit(WORKER_BASE_URL)
+    path = "/api/report" + (f"/{suffix}" if suffix else "")
+    return urllib.parse.urlunsplit((worker.scheme, worker.netloc, path, "", ""))
+
+
 def _post_report(
     config: dict[str, str], endpoint: str, body: bytes, *,
     content_type: str, content_encoding: str | None = None,
@@ -461,6 +470,35 @@ def _post_report(
     return body_json
 
 
+def _post_report_with_fallback(
+    config: dict[str, str], suffix: str, body: bytes, *,
+    content_type: str, content_encoding: str | None = None,
+) -> dict[str, Any]:
+    """Try Cloudflare directly, then the original Render relay if direct access fails."""
+    direct_endpoint = _direct_worker_report_endpoint(config, suffix)
+    try:
+        result = _post_report(
+            config, direct_endpoint, body,
+            content_type=content_type, content_encoding=content_encoding,
+        )
+        result["transport"] = "cloudflare_direct"
+        return result
+    except Exception as direct_error:
+        relay_endpoint = _report_endpoint(config, suffix)
+        try:
+            result = _post_report(
+                config, relay_endpoint, body,
+                content_type=content_type, content_encoding=content_encoding,
+            )
+            result["transport"] = "render_fallback"
+            return result
+        except Exception as fallback_error:
+            raise RuntimeError(
+                "Rapor doğrudan Cloudflare'a ve Render yedek yolu üzerinden de gönderilemedi. "
+                f"Doğrudan: {type(direct_error).__name__}; yedek: {type(fallback_error).__name__}."
+            ) from fallback_error
+
+
 def upload_json_report(
     config: dict[str, str], compressed: bytes, report_kind: str
 ) -> dict[str, Any]:
@@ -471,9 +509,8 @@ def upload_json_report(
         raise ValueError("Gönderilecek sıkıştırılmış rapor boş.")
     if len(compressed) > MAX_UPLOAD_BYTES:
         raise ValueError("Sıkıştırılmış rapor boyut sınırını aşıyor.")
-    endpoint = _report_endpoint(config, "" if report_kind == "analysis" else report_kind)
-    body_json = _post_report(
-        config, endpoint, compressed,
+    body_json = _post_report_with_fallback(
+        config, "" if report_kind == "analysis" else report_kind, compressed,
         content_type="application/json; charset=utf-8",
         content_encoding="gzip",
     )
@@ -493,9 +530,8 @@ def upload_analysis_report(config: dict[str, str], compressed: bytes) -> dict[st
 
 def upload_troubleshooting_zip(config: dict[str, str], archive: bytes) -> dict[str, Any]:
     """Upload the validated local troubleshooting ZIP as a separate binary object."""
-    endpoint = _report_endpoint(config, "troubleshooting-zip")
-    body_json = _post_report(
-        config, endpoint, archive,
+    body_json = _post_report_with_fallback(
+        config, "troubleshooting-zip", archive,
         content_type="application/zip",
     )
     return {
@@ -650,7 +686,7 @@ def _validate_image_id(value: Any) -> str:
 
 
 def _image_upload_endpoint(config: dict[str, str], route: str) -> str:
-    if route not in {"stage", "commit", "abort"}:
+    if route not in {"sign-upload", "stage", "commit", "abort"}:
         raise ValueError("Bilinmeyen görüntü aktarım rotası.")
     # Route screenshot stage/commit/abort requests through the live image relay,
     # separate from the legacy report-upload endpoint.
@@ -787,6 +823,41 @@ def _ensure_image_relay_ready() -> None:
         raise RuntimeError("Görüntü test sunucusu beklenen sürümde değil; /healthz yanıtı doğrulanamadı.")
 
 
+def _validated_cloudinary_delivery_url(
+    value: Any, image_id: str, content_type: str, *, preview: bool = False,
+) -> str | None:
+    """Accept only the expected public Cloudinary asset; reject arbitrary URL injection."""
+    if not isinstance(value, str) or len(value) > 2048:
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        if (
+            parsed.scheme.lower() != "https"
+            or parsed.hostname != "res.cloudinary.com"
+            or parsed.port not in (None, 443)
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
+        ):
+            return None
+        marker = "/image/upload/"
+        marker_index = parsed.path.find(marker)
+        if marker_index < 0:
+            return None
+        suffix = parsed.path[marker_index + len(marker):]
+        parts = suffix.split("/")
+        if preview:
+            if not parts or parts[0] != "c_limit,w_1280,f_jpg,q_75":
+                return None
+            parts = parts[1:]
+        parts = [part for part in parts if not re.fullmatch(r"v\d+", part)]
+        extension = ".png" if content_type == "image/png" else ".jpg"
+        expected_file = "fkp_screenshot_" + image_id + extension
+        if parts != [expected_file]:
+            return None
+        return urllib.parse.urlunsplit(parsed)
+    except (TypeError, ValueError):
+        return None
+
+
 def fetch_image_manifest() -> list[dict[str, Any]]:
     """Warm the live image relay and fetch its public manifest with transient-error retries."""
     _ensure_image_relay_ready()
@@ -824,25 +895,56 @@ def fetch_image_manifest() -> list[dict[str, Any]]:
         uploaded_at = image.get("uploaded_at")
         if not isinstance(uploaded_at, str) or not uploaded_at:
             raise RuntimeError("Buluttaki görüntünün yükleme zamanı eksik.")
+        delivery_url = _validated_cloudinary_delivery_url(
+            image.get("delivery_url"), image_id, content_type
+        )
+        preview_url = _validated_cloudinary_delivery_url(
+            image.get("preview_url"), image_id, content_type, preview=True
+        )
         validated.append({
             "id": image_id,
             "filename": filename,
             "content_type": content_type,
             "size_bytes": size_bytes,
             "uploaded_at": uploaded_at,
-            "url": f"{IMAGE_BASE_URL}/images/{image_id}",
+            "url": delivery_url or f"{IMAGE_BASE_URL}/images/{image_id}",
+            "preview_url": preview_url or "",
+            "delivery": "cloudinary" if delivery_url else "render_fallback",
         })
     return validated
 
-def download_active_image(image_id: str, filename: str, expected_content_type: str) -> bytes:
-    """Download an image through the fixed live relay and validate it before preview."""
+def download_active_image(
+    image_id: str, filename: str, expected_content_type: str,
+    delivery_url: str | None = None,
+) -> bytes:
+    """Use Cloudinary directly when the manifest URL is valid; fall back to Render."""
     image_id = _validate_image_id(image_id)
     if expected_content_type not in {"image/png", "image/jpeg"}:
         raise ValueError("Buluttaki görüntü içerik türü geçersiz.")
+
+    direct_url = _validated_cloudinary_delivery_url(
+        delivery_url, image_id, expected_content_type
+    )
+    if direct_url:
+        try:
+            raw = _image_relay_get_bytes(
+                direct_url,
+                label=f"Cloudinary görüntüsü {image_id}",
+                headers={"Accept": expected_content_type, "User-Agent": "Firsat-Kontrol-Paneli/01"},
+                max_bytes=MAX_IMAGE_BYTES,
+                timeout=30.0,
+                expected_content_type=expected_content_type,
+            )
+            validate_image_bytes(raw, filename)
+            return raw
+        except Exception:
+            # Existing Render delivery remains available if direct Cloudinary access fails.
+            pass
+
     _ensure_image_relay_ready()
-    url = f"{IMAGE_BASE_URL}/images/{image_id}"
+    fallback_url = f"{IMAGE_BASE_URL}/images/{image_id}"
     raw = _image_relay_get_bytes(
-        url,
+        fallback_url,
         label=f"Buluttaki görüntü {image_id}",
         headers={"Accept": expected_content_type, "User-Agent": "Firsat-Kontrol-Paneli/01"},
         max_bytes=MAX_IMAGE_BYTES,
@@ -853,14 +955,78 @@ def download_active_image(image_id: str, filename: str, expected_content_type: s
     return raw
 
 
-def upload_image_stage(config: dict[str, str], data: bytes, filename: str) -> dict[str, Any]:
-    """Upload one fully validated original image into temporary Cloudinary storage."""
-    metadata = validate_image_bytes(data, filename)
-    result = _image_api_request(
-        config, "stage", data, content_type=metadata["content_type"], filename=metadata["filename"]
+def _upload_image_direct_to_cloudinary(
+    config: dict[str, str], data: bytes, metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Ask Render to sign a small request, then send the image bytes directly to Cloudinary."""
+    request_body = json.dumps({
+        "filename": metadata["filename"],
+        "content_type": metadata["content_type"],
+        "size_bytes": metadata["size_bytes"],
+    }, separators=(",", ":")).encode("utf-8")
+    signed = _image_api_request(
+        config, "sign-upload", request_body, content_type="application/json"
     )
-    _validate_image_id(result.get("staged_id"))
-    return result
+    staged_id = _validate_image_id(signed.get("staged_id"))
+    cloud_name = signed.get("cloud_name")
+    if not isinstance(cloud_name, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", cloud_name):
+        raise RuntimeError("Cloudinary doğrudan yükleme hesabı geçersiz.")
+    expected_upload_url = f"https://api.cloudinary.com/v1_1/{cloud_name}/image/upload"
+    if signed.get("upload_url") != expected_upload_url:
+        raise RuntimeError("Cloudinary doğrudan yükleme adresi güvenlik doğrulamasından geçmedi.")
+    expected_public_id = "fkp_screenshot_" + staged_id
+    timestamp = signed.get("timestamp")
+    signature = signed.get("signature")
+    api_key = signed.get("api_key")
+    signed_fields = {
+        "context": signed.get("context"),
+        "overwrite": signed.get("overwrite"),
+        "public_id": signed.get("public_id"),
+        "tags": signed.get("tags"),
+        "timestamp": timestamp,
+    }
+    if (
+        signed_fields["public_id"] != expected_public_id
+        or signed_fields["overwrite"] != "false"
+        or signed_fields["tags"] != "fkp-staged"
+        or not isinstance(signed_fields["context"], str)
+        or not isinstance(timestamp, str) or not timestamp.isdigit()
+        or not isinstance(signature, str) or not re.fullmatch(r"[0-9a-f]{40}", signature)
+        or not isinstance(api_key, str) or not api_key
+    ):
+        raise RuntimeError("Cloudinary imzalı yükleme bilgileri geçersiz.")
+    response = requests.post(
+        expected_upload_url,
+        data={**signed_fields, "api_key": api_key, "signature": signature},
+        files={"file": (metadata["filename"], data, metadata["content_type"])},
+        timeout=(10.0, 90.0),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or payload.get("public_id") != expected_public_id:
+        raise RuntimeError("Cloudinary doğrudan yüklemeyi beklenen görüntü kimliğiyle onaylamadı.")
+    return {"ok": True, "staged_id": staged_id, "delivery": "cloudinary_direct"}
+
+
+def upload_image_stage(config: dict[str, str], data: bytes, filename: str) -> dict[str, Any]:
+    """Upload directly to Cloudinary; retain the old Render image route as fallback."""
+    metadata = validate_image_bytes(data, filename)
+    try:
+        return _upload_image_direct_to_cloudinary(config, data, metadata)
+    except Exception as direct_error:
+        try:
+            result = _image_api_request(
+                config, "stage", data,
+                content_type=metadata["content_type"], filename=metadata["filename"],
+            )
+            _validate_image_id(result.get("staged_id"))
+            result["delivery"] = "render_fallback"
+            return result
+        except Exception as fallback_error:
+            raise RuntimeError(
+                "Cloudinary doğrudan görüntü aktarımı başarısız oldu; Render yedeği de tamamlanamadı. "
+                f"Doğrudan: {type(direct_error).__name__}; Render: {type(fallback_error).__name__}."
+            ) from fallback_error
 
 
 def commit_image_uploads(config: dict[str, str], staged_ids: list[str]) -> dict[str, Any]:
