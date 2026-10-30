@@ -117,7 +117,7 @@ class PanelUIContractTests(unittest.TestCase):
 
     def test_resizable_diagnostics_and_technical_details_exist(self):
         source = PANEL_SOURCE
-        self.assertIn("ttk.Panedwindow(self, orient=", source)
+        self.assertIn("ttk.Panedwindow(self.radar_page, orient=", source)
         self.assertIn("Teknik ayrıntılar ▸", source)
         self.assertIn("Tanılama ve son kayıtlar ▸", source)
         self.assertIn("Kayıt klasörünü aç", source)
@@ -222,6 +222,69 @@ class PanelUIContractTests(unittest.TestCase):
         )
         self.assertIn("filedialog.askopenfilename", ast.unparse(function))
         self.assertNotIn("askopenfilenames", ast.unparse(_method("open_screenshot_upload")))
+
+
+
+    def test_new_workspace_pages_and_common_controls_are_wired(self):
+        source = PANEL_SOURCE
+        for key, label in (
+            ("overview", "Genel Bakış"),
+            ("radar", "Fırsat Radarı"),
+            ("tracking", "Aktif Takip"),
+            ("analysis", "Parite Analizi"),
+            ("market", "BTC ve Piyasa"),
+            ("plans", "Planlar ve Uyarılar"),
+            ("reports", "Raporlar"),
+            ("btcturk", "BtcTurk PRO"),
+            ("settings", "Sistem ve Ayarlar"),
+        ):
+            self.assertIn(f'("{key}", "{label}")', source)
+        self.assertIn('controls.pack(fill="x", before=self.workspace)', source)
+        self.assertIn('status_row.pack(fill="x", before=self.workspace)', source)
+        for method_name in (
+            "start_engine", "stop_engine", "update_universe", "create_report",
+            "create_analysis_report", "create_handoff_zip", "toggle_level_watch",
+            "toggle_alarm", "_test_sound", "open_screenshot_upload",
+        ):
+            self.assertIn(f"command=self.{method_name}", source)
+
+    def test_analysis_chart_uses_only_motor_closed_candles_and_eight_timeframes(self):
+        refresh = ast.unparse(_method("_refresh_analysis_view"))
+        drawing = ast.unparse(_method("_draw_analysis_chart"))
+        builder = ast.unparse(_method("_build_additional_workspace_pages"))
+        self.assertIn("recent_closed_candles", refresh)
+        self.assertIn("recent_closed_candles", drawing)
+        self.assertIn("Gerçek veri gelene kadar örnek mum çizilmez", drawing)
+        for timeframe in ("5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"):
+            self.assertIn(f'"{timeframe}"', builder)
+        self.assertIn("recent_closed_candles", PANEL_SOURCE)
+        self.assertNotIn("makeBars", PANEL_SOURCE)
+
+    def test_chart_drawing_tools_persist_by_symbol_and_timeframe(self):
+        source = PANEL_SOURCE
+        for method_name in (
+            "_analysis_drawing_key", "_save_analysis_drawings",
+            "_analysis_chart_click", "_analysis_delete_last",
+            "_analysis_undo_delete",
+        ):
+            _method(method_name)
+        self.assertIn("chart_drawings", source)
+        self.assertIn("self.panel_settings[\"chart_drawings\"]", source)
+        self.assertIn("after(5000, lambda: self._analysis_expire_undo(token))", source)
+        self.assertIn('("İmleç", "Trend çizgisi", "Paralel kanal")', source)
+
+    def test_active_tracking_is_limited_to_five_and_saved_in_panel_settings(self):
+        add_method = ast.unparse(_method("_tracking_add_selected"))
+        save_method = ast.unparse(_method("_save_panel_settings"))
+        self.assertIn("len(self.tracked_symbols) >= 5", add_method)
+        self.assertIn('self.panel_settings["tracked_symbols"]', add_method)
+        self.assertIn('"tracked_symbols"', save_method)
+
+    def test_chart_does_not_draw_plan_suggestions_as_active_plan(self):
+        drawing = ast.unparse(_method("_draw_analysis_chart"))
+        self.assertIn("plan_is_active", drawing)
+        self.assertIn('plan.get("active") is True', drawing)
+        self.assertIn('{"AKTİF", "ACTIVE"}', drawing)
 
     def test_package_workflow_is_for_s1_and_package_is_explicit(self):
         workflow = (ROOT / ".github" / "workflows" / "validate-and-package.yml").read_text(encoding="utf-8")
