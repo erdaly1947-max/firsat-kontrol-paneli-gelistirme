@@ -166,7 +166,7 @@ class AnalysisReportTests(unittest.TestCase):
             result = upload_analysis_report(config, compressed)
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["transport"], "render_fallback")
+        self.assertEqual(result["report_kind"], "analysis")
         self.assertEqual(urlopen.call_count, 2)
         self.assertEqual(
             urlopen.call_args_list[0].args[0].full_url,
