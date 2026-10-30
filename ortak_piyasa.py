@@ -68,8 +68,8 @@ BTCTURK_GRAPH_RELAY_PATHS = {"/v1/klines/history"}
 
 # Each REST route is selected independently. Direct exchange access is preferred;
 # Render is a fallback and direct access is periodically re-tested after a failure.
-MARKET_ROUTE_RECHECK_BASE_SECONDS = 60.0
-MARKET_ROUTE_RECHECK_MAX_SECONDS = 300.0
+MARKET_ROUTE_RECHECK_BASE_SECONDS = 30.0
+MARKET_ROUTE_RECHECK_MAX_SECONDS = 60.0
 _market_route_lock = threading.RLock()
 _market_route_states: dict[str, dict[str, Any]] = {}
 
