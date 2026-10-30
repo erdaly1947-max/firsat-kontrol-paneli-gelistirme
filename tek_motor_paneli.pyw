@@ -1427,14 +1427,25 @@ class ControlPanel(tk.Tk):
                 "Binance karşılaştırması alınamadı. İşlem analizi yalnızca BtcTurk verisiyle sürer."
             )
         minimum = market.get("minimum_order_usdt")
+        minimum_amount = market.get("minimum_amount")
+        maximum_amount = market.get("maximum_amount")
         numerator_scale = market.get("numerator_scale")
         denominator_scale = market.get("denominator_scale")
+        has_fraction = market.get("has_fraction")
         tick_size = market.get("tick_size")
+        price_scale_text = (
+            f"{denominator_scale} basamak" if has_fraction is True and denominator_scale is not None
+            else "tam sayı fiyat" if has_fraction is False
+            else "bilinmiyor"
+        )
+        methods = ", ".join(market.get("order_methods") or []) or "BtcTurk verisinde yok"
         self.btcturk_pro_market_rules_var.set(
-            f"Asgari emir: {format_exchange_price(minimum, {'denominator_scale': 2}) if minimum is not None else 'bilinmiyor'} USDT"
-            f" · Fiyat hassasiyeti: {denominator_scale if denominator_scale is not None else '—'} basamak"
+            f"Asgari emir: {format_exchange_price(minimum, {'denominator_scale': 2, 'has_fraction': True}) if minimum is not None else 'bilinmiyor'} USDT"
+            f" · Min/Max miktar: {minimum_amount if minimum_amount is not None else '—'} / {maximum_amount if maximum_amount is not None else '—'}"
+            f" · Fiyat hassasiyeti: {price_scale_text}"
             f" · Miktar hassasiyeti: {numerator_scale if numerator_scale is not None else '—'} basamak"
             f" · Fiyat adımı: {tick_size if tick_size is not None else '—'}"
+            f" · Emir türleri: {methods}"
         )
         self._btcturk_pro_render_orderbook(data)
         self._btcturk_pro_draw_chart()
