@@ -340,9 +340,13 @@ def _load_common_symbols(root: Path = ROOT) -> tuple[list[str], dict[str, Any]]:
 
 
 def _symbol_regex(symbol: str) -> re.Pattern[str] | None:
-    if len(symbol) < 3:
+    base = str(symbol or "").upper()
+    if len(base) < 2:
         return None
-    return re.compile(r"(?<![A-Za-z0-9])\$?" + re.escape(symbol) + r"(?![A-Za-z0-9])")
+    # Two-character tickers are matched only when explicitly prefixed with "$";
+    # this keeps common words such as "op" from becoming project mentions.
+    prefix = r"\$" if len(base) == 2 else r"\$?"
+    return re.compile(r"(?<![A-Za-z0-9])" + prefix + re.escape(base) + r"(?![A-Za-z0-9])")
 
 
 def match_symbols(text: str, symbols: list[str], aliases: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
