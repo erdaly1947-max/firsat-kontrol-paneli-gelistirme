@@ -755,3 +755,43 @@ class CmcNarrativeCategoryTests(unittest.TestCase):
             self.assertEqual(rows[0]["coverage"]["independent_news_sources"], 0)
             self.assertEqual(rows[0]["confidence"], "ORTA")
             self.assertIn("category_market_momentum", rows[0]["score_components"])
+
+
+class NarrativeMarketDiscoveryMappingTests(unittest.TestCase):
+    def test_fresh_cmc_quotes_override_older_category_snapshots(self):
+        engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+        rows = engine._market_map(
+            [
+                {"symbol": "ETH", "name": "Ethereum", "percent_change_24h": -4.0,
+                 "volume_24h": 100.0, "volume_change_24h": -5.0, "rank": 2},
+                {"symbol": "ETH", "name": "Ethereum", "percent_change_24h": 3.0,
+                 "volume_24h": 200.0, "volume_change_24h": 15.0, "rank": 2},
+            ],
+            [], {}, ["ETH"], {"ETH": ["Ethereum"]},
+        )
+        self.assertEqual(rows["ETH"]["percent_change_24h"], 3.0)
+        self.assertEqual(rows["ETH"]["volume_24h"], 200.0)
+        self.assertEqual(rows["ETH"]["volume_change_24h"], 15.0)
+
+    def test_dex_and_coingecko_ticker_only_matches_are_not_discovery_evidence(self):
+        engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+        rows = engine._market_map(
+            [],
+            [{"symbol": "ABC", "name": "Unrelated Project", "description": "Protocol update"}],
+            {"coins": [{"item": {"symbol": "ABC", "name": "Another Unrelated Asset"}}]},
+            ["ABC"], {"ABC": ["Canonical ABC Project"]},
+        )
+        self.assertNotIn("dex_activity", rows.get("ABC", {}))
+        self.assertNotIn("coingecko_trending", rows.get("ABC", {}))
+
+    def test_dex_and_coingecko_exact_project_name_matches_are_kept(self):
+        engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+        rows = engine._market_map(
+            [],
+            [{"symbol": "RENDER", "name": "Render Network", "description": "Official profile", "chain": "solana"}],
+            {"coins": [{"item": {"symbol": "RENDER", "name": "Render Network"}}]},
+            ["RENDER"], {"RENDER": ["Render Network"]},
+        )
+        self.assertTrue(rows["RENDER"]["dex_activity"])
+        self.assertEqual(rows["RENDER"]["dex_chain"], "solana")
+        self.assertTrue(rows["RENDER"]["coingecko_trending"])

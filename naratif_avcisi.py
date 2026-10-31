@@ -1870,31 +1870,47 @@ class NarrativeEngine:
     ) -> dict[str, dict[str, Any]]:
         result: dict[str, dict[str, Any]] = {}
         allowed = set(symbols)
+        # Category detail snapshots can be older than the hourly CMC quote feed.
+        # Merge only populated fields so the latest data (passed last) takes precedence.
         for row in market_rows:
             base = str(row.get("symbol") or "").upper()
-            if base in allowed:
-                result[base] = {
-                    "symbol": base, "name": row.get("name"),
-                    "percent_change_24h": row.get("percent_change_24h"),
-                    "volume_24h": row.get("volume_24h"),
-                    "volume_change_24h": row.get("volume_change_24h"),
-                    "cmc_rank": row.get("rank"),
-                    "market_activity_source": "CoinMarketCap anahtarsız listeleme",
-                }
+            if base not in allowed:
+                continue
+            item = result.setdefault(base, {"symbol": base})
+            fields = {
+                "symbol": base,
+                "name": row.get("name"),
+                "percent_change_24h": row.get("percent_change_24h"),
+                "volume_24h": row.get("volume_24h"),
+                "volume_change_24h": row.get("volume_change_24h"),
+                "cmc_rank": row.get("rank"),
+                "market_activity_source": "CoinMarketCap anahtarsız listeleme",
+            }
+            item.update({key: value for key, value in fields.items() if value is not None})
+
         for row in dex_rows:
             text = " ".join(str(row.get(key) or "") for key in ("symbol", "name", "description"))
             for match in match_symbols(text, symbols, aliases):
+                if match.get("confidence") != "YÜKSEK":
+                    continue
                 item = result.setdefault(match["symbol"], {"symbol": match["symbol"]})
                 item["dex_activity"] = True
                 item["dex_chain"] = row.get("chain") or item.get("dex_chain")
+
         if isinstance(coingecko, dict):
             for item in coingecko.get("coins", []) if isinstance(coingecko.get("coins"), list) else []:
                 coin = item.get("item") if isinstance(item, dict) else None
                 if not isinstance(coin, dict):
                     continue
-                ticker = str(coin.get("symbol") or "").upper()
-                if ticker in allowed:
-                    result.setdefault(ticker, {"symbol": ticker})["coingecko_trending"] = True
+                project_text = " ".join(
+                    str(coin.get(key) or "") for key in ("name", "symbol")
+                )
+                for match in match_symbols(project_text, symbols, aliases):
+                    if match.get("confidence") != "YÜKSEK":
+                        continue
+                    result.setdefault(match["symbol"], {"symbol": match["symbol"]})[
+                        "coingecko_trending"
+                    ] = True
         return result
 
     def _build_narratives(
@@ -2366,7 +2382,7 @@ class NarrativeEngine:
             source_data.get("cmc_category_events", []),
         )
         market_map = self._market_map(
-            source_data["cmc"] + source_data["cmc_quotes"] + source_data["cmc_category_coins"],
+            source_data["cmc_category_coins"] + source_data["cmc"] + source_data["cmc_quotes"],
             source_data["dex_profiles"] + source_data["dex_community"],
             source_data["coingecko"],
             symbols,
