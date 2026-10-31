@@ -2005,6 +2005,13 @@ class ControlPanel(tk.Tk):
                 "GEREKSİNİM: DEX Screener herkese açık profil/topluluk uç noktası; API anahtarı kullanılmaz.",
                 "Profil veya topluluk görünürlüğü tek başına organik talep ya da bağımsız haber teyidi değildir.",
             ])
+        elif source_id == "santiment_history":
+            lines.extend([
+                "",
+                "KAYIT: Santiment'in saatlik aktif adres ve günlük geliştirici etkinliği örnekleri yerel SQLite dosyasında tutulur.",
+                "Aynı varlık, ölçüm ve kaynak zaman damgası ikinci kez gelirse yeni satır oluşturulmaz; değer güncellenir.",
+                "İlk yerel görülme ve son alınma zamanları ayrı saklanır. Bu kayıt teknik veya naratif puana katılmaz.",
+            ])
         elif source_id.startswith("santiment"):
             lines.extend([
                 "",
@@ -2127,6 +2134,35 @@ class ControlPanel(tk.Tk):
                 f"Geliştirici etkinliği değişimi (7 gün): {santiment.get('dev_activity_change_7d_pct', 'hesaplanamadı')}%",
                 f"Santiment proje kodu: {santiment.get('asset_slug', '—')}",
             ])
+            observation_history = santiment.get("observation_history")
+            if isinstance(observation_history, dict):
+                active_history = observation_history.get("active_addresses_24h")
+                dev_history = observation_history.get("dev_activity")
+                lines.extend([
+                    "",
+                    "SANTIMENT GÖZLEM GEÇMİŞİ",
+                    f"Yerel ilk kayıt: {observation_history.get('tracked_since_utc') or '—'}",
+                    f"Son veri alınma zamanı: {observation_history.get('last_collected_at_utc') or '—'}",
+                    f"Kaydedilmiş örnek sayısı: {observation_history.get('observation_count', 0)}",
+                ])
+                if isinstance(active_history, list) and active_history:
+                    lines.append("Aktif adresler — son saatlik örnekler:")
+                    for point in active_history[-6:]:
+                        try:
+                            value_text = f"{float(point.get('value')):,.0f}"
+                        except (TypeError, ValueError):
+                            value_text = "—"
+                        sample_time = str(point.get("datetime") or "—").replace("T", " ")
+                        lines.append(f"{sample_time} UTC | {value_text}")
+                if isinstance(dev_history, list) and dev_history:
+                    lines.append("Geliştirici etkinliği — son günlük örnekler:")
+                    for point in dev_history[-7:]:
+                        try:
+                            value_text = f"{float(point.get('value')):,.2f}"
+                        except (TypeError, ValueError):
+                            value_text = "—"
+                        sample_time = str(point.get("datetime") or "—").replace("T", " ")
+                        lines.append(f"{sample_time} UTC | {value_text}")
         else:
             lines.extend([
                 "",

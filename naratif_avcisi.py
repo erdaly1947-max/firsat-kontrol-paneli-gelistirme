@@ -1980,6 +1980,139 @@ class NarrativeEngine:
             "coingecko": cg or {},
         }
 
+    def _save_santiment_observations(
+        self,
+        slug_map: dict[str, str],
+        active_rows: dict[str, list[dict[str, Any]]],
+        dev_rows: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, int]:
+        """Persist provider timestamped Santiment samples once, retaining collection timestamps."""
+        counts = {"active_addresses_24h": 0, "dev_activity": 0}
+        if not slug_map:
+            return counts
+        self.history_path.parent.mkdir(parents=True, exist_ok=True)
+        observed_now = utc_now()
+        metrics = (
+            ("active_addresses_24h", active_rows),
+            ("dev_activity", dev_rows),
+        )
+        with sqlite3.connect(self.history_path) as connection:
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS santiment_observations (
+                    asset_slug TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    metric TEXT NOT NULL,
+                    sample_at_utc TEXT NOT NULL,
+                    value REAL NOT NULL,
+                    computed_at_utc TEXT,
+                    first_observed_at_utc TEXT NOT NULL,
+                    last_observed_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (asset_slug, metric, sample_at_utc)
+                )
+            """)
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_santiment_observations_symbol_metric_time
+                ON santiment_observations(symbol, metric, sample_at_utc)
+            """)
+            for symbol, slug in slug_map.items():
+                for metric, rows_by_slug in metrics:
+                    for point in rows_by_slug.get(slug, []):
+                        if not isinstance(point, dict):
+                            continue
+                        sample_at = str(point.get("datetime") or "").strip()
+                        value = _safe_float(point.get("value"))
+                        if not sample_at or value is None:
+                            continue
+                        computed_at = str(point.get("computed_at") or "").strip() or None
+                        connection.execute(
+                            """
+                            INSERT INTO santiment_observations
+                            (asset_slug, symbol, metric, sample_at_utc, value,
+                             computed_at_utc, first_observed_at_utc, last_observed_at_utc)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(asset_slug, metric, sample_at_utc) DO UPDATE SET
+                                symbol = excluded.symbol,
+                                value = excluded.value,
+                                computed_at_utc = COALESCE(
+                                    excluded.computed_at_utc,
+                                    santiment_observations.computed_at_utc
+                                ),
+                                last_observed_at_utc = excluded.last_observed_at_utc
+                            """,
+                            (
+                                slug, symbol, metric, sample_at, value, computed_at,
+                                observed_now, observed_now,
+                            ),
+                        )
+                        counts[metric] += 1
+        return counts
+
+    def _load_santiment_observation_history(
+        self,
+        slug: str,
+        *,
+        active_limit: int = 72,
+        dev_limit: int = 30,
+    ) -> dict[str, Any]:
+        """Read the most recent provider samples and their first/last local collection times."""
+        if not self.history_path.exists():
+            return {}
+        metrics = (
+            ("active_addresses_24h", max(1, int(active_limit))),
+            ("dev_activity", max(1, int(dev_limit))),
+        )
+        history: dict[str, Any] = {
+            "asset_slug": slug,
+            "active_addresses_24h": [],
+            "dev_activity": [],
+            "tracked_since_utc": None,
+            "last_collected_at_utc": None,
+        }
+        try:
+            with sqlite3.connect(self.history_path) as connection:
+                for metric, limit in metrics:
+                    rows = connection.execute(
+                        """
+                        SELECT sample_at_utc, value, computed_at_utc,
+                               first_observed_at_utc, last_observed_at_utc
+                        FROM santiment_observations
+                        WHERE asset_slug=? AND metric=?
+                        ORDER BY sample_at_utc DESC
+                        LIMIT ?
+                        """,
+                        (slug, metric, limit),
+                    ).fetchall()
+                    rows.reverse()
+                    history[metric] = [
+                        {
+                            "datetime": row[0],
+                            "value": float(row[1]),
+                            "computed_at": row[2],
+                            "first_observed_at_utc": row[3],
+                            "last_observed_at_utc": row[4],
+                        }
+                        for row in rows
+                    ]
+                metadata = connection.execute(
+                    """
+                    SELECT MIN(first_observed_at_utc), MAX(last_observed_at_utc),
+                           COUNT(*)
+                    FROM santiment_observations
+                    WHERE asset_slug=?
+                    """,
+                    (slug,),
+                ).fetchone()
+            if metadata:
+                history["tracked_since_utc"] = metadata[0]
+                history["last_collected_at_utc"] = metadata[1]
+                history["observation_count"] = int(metadata[2] or 0)
+            history["active_point_count"] = len(history["active_addresses_24h"])
+            history["dev_point_count"] = len(history["dev_activity"])
+        except sqlite3.Error:
+            self.logger.exception("Santiment gözlem geçmişi okunamadı: %s", slug)
+            return {}
+        return history if history.get("observation_count", 0) else {}
+
     def _collect_santiment(
         self,
         statuses: dict[str, Any],
@@ -1994,7 +2127,32 @@ class NarrativeEngine:
                 enabled=False,
                 status="API ANAHTARI YOK — DEVRE DIŞI",
             )
-            return {}
+            cached_projects = self._cached_data("santiment_project_catalog")
+            candidate_symbols = rank_santiment_candidate_symbols(events, MAX_SANTIMENT_SYMBOLS)
+            cached_slug_map = map_santiment_projects(
+                cached_projects if isinstance(cached_projects, list) else [],
+                candidate_symbols,
+                aliases,
+            )
+            history_only: dict[str, dict[str, Any]] = {}
+            for symbol, slug in cached_slug_map.items():
+                history = self._load_santiment_observation_history(slug)
+                if history:
+                    history_only[symbol] = {
+                        "asset_slug": slug,
+                        "observation_history": history,
+                    }
+            statuses["santiment_history"] = _source_status(
+                "santiment_history",
+                role="Önceden kaydedilmiş Santiment örnekleri; yerel SQLite geçmişi, API anahtarından bağımsız okunur.",
+                enabled=True,
+                status="KAYITLI GEÇMİŞ VAR" if history_only else "HENÜZ KAYIT YOK",
+            )
+            statuses["santiment_history"]["item_count"] = sum(
+                item["observation_history"].get("observation_count", 0)
+                for item in history_only.values()
+            )
+            return history_only
         catalog_status = _source_status(
             "santiment_project_catalog",
             role="Coin sembolünü Santiment proje koduyla yalnızca birebir eşleştirir; 30 günde bir yenilenir.",
@@ -2043,10 +2201,31 @@ class NarrativeEngine:
             "santiment_dev_activity",
             "Ücretsiz dev_activity modern:v1 ölçümü; en fazla 30 coin, altı saatte bir.",
         )
+        history_status = _source_status(
+            "santiment_history",
+            role="Yerel SQLite gözlem geçmişi; sağlayıcının zaman damgalı örneklerini saklar ve yinelenen örnekleri günceller.",
+        )
+        try:
+            saved_counts = self._save_santiment_observations(slug_map, active_rows, dev_rows)
+            history_status["status"] = "KAYDEDİLDİ" if sum(saved_counts.values()) else "YENİ ÖRNEK YOK"
+            history_status["item_count"] = sum(saved_counts.values())
+            history_status["active_addresses_points"] = saved_counts["active_addresses_24h"]
+            history_status["dev_activity_points"] = saved_counts["dev_activity"]
+        except (OSError, sqlite3.Error) as exc:
+            history_status["status"] = "KAYIT HATASI"
+            history_status["error"] = str(exc)[:500]
+            self.logger.exception("Santiment gözlem geçmişi kaydedilemedi.")
+        statuses["santiment_history"] = history_status
+
         result: dict[str, dict[str, Any]] = {}
         for symbol, slug in slug_map.items():
             summary = summarize_santiment_asset(slug, active_rows, dev_rows)
-            if summary:
+            observation_history = self._load_santiment_observation_history(slug)
+            if summary or observation_history:
+                summary = dict(summary)
+                summary["asset_slug"] = slug
+                if observation_history:
+                    summary["observation_history"] = observation_history
                 result[symbol] = summary
         metric_statuses = [
             statuses.get("santiment_active_addresses", {}),
@@ -3057,6 +3236,7 @@ class NarrativeEngine:
                 "aixbt_project_association_count": statuses.get("aixbt_project_mapping", {}).get("item_count", 0),
                 "santiment_coin_count": len(santiment_map),
                 "santiment_symbols": sorted(santiment_map),
+                "santiment_history_observation_count": statuses.get("santiment_history", {}).get("item_count", 0),
             },
             "limits": [
                 "AIXBT ücretsiz/anahtarsız Topics uç noktası mevcut ilk 25 konuyu verir; tüm AIXBT konu arşivi değildir.",

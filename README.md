@@ -1034,3 +1034,21 @@ Resmî CMC dokümanları:
 - Proje adı/slug yalnızca ortak Binance–BtcTurk USDT evrenindeki yüksek güvenli isim/alias eşleşmesiyle coin izlemeye alınır. Ticker benzerliği tek başına yeterli değildir. Coin ayrıntısında eşleşen konu, gözlenen gönderi/yazar sayısı ve konu içindeki payı gösterilir.
 - AIXBT proje eşlemesi konu keşif verisidir; editoryal haber veya bağımsız teyit sayılmaz. Naratif kanıtı teknik puanı, teknik güçlü fırsat koşullarını, teknik alarmı veya işlem emirlerini değiştirmez.
 - Bir API anahtarıyla gerçek hesap/plan erişimi henüz doğrulanmış sayılmaz. 401/403 yanıtları kaynak durumunda görünür; bu yanıtlar erişim yetkisinin/plan kapsamının ayrıca doğrulanmasını gerektirir.
+
+
+---
+
+## Santiment gözlem geçmişi — 31 Ekim 2026
+
+Santiment'in ücretsiz erişimde kullanılan iki ölçümü için yerel zaman serisi geçmişi tutulur:
+
+- `active_addresses_24h`: saatlik örnekler; API sorgusunun kapsadığı son 2 günlük pencere.
+- `dev_activity` (`modern:v1`): günlük örnekler; API sorgusunun kapsadığı son 15 günlük pencere.
+
+Her örnek `data/naratif_gecmisi.sqlite3` içindeki `santiment_observations` tablosuna yazılır. Tekil kayıt anahtarı Santiment proje kodu + ölçüm + sağlayıcının örnek zamanıdır. Aynı örnek sonraki sorgularda yeniden gelirse ikinci kayıt açılmaz; sağlayıcı değeri değişmişse mevcut örnek güncellenir.
+
+Kaynak örneğinin zamanı (`sample_at_utc`), Santiment hesaplama zamanı (`computed_at_utc`), programın ilk yerel gözlem zamanı (`first_observed_at_utc`) ve son tekrar alma zamanı (`last_observed_at_utc`) birbirinden ayrı tutulur. Böylece sağlayıcının geçmiş örneği, programın o örneği ilk ne zaman gördüğüyle karıştırılmaz.
+
+Coin ayrıntısında aktif adreslerin son altı saatlik örneği ve geliştirici etkinliğinin son yedi günlük örneği gösterilir. SQLite geçmişi API anahtarı geçici olarak bulunmadığında da, önceden önbelleğe alınmış Santiment proje kataloğuyla eşleştirme yapılabildiği ölçüde okunabilir. Yeni veri çekmek için `SANTIMENT_API_KEY` ortam değişkeni yine gereklidir.
+
+Bu kayıt yalnızca gözlem ve araştırma içindir; naratif puanını, teknik puanı, A/B/C aşamalarını, güçlü fırsat koşullarını veya alarm kararlarını değiştirmez. Program eski tarihlere kendi adına gözlem uydurmaz. İlk çalıştırmada sağlayıcının sunduğu son 2 günlük/saatlik ve 15 günlük/günlük gerçek örnekler kaydedilebilir; programın yerel takip geçmişi bu örneklerin ilk alınma zamanından başlar. Ham Santiment erişim aralıkları ve ücretsiz kota politikası değiştirilmemiştir.
