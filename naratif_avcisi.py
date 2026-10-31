@@ -547,7 +547,7 @@ def select_cmc_category_detail_batch(
     return selected[:batch_size]
 
 
-def parse_cmc_category_detail(def parse_cmc_category_detail(
+def parse_cmc_category_detail(
     payload: Any,
     category_summary: dict[str, Any],
     allowed_cmc_ids_by_symbol: dict[str, int],
@@ -656,7 +656,7 @@ def build_cmc_category_event(category: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def parse_cmc_global_metrics(def parse_cmc_global_metrics(payload: Any) -> dict[str, Any]:
+def parse_cmc_global_metrics(payload: Any) -> dict[str, Any]:
     data = payload.get("data") if isinstance(payload, dict) else None
     if isinstance(data, list):
         data = data[0] if data else {}
