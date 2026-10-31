@@ -41,9 +41,12 @@ Kaynak kodda bir adresin bulunması, canlı bağlantının başarılı olduğu a
 | CoinGecko Trending | Ücretsiz Demo erişimi için COINGECKO_DEMO_API_KEY ortam değişkeni gerekir. Anahtar yoksa devre dışıdır; gizli anahtar ayarlar dosyasına yazılmaz. |
 | RSS/Atom | Varsayılan akışlar Ethereum Foundation, CoinDesk, Cointelegraph ve The Block. HTTPS adresleri ayarlar.json içindeki narrative_rss_feeds ile, aralık narrative_rss_interval_seconds ile düzenlenebilir. Her yayın akışının erişimi ayrı izlenir. |
 | AIXBT konu→proje eşlemesi | Ek API erişimi/hesap yetkisi gerekebileceği için kullanılmıyor; bağlı gibi gösterilmez. |
-| X, Reddit, Santiment | Bu sürümde veri toplama entegrasyonu yoktur; arayüzde açıkça “bağlı değil” gösterilir ve puana katılmaz. |
+| Santiment Individuals Free | Yalnızca ücretsiz ve güncel erişimli `active_addresses_24h` ile `dev_activity` (modern:v1) sorgulanır. Proje kataloğu sembol/ad tam eşleşmesiyle bağlanır. API anahtarı `SANTIMENT_API_KEY` ortam değişkeninden okunur. |
+| Santiment kısıtlı ölçümleri | Social Volume/Dominance, Community Social Volume, transaction volume ve exchange inflow/outflow kullanılmaz: Free API erişiminde kısıtlı ölçümlerin son 30 günü kapalıdır; güncel naratif takibi için uygun değildir. |
+| X | Kullanıcı kararıyla entegrasyondan vazgeçildi; hiçbir X API çağrısı yapılmaz. |
+| Reddit | Data API başvurusu gönderildi; onay ve OAuth bilgileri bekleniyor. Bu aşamada veri çağrısı yapılmaz. |
 
-Naratif motoru kaynak hatasında diğer kaynaklara devam eder. HTTP isteklerinin zaman aşımı 10 saniyedir. Kaynak aralıkları AIXBT 5 dakika, CMC/DEX profilleri/CoinGecko 10 dakika, DEX topluluk akışı 15 dakika; RSS varsayılan 15 dakika olup ayardan değiştirilebilir. Herhangi bir kaynağın canlı erişimi yalnızca programın çalışma anında BAĞLI sonucu alınırsa doğrulanmış sayılır.
+Naratif motoru kaynak hatasında diğer kaynaklara devam eder. HTTP isteklerinin zaman aşımı 10 saniyedir. Kaynak aralıkları AIXBT 5 dakika, CMC/DEX profilleri/CoinGecko 10 dakika, DEX topluluk akışı 15 dakika, RSS varsayılan 15 dakikadır. Santiment proje kataloğu 30 günde bir; ücretsiz aktif adres ve geliştirici etkinliği ölçümleri 6 saatte bir sorgulanır. En fazla 30 eşleşen coin tek metrik sorgusunda toplu alınır. Free API aylık 1.000 çağrı sınırı içinde yaklaşık 241 çağrı/30 gün hedeflenir. API anahtarı yalnızca `SANTIMENT_API_KEY` ortam değişkeninden okunur. Herhangi bir kaynağın canlı erişimi yalnızca programın çalışma anında BAĞLI sonucu alınırsa doğrulanmış sayılır.
 
 ### Naratif puanı ve geçmişin yorumu
 

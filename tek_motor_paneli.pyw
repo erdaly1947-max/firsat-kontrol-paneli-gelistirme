@@ -1943,7 +1943,23 @@ class ControlPanel(tk.Tk):
                 "GEREKSİNİM: DEX Screener herkese açık profil/topluluk uç noktası; API anahtarı kullanılmaz.",
                 "Profil veya topluluk görünürlüğü tek başına organik talep ya da bağımsız haber teyidi değildir.",
             ])
-        elif source_id in ("x_api", "reddit", "santiment"):
+        elif source_id.startswith("santiment"):
+            lines.extend([
+                "",
+                "PLAN: Santiment Individuals Free (Bireysel Ücretsiz) planı.",
+                "API anahtarı yalnızca Windows kullanıcı ortam değişkeni SANTIMENT_API_KEY üzerinden okunur.",
+                "Yalnızca ücretsiz active_addresses_24h ve dev_activity (modern:v1) ölçümleri kullanılır.",
+                "Sosyal hacim/görünürlük, topluluk mesajı, işlem hacmi ve borsa giriş-çıkış ölçümleri kısıtlı olduğundan çağrılmaz.",
+                "Ölçümler en fazla 30 eşleşen coin için altı saatte bir alınır; proje kodu kataloğu 30 günde bir yenilenir.",
+                "Santiment ölçümleri naratif/teknik puanları, teknik eşikleri veya güçlü fırsat koşullarını değiştirmez.",
+            ])
+            if source_id == "santiment_active_addresses":
+                lines.append("ÖLÇÜM: Son 24 saatlik aktif adres sayısı; saatlik örnekler kullanılır.")
+            elif source_id == "santiment_dev_activity":
+                lines.append("ÖLÇÜM: Geliştirici etkinliği; son 7 gün önceki 7 günlük dönemle karşılaştırılır.")
+            elif source_id == "santiment_project_catalog":
+                lines.append("ÖLÇÜM: Coin sembolü yalnızca Santiment proje kataloğundaki tam eşleşmeyle bağlanır; belirsiz semboller atlanır.")
+        elif source_id in ("x_api", "reddit"):
             lines.extend([
                 "",
                 "DURUM: Bu kaynak için veri toplama entegrasyonu bu sürümde bulunmuyor.",
@@ -1985,7 +2001,27 @@ class ControlPanel(tk.Tk):
             f"Naratif keşif kaynakları: {', '.join(selected.get('discovery_sources', [])) or '—'}",
             f"İlgi yönü: {selected.get('interest_direction', '—')}",
             f"En güncel kaynak yaşı: {_format_age(selected.get('data_freshness_seconds')) if selected.get('data_freshness_seconds') is not None else 'hesaplanamadı'}",
+        ]
+        market_activity = selected.get("market_activity") if isinstance(selected.get("market_activity"), dict) else {}
+        santiment = market_activity.get("santiment") if isinstance(market_activity.get("santiment"), dict) else None
+        if santiment:
+            lines.extend([
+                "",
+                "SANTIMENT — ÜCRETSİZ ÖLÇÜMLER",
+                f"Aktif adresler (son 24 saat): {santiment.get('active_addresses_24h', '—')}",
+                f"Aktif adres değişimi (24 saat): {santiment.get('active_addresses_change_24h_pct', 'hesaplanamadı')}%",
+                f"Geliştirici etkinliği (son 7 gün): {santiment.get('dev_activity_7d', '—')}",
+                f"Geliştirici etkinliği değişimi (7 gün): {santiment.get('dev_activity_change_7d_pct', 'hesaplanamadı')}%",
+                f"Santiment proje kodu: {santiment.get('asset_slug', '—')}",
+            ])
+        else:
+            lines.extend([
+                "",
+                "Santiment ücretsiz ölçümleri: Bu coin için henüz desteklenen/eşleşen veri yok veya ilk sorgu bekleniyor.",
+            ])
+        lines.extend([
             "",
+            "Santiment verisi yardımcı bilgidir; naratif puanını ve teknik fırsat koşullarını değiştirmez.",
             "Teknik radar henüz sinyal üretmemiş olsa bile coin naratif nedeniyle erken takipte tutulur.",
             "Bu kayıt teknik puana eklenmez ve tek başına güçlü fırsat/alım alarmı oluşturmaz.",
         ]

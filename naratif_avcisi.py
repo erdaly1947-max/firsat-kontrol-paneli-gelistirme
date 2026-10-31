@@ -14,7 +14,7 @@ import re
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -39,6 +39,7 @@ CMC_LISTINGS_URL = "https://pro-api.coinmarketcap.com/public-api/v3/cryptocurren
 DEX_PROFILES_URL = "https://api.dexscreener.com/token-profiles/latest/v1"
 DEX_COMMUNITY_URL = "https://api.dexscreener.com/community-takeovers/latest/v1"
 COINGECKO_TRENDING_URL = "https://api.coingecko.com/api/v3/search/trending"
+SANTIMENT_GRAPHQL_URL = "https://api.santiment.net/graphql"
 
 DEFAULT_FEEDS = [
     {"id": "ethereum_foundation", "name": "Ethereum Foundation", "url": "https://blog.ethereum.org/en/feed.xml", "kind": "official"},
@@ -52,9 +53,13 @@ SOURCE_INTERVALS = {
     "dex_profiles": 600,
     "dex_community": 900,
     "coingecko_trending": 600,
+    "santiment_project_catalog": 30 * 86400,
+    "santiment_active_addresses": 6 * 3600,
+    "santiment_dev_activity": 6 * 3600,
 }
 MAX_SOURCE_ITEMS = 500
 MAX_RSS_ITEMS_PER_FEED = 100
+MAX_SANTIMENT_SYMBOLS = 30
 USER_AGENT = "FirsatKontrolPaneli-NarrativeResearch/1.0 (+local desktop research client)"
 
 THEME_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -259,6 +264,200 @@ def parse_rss_items(xml_text: str, *, source_id: str, source_name: str, source_k
     return result
 
 
+
+def parse_santiment_projects(payload: Any) -> list[dict[str, str]]:
+    """Normalize the public Santiment project catalogue without guessing tickers."""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    rows = data.get("allProjects") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        slug = str(item.get("slug") or "").strip().lower()
+        ticker = str(item.get("ticker") or "").strip().upper()
+        name = str(item.get("name") or "").strip()
+        if not slug or not ticker or not name or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", slug):
+            continue
+        if slug in seen:
+            continue
+        seen.add(slug)
+        result.append({"slug": slug, "ticker": ticker, "name": name})
+    return result[:1000]
+
+
+def map_santiment_projects(
+    projects: list[dict[str, Any]],
+    symbols: list[str],
+    aliases: dict[str, list[str]],
+) -> dict[str, str]:
+    """Map exact tickers; duplicate tickers require a unique exact-name match."""
+    by_ticker: dict[str, list[dict[str, Any]]] = {}
+    for project in projects:
+        ticker = str(project.get("ticker") or "").strip().upper()
+        if ticker and project.get("slug"):
+            by_ticker.setdefault(ticker, []).append(project)
+    mapped: dict[str, str] = {}
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol or "").strip().upper()
+        candidates = by_ticker.get(symbol, [])
+        if len(candidates) == 1:
+            mapped[symbol] = str(candidates[0]["slug"])
+            continue
+        expected_names = {
+            str(value).strip().casefold()
+            for value in aliases.get(symbol, [])
+            if str(value).strip()
+        }
+        expected_names.add(symbol.casefold())
+        exact = [
+            item for item in candidates
+            if str(item.get("name") or "").strip().casefold() in expected_names
+        ]
+        if len(exact) == 1:
+            mapped[symbol] = str(exact[0]["slug"])
+    return mapped
+
+
+def parse_santiment_timeseries(payload: Any) -> dict[str, list[dict[str, Any]]]:
+    """Normalize timeseriesDataPerSlugJson responses to slug-indexed point lists."""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    metric_data = data.get("getMetric") if isinstance(data, dict) else None
+    raw = metric_data.get("timeseriesDataPerSlugJson") if isinstance(metric_data, dict) else None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return {}
+    if isinstance(raw, dict) and isinstance(raw.get("data"), list):
+        raw = raw["data"]
+    if not isinstance(raw, list):
+        return {}
+    result: dict[str, list[dict[str, Any]]] = {}
+    for bucket in raw:
+        if not isinstance(bucket, dict):
+            continue
+        bucket_datetime = str(bucket.get("datetime") or "")
+        entries = bucket.get("data")
+        if isinstance(entries, list):
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                slug = str(entry.get("slug") or "").strip().lower()
+                value = _safe_float(entry.get("value"))
+                if slug and value is not None:
+                    result.setdefault(slug, []).append({
+                        "datetime": str(entry.get("datetime") or bucket_datetime),
+                        "value": value,
+                        "computed_at": entry.get("computedAt") or entry.get("computed_at"),
+                    })
+        else:
+            slug = str(bucket.get("slug") or "").strip().lower()
+            value = _safe_float(bucket.get("value"))
+            if slug and value is not None:
+                result.setdefault(slug, []).append({
+                    "datetime": bucket_datetime,
+                    "value": value,
+                    "computed_at": bucket.get("computedAt") or bucket.get("computed_at"),
+                })
+    for points in result.values():
+        points.sort(key=lambda point: str(point.get("datetime") or ""))
+    return result
+
+
+def build_santiment_metric_query(metric: str, slugs: list[str]) -> str:
+    """Build queries for the two documented Free Access metrics only."""
+    safe_slugs = sorted({
+        str(slug).strip().lower()
+        for slug in slugs
+        if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", str(slug).strip().lower())
+    })
+    if not safe_slugs:
+        raise ValueError("Santiment sorgusu için geçerli proje eşlemesi yok.")
+    selector = json.dumps(safe_slugs, ensure_ascii=True)
+    if metric == "active_addresses_24h":
+        return (
+            'query { getMetric(metric: "active_addresses_24h") { '
+            'timeseriesDataPerSlugJson(selector: {slugs: ' + selector +
+            '}, from: "utc_now-2d", to: "utc_now", interval: "1h", '
+            'includeComputedAt: true) } }'
+        )
+    if metric == "dev_activity":
+        return (
+            'query { getMetric(metric: "dev_activity", version: "modern:v1") { '
+            'timeseriesDataPerSlugJson(selector: {slugs: ' + selector +
+            '}, from: "utc_now-15d", to: "utc_now", interval: "1d", '
+            'includeIncompleteData: false, includeComputedAt: true) } }'
+        )
+    raise ValueError(f"Santiment metriği ücretsiz entegrasyon kapsamında değil: {metric}")
+
+
+def summarize_santiment_asset(
+    slug: str,
+    active_rows: dict[str, list[dict[str, Any]]],
+    dev_rows: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """Create transparent comparisons; this data never enters the narrative score."""
+    result: dict[str, Any] = {"asset_slug": slug}
+    active = active_rows.get(slug, [])
+    if active:
+        latest = active[-1]
+        result["active_addresses_24h"] = latest["value"]
+        result["active_addresses_observed_at_utc"] = latest.get("datetime")
+        try:
+            latest_dt = datetime.fromisoformat(str(latest.get("datetime")).replace("Z", "+00:00"))
+            target_dt = latest_dt - timedelta(hours=24)
+            prior = min(
+                active[:-1],
+                key=lambda point: abs(
+                    (datetime.fromisoformat(str(point.get("datetime")).replace("Z", "+00:00")) - target_dt).total_seconds()
+                ),
+            ) if len(active) > 1 else None
+            if prior:
+                prior_dt = datetime.fromisoformat(str(prior.get("datetime")).replace("Z", "+00:00"))
+                if abs((prior_dt - target_dt).total_seconds()) <= 3 * 3600 and prior["value"] != 0:
+                    result["active_addresses_change_24h_pct"] = round(
+                        (latest["value"] / prior["value"] - 1.0) * 100.0, 2
+                    )
+        except (TypeError, ValueError, OverflowError):
+            pass
+    dev = dev_rows.get(slug, [])
+    if dev:
+        recent = dev[-7:]
+        previous = dev[-14:-7]
+        result["dev_activity_7d"] = round(sum(point["value"] for point in recent), 2)
+        result["dev_activity_observed_at_utc"] = dev[-1].get("datetime")
+        if len(recent) == 7 and len(previous) == 7:
+            previous_total = sum(point["value"] for point in previous)
+            if previous_total != 0:
+                result["dev_activity_change_7d_pct"] = round(
+                    (sum(point["value"] for point in recent) / previous_total - 1.0) * 100.0, 2
+                )
+    return result if len(result) > 1 else {}
+
+
+def rank_santiment_candidate_symbols(events: list[dict[str, Any]], limit: int = 30) -> list[str]:
+    """Prioritize coins actually mentioned in current discovery/news events."""
+    scores: dict[str, float] = {}
+    for event in events:
+        rank = _safe_int(event.get("rank"))
+        weight = max(1.0, 26.0 - rank) if rank is not None and rank > 0 else 1.0
+        if event.get("source_kind") in ("official", "media"):
+            weight += 2.0
+        for match in event.get("symbols", []) if isinstance(event.get("symbols"), list) else []:
+            if not isinstance(match, dict):
+                continue
+            symbol = str(match.get("symbol") or "").strip().upper()
+            if symbol:
+                confidence = 1.5 if match.get("confidence") == "YÜKSEK" else 1.0
+                scores[symbol] = scores.get(symbol, 0.0) + weight * confidence
+    return [
+        symbol for symbol, _ in sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))[:max(1, limit)]
+    ]
+
+
 def _safe_float(value: Any) -> float | None:
     try:
         number = float(value)
@@ -415,7 +614,7 @@ class NarrativeEngine:
         # Secrets are sourced only from environment variables, never from ayarlar.json.
         self.settings = {
             key: value for key, value in self.settings.items()
-            if str(key).upper() not in {"AIXBT_API_KEY", "COINGECKO_DEMO_API_KEY"}
+            if str(key).upper() not in {"AIXBT_API_KEY", "COINGECKO_DEMO_API_KEY", "SANTIMENT_API_KEY"}
         }
         self.cache = _read_json(self.cache_path, {})
         if not isinstance(self.cache, dict):
@@ -447,6 +646,36 @@ class NarrativeEngine:
             raise RuntimeError(f"Kaynak hız sınırı yanıtı verdi: HTTP {response.status_code}; alternatif hostla aşılmadı.")
         response.raise_for_status()
         return response.json()
+
+    def _post_graphql(self, query: str) -> Any:
+        api_key = os.environ.get("SANTIMENT_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("SANTIMENT_API_KEY ortam değişkeni bulunamadı.")
+        response = self.session.post(
+            SANTIMENT_GRAPHQL_URL,
+            data=query,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json",
+                "Content-Type": "application/graphql",
+                "Authorization": f"Apikey {api_key}",
+            },
+            timeout=10,
+        )
+        if response.status_code in (418, 429):
+            raise RuntimeError(f"Santiment API hız sınırı yanıtı verdi: HTTP {response.status_code}.")
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict) and payload.get("errors"):
+            errors = payload["errors"]
+            message = "; ".join(
+                str(item.get("message") or item)[:220] if isinstance(item, dict) else str(item)[:220]
+                for item in errors[:3]
+            ) if isinstance(errors, list) else str(errors)[:500]
+            raise RuntimeError(f"Santiment GraphQL hatası: {message}")
+        if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
+            raise RuntimeError("Santiment API beklenen GraphQL veri yapısını döndürmedi.")
+        return payload
 
     def _get_text(self, url: str) -> str:
         response = self.session.get(
@@ -648,13 +877,6 @@ class NarrativeEngine:
             enabled=False,
             status="BAĞLI DEĞİL — ENTEGRASYON YOK",
         )
-        statuses["santiment"] = _source_status(
-            "santiment",
-            role="Santiment sosyal/on-chain veri akışı; bu sürümde API bağlantısı veya veri toplama yok.",
-            enabled=False,
-            status="BAĞLI DEĞİL — ENTEGRASYON YOK",
-        )
-
         return statuses, rss_events, {
             "topics": topics or [],
             "cmc": cmc or [],
@@ -662,6 +884,107 @@ class NarrativeEngine:
             "dex_community": dex_community or [],
             "coingecko": cg or {},
         }
+
+    def _collect_santiment(
+        self,
+        statuses: dict[str, Any],
+        events: list[dict[str, Any]],
+        aliases: dict[str, list[str]],
+    ) -> dict[str, dict[str, Any]]:
+        api_key = os.environ.get("SANTIMENT_API_KEY", "").strip()
+        if not api_key:
+            statuses["santiment"] = _source_status(
+                "santiment",
+                role="Santiment Individuals Free plan; API anahtarı SANTIMENT_API_KEY ortam değişkeninden okunur.",
+                enabled=False,
+                status="API ANAHTARI YOK — DEVRE DIŞI",
+            )
+            return {}
+        catalog_status = _source_status(
+            "santiment_project_catalog",
+            role="Coin sembolünü Santiment proje koduyla yalnızca birebir eşleştirir; 30 günde bir yenilenir.",
+        )
+        projects = self._fetch_source(
+            "santiment_project_catalog",
+            SOURCE_INTERVALS["santiment_project_catalog"],
+            lambda: parse_santiment_projects(self._post_graphql(
+                "query { allProjects(page: 1, pageSize: 500) { slug name ticker } }"
+            )),
+            catalog_status,
+            count_fn=lambda value: len(value or []),
+        )
+        statuses["santiment_project_catalog"] = catalog_status
+        candidate_symbols = rank_santiment_candidate_symbols(events, MAX_SANTIMENT_SYMBOLS)
+        slug_map = map_santiment_projects(projects or [], candidate_symbols, aliases)
+        slugs = list(dict.fromkeys(slug_map.values()))
+
+        def collect_metric(metric: str, key: str, role: str) -> dict[str, list[dict[str, Any]]]:
+            status = _source_status(key, role=role)
+            if not slugs:
+                cached = self._cached_data(key)
+                status["status"] = "EŞLEŞEN VARLIK YOK — SORGULANMADI"
+                status["item_count"] = len(cached) if isinstance(cached, dict) else 0
+                statuses[key] = status
+                return cached if isinstance(cached, dict) else {}
+            data = self._fetch_source(
+                key,
+                SOURCE_INTERVALS[key],
+                lambda: parse_santiment_timeseries(self._post_graphql(
+                    build_santiment_metric_query(metric, slugs)
+                )),
+                status,
+                count_fn=lambda value: len(value or {}),
+            )
+            statuses[key] = status
+            return data if isinstance(data, dict) else {}
+
+        active_rows = collect_metric(
+            "active_addresses_24h",
+            "santiment_active_addresses",
+            "Ücretsiz active_addresses_24h ölçümü; en fazla 30 coin, altı saatte bir.",
+        )
+        dev_rows = collect_metric(
+            "dev_activity",
+            "santiment_dev_activity",
+            "Ücretsiz dev_activity modern:v1 ölçümü; en fazla 30 coin, altı saatte bir.",
+        )
+        result: dict[str, dict[str, Any]] = {}
+        for symbol, slug in slug_map.items():
+            summary = summarize_santiment_asset(slug, active_rows, dev_rows)
+            if summary:
+                result[symbol] = summary
+        metric_statuses = [
+            statuses.get("santiment_active_addresses", {}),
+            statuses.get("santiment_dev_activity", {}),
+        ]
+        successful = [
+            row for row in metric_statuses
+            if isinstance(row, dict) and row.get("status") in (
+                "BAĞLI", "ÖNBELLEK", "HATA — ÖNCEKİ VERİ VAR", "ESKİ VERİ"
+            )
+        ]
+        parent = _source_status(
+            "santiment",
+            role="Individuals Free plan: yalnızca ücretsiz active_addresses_24h ve dev_activity modern:v1 ölçümleri. Kısıtlı metrikler çağrılmaz.",
+            enabled=True,
+            status="BAĞLI" if any(row.get("status") == "BAĞLI" for row in successful) else (
+                "ÖNBELLEK" if successful else "ERİŞİLEMEDİ"
+            ),
+        )
+        parent["item_count"] = len(result)
+        errors = [
+            str(row.get("error")) for row in metric_statuses
+            if isinstance(row, dict) and row.get("error")
+        ]
+        parent["error"] = "; ".join(errors)[:500] if errors else None
+        successful_times = [
+            str(row.get("last_success_utc"))
+            for row in [catalog_status, *metric_statuses]
+            if isinstance(row, dict) and row.get("last_success_utc")
+        ]
+        parent["last_success_utc"] = max(successful_times) if successful_times else None
+        statuses["santiment"] = parent
+        return result
 
     def _aliases(self, market_rows: list[dict[str, Any]]) -> dict[str, list[str]]:
         aliases = {symbol: list(values) for symbol, values in KNOWN_ALIASES.items()}
@@ -1205,6 +1528,10 @@ class NarrativeEngine:
             symbols,
             aliases,
         )
+        santiment_map = self._collect_santiment(statuses, events, aliases)
+        # Supplementary detail only: the narrative scorer reads price/volume fields, not this nested field.
+        for symbol, metrics in santiment_map.items():
+            market_map.setdefault(symbol, {"symbol": symbol})["santiment"] = metrics
         narratives, early_watch = self._build_narratives(
             events,
             market_map,
@@ -1228,6 +1555,11 @@ class NarrativeEngine:
             and topic_status.get("status") in ("BAĞLI", "ÖNBELLEK")
             and topic_status.get("item_count", 0) > 0
         )
+        santiment_status = statuses.get("santiment", {})
+        santiment_connected = bool(
+            isinstance(santiment_status, dict)
+            and santiment_status.get("status") in ("BAĞLI", "ÖNBELLEK")
+        )
         errors = [
             f"{item['name']}: {item['status']}"
             for item in statuses.values()
@@ -1236,7 +1568,7 @@ class NarrativeEngine:
         state = {
             "schema_version": 1,
             "engine": "Naratif Avcısı",
-            "status": "ÇALIŞIYOR" if (connected_news or topic_connected) else "KAYNAK VERİSİ BEKLENİYOR",
+            "status": "ÇALIŞIYOR" if (connected_news or topic_connected or santiment_connected) else "KAYNAK VERİSİ BEKLENİYOR",
             "generated_at_utc": utc_now(),
             "first_observed_only": True,
             "historical_narrative_backfill": False,
@@ -1261,6 +1593,8 @@ class NarrativeEngine:
                 "cmc_coin_count": len(source_data["cmc"]),
                 "dex_profiles_count": len(source_data["dex_profiles"]),
                 "dex_community_count": len(source_data["dex_community"]),
+                "santiment_coin_count": len(santiment_map),
+                "santiment_symbols": sorted(santiment_map),
             },
             "limits": [
                 "AIXBT ücretsiz/anahtarsız Topics uç noktası mevcut ilk 25 konuyu verir; tüm AIXBT konu arşivi değildir.",
@@ -1268,7 +1602,10 @@ class NarrativeEngine:
                 "CoinMarketCap anahtarsız listeleme verisi piyasa aktivitesidir; haber veya bağımsız haber teyidi sayılmaz.",
                 "CoinGecko Demo API anahtarı yoksa devre dışıdır; anahtar gizli ortam değişkeninden okunur.",
                 "DEX profil/topluluk hareketi organik ilgi veya bağımsız haber teyidi olarak tek başına yorumlanmaz.",
-                "Kaynağın geçmiş verisi çekilmez; naratif geçmişi bu motorun ilk gözleminden başlar.",
+                "Santiment yalnızca ücretsiz active_addresses_24h ve dev_activity modern:v1 ölçümlerini, en fazla 30 eşleşen aday coin için altı saatte bir toplu sorgular.",
+                "Free API aylık 1.000 çağrı sınırı içinde tahmini kullanım yaklaşık 241 çağrı/30 gündür; ücretli/kısıtlı ölçümler çağrılmaz.",
+                "Santiment API anahtarı yalnızca SANTIMENT_API_KEY ortam değişkeninden okunur; ayarlar dosyasına veya rapora yazılmaz.",
+                "Kaynağın geçmiş verisi geri doldurulmaz; naratif geçmişi bu motorun ilk gözleminden başlar.",
                 "Naratif puanı teknik puandan ayrıdır; teknik eşikleri, likidite kapılarını ve güçlü alarm koşullarını değiştirmez.",
             ],
         }

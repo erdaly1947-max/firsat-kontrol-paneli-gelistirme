@@ -79,6 +79,68 @@ class NarrativeParsingTests(unittest.TestCase):
         self.assertIn("Gerçek Dünya Varlıkları (RWA)", themes)
 
 
+
+    def test_santiment_project_catalog_parses_exact_ticker_slug_records(self):
+        projects = narrative.parse_santiment_projects({
+            "data": {"allProjects": [
+                {"slug": "ethereum", "ticker": "ETH", "name": "Ethereum"},
+                {"slug": "bad slug", "ticker": "BAD", "name": "Bad"},
+            ]}
+        })
+        self.assertEqual(projects, [{"slug": "ethereum", "ticker": "ETH", "name": "Ethereum"}])
+        mapped = narrative.map_santiment_projects(
+            projects, ["ETH", "UNKNOWN"], {"ETH": ["Ether", "Ethereum"]}
+        )
+        self.assertEqual(mapped, {"ETH": "ethereum"})
+
+    def test_santiment_ambiguous_ticker_is_not_guessed(self):
+        projects = [
+            {"slug": "one", "ticker": "ABC", "name": "Alpha"},
+            {"slug": "two", "ticker": "ABC", "name": "Beta"},
+        ]
+        self.assertEqual(narrative.map_santiment_projects(projects, ["ABC"], {}), {})
+        self.assertEqual(
+            narrative.map_santiment_projects(projects, ["ABC"], {"ABC": ["Beta"]}),
+            {"ABC": "two"},
+        )
+
+    def test_santiment_per_slug_timeseries_is_normalized(self):
+        rows = narrative.parse_santiment_timeseries({
+            "data": {"getMetric": {"timeseriesDataPerSlugJson": [
+                {"datetime": "2026-10-30T00:00:00Z", "data": [
+                    {"slug": "ethereum", "value": 100, "computedAt": "2026-10-30T00:05:00Z"}
+                ]},
+                {"datetime": "2026-10-31T00:00:00Z", "data": [
+                    {"slug": "ethereum", "value": 120}
+                ]},
+            ]}}
+        })
+        self.assertEqual([point["value"] for point in rows["ethereum"]], [100.0, 120.0])
+
+    def test_santiment_queries_use_only_free_metrics_and_batched_slugs(self):
+        active = narrative.build_santiment_metric_query("active_addresses_24h", ["ethereum", "bitcoin"])
+        dev = narrative.build_santiment_metric_query("dev_activity", ["ethereum"])
+        self.assertIn("timeseriesDataPerSlugJson", active)
+        self.assertIn('slugs: ["bitcoin", "ethereum"]', active)
+        self.assertIn('metric: "dev_activity", version: "modern:v1"', dev)
+        with self.assertRaises(ValueError):
+            narrative.build_santiment_metric_query("social_volume_total", ["ethereum"])
+
+    def test_santiment_summary_compares_recent_activity_windows(self):
+        active = {"ethereum": [
+            {"datetime": "2026-10-30T00:00:00Z", "value": 100.0},
+            {"datetime": "2026-10-31T00:00:00Z", "value": 120.0},
+        ]}
+        dev = {"ethereum": [
+            {"datetime": f"2026-10-{day:02d}T00:00:00Z", "value": 10.0}
+            for day in range(18, 32)
+        ]}
+        summary = narrative.summarize_santiment_asset("ethereum", active, dev)
+        self.assertEqual(summary["active_addresses_24h"], 120.0)
+        self.assertEqual(summary["active_addresses_change_24h_pct"], 20.0)
+        self.assertEqual(summary["dev_activity_7d"], 70.0)
+        self.assertEqual(summary["dev_activity_change_7d_pct"], 0.0)
+
 class NarrativeRuntimeTests(unittest.TestCase):
     def test_common_universe_is_preferred_and_local_fallback_is_disclosed(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -158,12 +220,13 @@ class NarrativeRuntimeTests(unittest.TestCase):
             (root / "data").mkdir()
             (root / "logs").mkdir()
             (root / "ayarlar.json").write_text(
-                '{"AIXBT_API_KEY":"must-not-be-used","COINGECKO_DEMO_API_KEY":"must-not-be-used"}',
+                '{"AIXBT_API_KEY":"must-not-be-used","COINGECKO_DEMO_API_KEY":"must-not-be-used","SANTIMENT_API_KEY":"must-not-be-used"}',
                 encoding="utf-8",
             )
             engine = narrative.NarrativeEngine(root=root, session=object())
             self.assertNotIn("AIXBT_API_KEY", engine.settings)
             self.assertNotIn("COINGECKO_DEMO_API_KEY", engine.settings)
+            self.assertNotIn("SANTIMENT_API_KEY", engine.settings)
 
 
 
