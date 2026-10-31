@@ -734,7 +734,7 @@ class NewFreeNarrativeSourcesTests(unittest.TestCase):
 
 
 class CmcNarrativeCategoryTests(unittest.TestCase):
-    def test_category_list_keeps_only_known_narrative_themes(self):
+    def test_category_catalogue_keeps_unmapped_rows_and_flags_strong_movers(self):
         rows = narrative.parse_cmc_categories({"data": [
             {"id": "ai-cat", "name": "AI & Big Data", "title": "Artificial Intelligence & Big Data",
              "description": "AI agent infrastructure", "num_tokens": 18,
@@ -742,11 +742,48 @@ class CmcNarrativeCategoryTests(unittest.TestCase):
             {"id": "other-cat", "name": "Generic Portfolio", "title": "Investment Holdings",
              "description": "Unrelated venture portfolio", "num_tokens": 14,
              "avg_price_change": 20.0, "market_cap_change": 30.0, "volume_change": 80.0},
+            {"id": "weak-cat", "name": "Miscellaneous", "title": "Miscellaneous",
+             "description": "No consistent market movement", "num_tokens": 8,
+             "avg_price_change": -3.0, "market_cap_change": 2.0, "volume_change": -5.0},
         ]})
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["id"], "ai-cat")
-        self.assertIn("Yapay Zekâ (AI)", rows[0]["themes"])
-        self.assertGreater(rows[0]["momentum_score"], 50)
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(len(rows), 3)
+        self.assertIn("Yapay Zekâ (AI)", by_id["ai-cat"]["themes"])
+        self.assertGreater(by_id["ai-cat"]["momentum_score"], 50)
+        self.assertTrue(by_id["other-cat"]["is_emerging_candidate"])
+        self.assertEqual(by_id["other-cat"]["category_classification"], "YENI_KATEGORI_ADAYI")
+        self.assertFalse(by_id["weak-cat"]["is_narrative_candidate"])
+        ranked_ids = {
+            row["id"] for row in narrative.rank_cmc_narrative_categories(rows)
+        }
+        self.assertEqual(ranked_ids, {"ai-cat", "other-cat"})
+
+    def test_category_catalogue_is_not_truncated_at_the_generic_500_item_limit(self):
+        payload = {"data": [
+            {"id": f"cat-{index}", "name": f"Generic {index}", "title": f"Generic {index}",
+             "description": "No matching theme", "num_tokens": 1,
+             "avg_price_change": -1.0, "market_cap_change": -1.0, "volume_change": -1.0}
+            for index in range(510)
+        ]}
+        rows = narrative.parse_cmc_categories(payload)
+        self.assertEqual(len(rows), 510)
+
+    def test_category_detail_rotation_keeps_priority_and_explores_wider_pool(self):
+        categories = [
+            {"id": f"cat-{index:02d}", "themes": ["Yapay Zekâ (AI)"],
+             "momentum_score": float(100 - index), "num_tokens": 10}
+            for index in range(21)
+        ]
+        cache = {
+            f"cmc_category_cat-{index:02d}": {"last_success_epoch": float(1000 + index)}
+            for index in range(12)
+        }
+        selected = narrative.select_cmc_category_detail_batch(categories, cache)
+        self.assertEqual([row["id"] for row in selected], ["cat-00", "cat-01", "cat-12"])
+
+        cache["cmc_category_cat-12"] = {"last_success_epoch": 2000.0}
+        selected_next = narrative.select_cmc_category_detail_batch(categories, cache)
+        self.assertEqual([row["id"] for row in selected_next], ["cat-00", "cat-01", "cat-13"])
 
     def test_category_members_require_exact_unique_cmc_id(self):
         summary = {"id": "ai-cat", "name": "AI & Big Data", "title": "AI & Big Data",
@@ -775,6 +812,32 @@ class CmcNarrativeCategoryTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event["source_kind"], "topic_discovery")
         self.assertEqual(event["source_id"], "cmc_narrative_categories")
+        self.assertEqual(event["category_mapping_status"], "COIN EŞLEŞMESİ DOĞRULANDI")
+
+    def test_known_category_can_be_discovered_before_coin_mapping(self):
+        event = narrative.build_cmc_category_event({
+            "id": "ai-cat", "name": "AI & Big Data",
+            "description": "AI agents and artificial intelligence",
+            "momentum_score": 82, "coins": [],
+        })
+        self.assertIsNotNone(event)
+        self.assertEqual(event["symbols"], [])
+        self.assertEqual(event["category_mapping_status"], "COIN EŞLEŞMESİ BEKLENİYOR")
+
+    def test_unmapped_category_candidate_is_provisional_discovery_only(self):
+        event = narrative.build_cmc_category_event({
+            "id": "new-cat", "name": "Generic Portfolio",
+            "description": "Investment holdings", "themes": [],
+            "is_emerging_candidate": True,
+            "category_classification": "YENI_KATEGORI_ADAYI",
+            "momentum_score": 75, "coins": [],
+        })
+        self.assertIsNotNone(event)
+        self.assertEqual(event["themes"], ["CMC Kategori Adayı: Generic Portfolio"])
+        self.assertEqual(event["category_classification"], "YENI_KATEGORI_ADAYI")
+        self.assertEqual(event["evidence_class"], "YENİ CMC KATEGORİ ADAYI — DOĞRULAMA BEKLİYOR")
+        self.assertEqual(event["source_kind"], "topic_discovery")
+        self.assertEqual(event["symbols"], [])
 
     def test_category_rank_is_limited_and_sorted_by_momentum(self):
         categories = [

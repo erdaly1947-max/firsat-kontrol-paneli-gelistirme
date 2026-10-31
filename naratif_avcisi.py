@@ -86,6 +86,16 @@ SOURCE_INTERVALS = {
     "santiment_dev_activity": 6 * 3600,
 }
 MAX_SOURCE_ITEMS = 500
+MAX_CMC_CATEGORY_ITEMS = 5000
+MAX_CMC_CATEGORY_DETAIL_CANDIDATES = 200
+CMC_CATEGORY_PRIORITY_WINDOW = 12
+CMC_CATEGORY_DISPLAY_WINDOW = 18
+CMC_CATEGORY_MAX_DISPLAY_ITEMS = 30
+CMC_CATEGORY_DETAIL_BATCH_SIZE = 3
+CMC_CATEGORY_EXPLORATION_SLOTS = 1
+CMC_CATEGORY_RECENT_DETAIL_SECONDS = 48 * 3600
+CMC_CATEGORY_EXPLORATION_MIN_TOKENS = 2
+CMC_CATEGORY_EXPLORATION_MIN_MOMENTUM = 60.0
 MAX_RSS_ITEMS_PER_FEED = 100
 MAX_SANTIMENT_SYMBOLS = 30
 MAX_AIXBT_TOPICS_PER_REFRESH = 5
@@ -384,7 +394,7 @@ def cmc_category_momentum_score(item: dict[str, Any]) -> float | None:
 
 
 def parse_cmc_categories(payload: Any) -> list[dict[str, Any]]:
-    """Normalize only CMC categories matching the accepted crypto narrative themes."""
+    """Keep the full CMC category catalogue and flag strong, not-yet-classified movers."""
     rows = []
     for item in _cmc_data_records(payload):
         category_id = str(item.get("id") or "").strip()
@@ -394,11 +404,11 @@ def parse_cmc_categories(payload: Any) -> list[dict[str, Any]]:
         if not category_id or not name:
             continue
         themes = infer_themes(" ".join((name, title, description)))
-        if not themes:
-            continue
         row = {
-            "id": category_id, "name": name[:180], "title": title[:180],
-            "description": description[:1200],
+            "id": category_id,
+            "name": name[:180],
+            "title": title[:180],
+            "description": description[:600],
             "num_tokens": _safe_int(item.get("num_tokens")),
             "avg_price_change": _safe_float(item.get("avg_price_change")),
             "market_cap": _safe_float(item.get("market_cap")),
@@ -409,32 +419,135 @@ def parse_cmc_categories(payload: Any) -> list[dict[str, Any]]:
             "themes": themes,
         }
         row["momentum_score"] = cmc_category_momentum_score(row)
+        # An unmapped category is only a provisional discovery candidate when at least
+        # two projects and all three market-change measures move positively together.
+        # This is one CMC evidence family, not an independent confirmation.
+        emerging_candidate = (
+            not themes
+            and (row.get("num_tokens") or 0) >= CMC_CATEGORY_EXPLORATION_MIN_TOKENS
+            and row.get("momentum_score") is not None
+            and row["momentum_score"] >= CMC_CATEGORY_EXPLORATION_MIN_MOMENTUM
+            and row.get("avg_price_change") is not None
+            and row["avg_price_change"] > 0
+            and row.get("market_cap_change") is not None
+            and row["market_cap_change"] > 0
+            and row.get("volume_change") is not None
+            and row["volume_change"] > 0
+        )
+        row["is_emerging_candidate"] = bool(emerging_candidate)
+        row["is_narrative_candidate"] = bool(themes) or bool(emerging_candidate)
+        row["category_classification"] = (
+            "TANINAN_TEMA" if themes else
+            "YENI_KATEGORI_ADAYI" if emerging_candidate else
+            "SINIFLANDIRILMAMIS"
+        )
         rows.append(row)
     rows.sort(
         key=lambda item: (
+            item.get("is_narrative_candidate") is True,
             item.get("momentum_score") is not None,
             item.get("momentum_score") if item.get("momentum_score") is not None else -1,
             item.get("num_tokens") or 0,
         ),
         reverse=True,
     )
-    return rows[:MAX_SOURCE_ITEMS]
+    return rows[:MAX_CMC_CATEGORY_ITEMS]
 
 
-def rank_cmc_narrative_categories(categories: list[dict[str, Any]], limit: int = 18) -> list[dict[str, Any]]:
-    rows = [item for item in categories if isinstance(item, dict) and item.get("themes")]
+def rank_cmc_narrative_categories(
+    categories: list[dict[str, Any]],
+    limit: int = MAX_CMC_CATEGORY_DETAIL_CANDIDATES,
+) -> list[dict[str, Any]]:
+    """Rank known themes and high-activity unclassified category candidates."""
+    rows = [
+        item for item in categories
+        if isinstance(item, dict)
+        and (
+            bool(item.get("themes"))
+            or item.get("is_emerging_candidate") is True
+            or item.get("category_classification") == "YENI_KATEGORI_ADAYI"
+        )
+    ]
     rows.sort(
         key=lambda item: (
             item.get("momentum_score") is not None,
             item.get("momentum_score") if item.get("momentum_score") is not None else -1,
             item.get("num_tokens") or 0,
+            str(item.get("name") or "").casefold(),
         ),
         reverse=True,
     )
-    return rows[:max(1, int(limit))]
+    maximum = min(MAX_CMC_CATEGORY_DETAIL_CANDIDATES, max(1, int(limit)))
+    return rows[:maximum]
 
 
-def parse_cmc_category_detail(
+def select_cmc_category_detail_batch(
+    categories: list[dict[str, Any]],
+    cache: dict[str, Any],
+    *,
+    batch_size: int = CMC_CATEGORY_DETAIL_BATCH_SIZE,
+    priority_window: int = CMC_CATEGORY_PRIORITY_WINDOW,
+    exploration_slots: int = CMC_CATEGORY_EXPLORATION_SLOTS,
+) -> list[dict[str, Any]]:
+    """Use two slots for the priority window and one for rotating wider-universe discovery."""
+    unique_rows = []
+    seen_ids: set[str] = set()
+    for row in categories:
+        if not isinstance(row, dict):
+            continue
+        category_id = str(row.get("id") or "").strip()
+        if not category_id or category_id in seen_ids:
+            continue
+        seen_ids.add(category_id)
+        unique_rows.append(row)
+    if not unique_rows or batch_size <= 0:
+        return []
+
+    def refresh_sort_key(row: dict[str, Any]) -> tuple[float, float, int, str]:
+        entry = cache.get("cmc_category_" + str(row.get("id") or ""))
+        entry = entry if isinstance(entry, dict) else {}
+        last_success = _safe_float(entry.get("last_success_epoch")) or 0.0
+        momentum = _safe_float(row.get("momentum_score"))
+        return (
+            last_success,
+            -(momentum if momentum is not None else -1.0),
+            -(_safe_int(row.get("num_tokens")) or 0),
+            str(row.get("id") or ""),
+        )
+
+    priority_count = max(1, int(priority_window))
+    priority_rows = unique_rows[:priority_count]
+    exploration_rows = unique_rows[priority_count:]
+    selected: list[dict[str, Any]] = []
+
+    if not exploration_rows:
+        return sorted(unique_rows, key=refresh_sort_key)[:batch_size]
+
+    exploration_count = min(max(0, int(exploration_slots)), len(exploration_rows), batch_size)
+    priority_slots = min(len(priority_rows), max(0, batch_size - exploration_count))
+    selected.extend(sorted(priority_rows, key=refresh_sort_key)[:priority_slots])
+    selected_ids = {str(row.get("id") or "") for row in selected}
+
+    for row in sorted(exploration_rows, key=refresh_sort_key):
+        if len(selected) >= batch_size or len(selected) - priority_slots >= exploration_count:
+            break
+        row_id = str(row.get("id") or "")
+        if row_id not in selected_ids:
+            selected.append(row)
+            selected_ids.add(row_id)
+
+    if len(selected) < batch_size:
+        for row in sorted(unique_rows, key=refresh_sort_key):
+            if len(selected) >= batch_size:
+                break
+            row_id = str(row.get("id") or "")
+            if row_id not in selected_ids:
+                selected.append(row)
+                selected_ids.add(row_id)
+    return selected[:batch_size]
+
+
+def parse_cmc_category_detail(def parse_cmc_category_detail(
     payload: Any,
     category_summary: dict[str, Any],
     allowed_cmc_ids_by_symbol: dict[str, int],
@@ -488,18 +601,33 @@ def parse_cmc_category_detail(
 
 
 def build_cmc_category_event(category: dict[str, Any]) -> dict[str, Any] | None:
-    """Create narrative discovery evidence from a CMC theme and its verified shared-universe coins."""
+    """Create CMC-only discovery evidence, including provisional candidates awaiting coin mapping."""
     coins = category.get("coins") if isinstance(category.get("coins"), list) else []
     symbols = sorted({
         str(item.get("symbol") or "").strip().upper()
         for item in coins if isinstance(item, dict) and item.get("symbol")
     })
     name = str(category.get("name") or category.get("title") or "").strip()
-    if not name or not symbols:
+    if not name:
         return None
     category_id = str(category.get("id") or "")
     searchable = " ".join((name, str(category.get("title") or ""), str(category.get("description") or "")))
-    themes = infer_themes(searchable) or [name[:90]]
+    themes = list(category.get("themes") or infer_themes(searchable))
+    is_emerging_candidate = (
+        category.get("is_emerging_candidate") is True
+        or category.get("category_classification") == "YENI_KATEGORI_ADAYI"
+    )
+    if not themes and is_emerging_candidate:
+        themes = [f"CMC Kategori Adayı: {name[:90]}"]
+    if not themes:
+        return None
+    known_theme = bool(infer_themes(searchable))
+    detail_checked = category.get("_detail_checked") is True
+    mapping_status = (
+        "COIN EŞLEŞMESİ DOĞRULANDI" if symbols else
+        "AYRINTI ALINDI; ORTAK USDT EVRENİNDE EŞLEŞEN COIN YOK" if detail_checked else
+        "COIN EŞLEŞMESİ BEKLENİYOR"
+    )
     return {
         "event_id": "cmc_category:" + category_id,
         "title": name[:300],
@@ -512,16 +640,23 @@ def build_cmc_category_event(category: dict[str, Any]) -> dict[str, Any] | None:
         "symbols": [{"symbol": symbol, "confidence": "YÜKSEK"} for symbol in symbols],
         "themes": themes,
         "category_id": category_id,
+        "category_classification": (
+            "TANINAN_TEMA" if known_theme else "YENI_KATEGORI_ADAYI"
+        ),
+        "category_mapping_status": mapping_status,
         "category_momentum_score": _safe_float(category.get("momentum_score")),
         "category_avg_price_change": _safe_float(category.get("avg_price_change")),
         "category_market_cap_change": _safe_float(category.get("market_cap_change")),
         "category_volume_change": _safe_float(category.get("volume_change")),
         "category_num_tokens": _safe_int(category.get("num_tokens")),
-        "evidence_class": "TEMATİK KATEGORİ KEŞFİ",
+        "evidence_class": (
+            "TEMATİK KATEGORİ KEŞFİ" if known_theme
+            else "YENİ CMC KATEGORİ ADAYI — DOĞRULAMA BEKLİYOR"
+        ),
     }
 
 
-def parse_cmc_global_metrics(payload: Any) -> dict[str, Any]:
+def parse_cmc_global_metrics(def parse_cmc_global_metrics(payload: Any) -> dict[str, Any]:
     data = payload.get("data") if isinstance(payload, dict) else None
     if isinstance(data, list):
         data = data[0] if data else {}
@@ -1516,28 +1651,29 @@ class NarrativeEngine:
             count_fn=lambda value: len(value or []),
         )
         statuses["cmc_narrative_categories"] = category_list_status
-        ranked_categories = rank_cmc_narrative_categories(cmc_categories or [], limit=18)
+        ranked_categories = rank_cmc_narrative_categories(
+            cmc_categories or [],
+            limit=MAX_CMC_CATEGORY_DETAIL_CANDIDATES,
+        )
+        category_list_status["narrative_candidate_count"] = len(ranked_categories)
+        category_list_status["emerging_candidate_count"] = sum(
+            item.get("is_emerging_candidate") is True for item in ranked_categories
+        )
+        category_list_status["catalogue_scope_limit"] = MAX_CMC_CATEGORY_ITEMS
 
         batch_key = "cmc_category_details_batch"
         batch_entry = self.cache.get(batch_key)
         batch_entry = batch_entry if isinstance(batch_entry, dict) else {}
+        selected_categories = (
+            select_cmc_category_detail_batch(ranked_categories, self.cache)
+            if ranked_categories and self._due(batch_key, SOURCE_INTERVALS[batch_key])
+            else []
+        )
         selected_category_ids: set[str] = set()
-        if ranked_categories and self._due(batch_key, SOURCE_INTERVALS[batch_key]):
-            def category_refresh_age(row: dict[str, Any]) -> float:
-                entry = self.cache.get("cmc_category_" + str(row.get("id") or ""))
-                entry = entry if isinstance(entry, dict) else {}
-                return _safe_float(entry.get("last_success_epoch")) or 0.0
-
-            rotation = sorted(
-                ranked_categories,
-                key=lambda row: (
-                    category_refresh_age(row),
-                    -(_safe_float(row.get("momentum_score")) or 0.0),
-                ),
-            )
+        if selected_categories:
             batch_success = 0
             batch_errors = []
-            for category in rotation[:3]:
+            for category in selected_categories:
                 category_id = str(category.get("id") or "")
                 if not category_id:
                     continue
@@ -1563,7 +1699,7 @@ class NarrativeEngine:
                 category_status["name"] = f"CMC Kategori: {category.get('name') or category_id}"
                 statuses[cache_key] = category_status
                 selected_category_ids.add(category_id)
-                if isinstance(detail, dict) and detail.get("coins") and category_status.get("status") in ("BAĞLI", "ÖNBELLEK"):
+                if isinstance(detail, dict) and category_status.get("status") in ("BAĞLI", "ÖNBELLEK"):
                     batch_success += 1
                 elif category_status.get("error"):
                     batch_errors.append(str(category_status["error"]))
@@ -1577,8 +1713,31 @@ class NarrativeEngine:
                 "last_error": "; ".join(batch_errors)[:500] if batch_errors else None,
             }
 
+        # Keep the leading discovery window visible, plus recently detailed long-tail candidates.
+        display_categories = list(ranked_categories[:CMC_CATEGORY_DISPLAY_WINDOW])
+        display_ids = {str(item.get("id") or "") for item in display_categories}
+        now_epoch = self.clock()
+        for category in ranked_categories[CMC_CATEGORY_DISPLAY_WINDOW:]:
+            if len(display_categories) >= CMC_CATEGORY_MAX_DISPLAY_ITEMS:
+                break
+            category_id = str(category.get("id") or "")
+            if not category_id or category_id in display_ids:
+                continue
+            entry = self.cache.get("cmc_category_" + category_id)
+            entry = entry if isinstance(entry, dict) else {}
+            cached_detail = entry.get("data")
+            last_success = _safe_float(entry.get("last_success_epoch"))
+            if (
+                isinstance(cached_detail, dict)
+                and last_success is not None
+                and 0 <= now_epoch - last_success <= CMC_CATEGORY_RECENT_DETAIL_SECONDS
+            ):
+                display_categories.append(category)
+                display_ids.add(category_id)
+
         category_details: list[dict[str, Any]] = []
-        for category in ranked_categories:
+        category_detail_by_id: dict[str, dict[str, Any]] = {}
+        for category in display_categories:
             category_id = str(category.get("id") or "")
             if not category_id:
                 continue
@@ -1587,18 +1746,16 @@ class NarrativeEngine:
             cached_entry = cached_entry if isinstance(cached_entry, dict) else {}
             cached_detail = cached_entry.get("data")
             if isinstance(cached_detail, dict):
-                category_details.append({
+                merged_detail = {
                     **cached_detail,
-                    "name": category.get("name") or cached_detail.get("name"),
-                    "title": category.get("title") or cached_detail.get("title"),
-                    "description": category.get("description") or cached_detail.get("description"),
-                    "num_tokens": category.get("num_tokens") or cached_detail.get("num_tokens"),
-                    "avg_price_change": category.get("avg_price_change"),
-                    "market_cap_change": category.get("market_cap_change"),
-                    "volume_change": category.get("volume_change"),
-                    "momentum_score": category.get("momentum_score"),
-                    "last_updated": category.get("last_updated") or cached_detail.get("last_updated"),
-                })
+                    **category,
+                    "coins": cached_detail.get("coins", [])
+                    if isinstance(cached_detail.get("coins"), list) else [],
+                    "_detail_checked": True,
+                }
+                category_details.append(merged_detail)
+                category_detail_by_id[category_id] = merged_detail
+
             if cache_key not in statuses:
                 last_success = _safe_float(cached_entry.get("last_success_epoch"))
                 cached_error = str(cached_entry.get("last_error") or "")
@@ -1612,20 +1769,27 @@ class NarrativeEngine:
                     status=source_status,
                 )
                 category_status["name"] = f"CMC Kategori: {category.get('name')}"
-                category_status["item_count"] = len(cached_detail.get("coins", [])) if isinstance(cached_detail, dict) else 0
+                category_status["item_count"] = (
+                    len(cached_detail.get("coins", []))
+                    if isinstance(cached_detail, dict) and isinstance(cached_detail.get("coins"), list)
+                    else 0
+                )
                 if last_success:
                     category_status["last_success_utc"] = datetime.fromtimestamp(
                         last_success, timezone.utc
                     ).isoformat(timespec="seconds")
-                    category_status["age_seconds"] = round(max(0.0, self.clock() - last_success), 1)
+                    category_status["age_seconds"] = round(max(0.0, now_epoch - last_success), 1)
                 if cached_error:
                     category_status["error"] = cached_error
                 statuses[cache_key] = category_status
 
-        category_events = [
-            event for detail in category_details
-            if (event := build_cmc_category_event(detail)) is not None
-        ]
+        category_events = []
+        for category in display_categories:
+            category_id = str(category.get("id") or "")
+            event_category = category_detail_by_id.get(category_id, category)
+            event = build_cmc_category_event(event_category)
+            if event is not None:
+                category_events.append(event)
         category_coin_rows = [
             coin
             for detail in category_details
@@ -1636,17 +1800,24 @@ class NarrativeEngine:
         batch_cache_now = batch_cache_now if isinstance(batch_cache_now, dict) else {}
         batch_status = _source_status(
             batch_key,
-            role="CMC kategori ayrıntı kotası: altı saatte en fazla üç kategori isteği.",
-            status="BAĞLI" if category_details else ("BEKLİYOR" if ranked_categories else "UYGUN TEMA KATEGORİSİ BULUNAMADI"),
+            role="CMC kategori ayrıntı kotası: altı saatte en fazla üç istek; iki öncelikli kategori ve bir geniş evren rotasyon adayı.",
+            status=(
+                "BAĞLI" if category_details
+                else "BEKLİYOR" if ranked_categories
+                else "UYGUN KATEGORİ ADAYI BULUNAMADI"
+            ),
         )
         batch_status["item_count"] = len(category_details)
+        batch_status["candidate_count"] = len(ranked_categories)
+        batch_status["priority_window"] = CMC_CATEGORY_PRIORITY_WINDOW
+        batch_status["exploration_slots"] = CMC_CATEGORY_EXPLORATION_SLOTS
         attempt_epoch = _safe_float(batch_cache_now.get("last_attempt_epoch")) or 0.0
         success_epoch = _safe_float(batch_cache_now.get("last_success_epoch")) or 0.0
         if attempt_epoch:
             batch_status["last_attempt_utc"] = datetime.fromtimestamp(attempt_epoch, timezone.utc).isoformat(timespec="seconds")
         if success_epoch:
             batch_status["last_success_utc"] = datetime.fromtimestamp(success_epoch, timezone.utc).isoformat(timespec="seconds")
-            batch_status["age_seconds"] = round(max(0.0, self.clock() - success_epoch), 1)
+            batch_status["age_seconds"] = round(max(0.0, now_epoch - success_epoch), 1)
         statuses[batch_key] = batch_status
 
         market_context: dict[str, Any] = {}
@@ -2894,7 +3065,7 @@ class NarrativeEngine:
                 "CMC ID Map sembol çakışmalarını tahmin etmez; tekil CMC ID eşleşmesi bulunmayan coinlerin quote verisi atlanır.",
                 "CMC Global Metrics, Fear and Greed, Altcoin Season, CMC100 ve CMC20 piyasa bağlamıdır; teknik puan, güçlü fırsat kapısı ve teknik alarmı değiştirmez.",
                 "CMC fiyat/hacim verisi yalnızca mevcut naratif piyasa tepkisi alanını tamamlar; teknik radar puanına aktarılmaz.",
-                "CMC Categories/Category Keyless uçları tema→coin keşfi sağlar; tema listesi altı saatte bir, coin ayrıntıları en fazla üç kategori olacak şekilde altı saatte bir yenilenir.",
+                "CMC Categories Keyless uçları her altı saatte bir 5.000 kayda kadar kategori kataloğunu alır; tanınan temalar ve güçlü ama henüz sınıflandırılmayan kategori adayları korunur. Ayrıntı sorguları altı saatte en fazla üçtür: iki öncelikli kategori ve bir geniş evren rotasyon adayı.",
                 "Kategori coinleri yalnızca ortak Binance–BtcTurk USDT evrenindeki benzersiz CMC ID eşleşmesiyle erken izlemeye alınır; sembol benzerliği tek başına yeterli değildir.",
                 "AIXBT gönderi/katılımcı sayısı ve konu→proje eşlemesi topluluk keşif verisidir; bağımsız haber teyidi veya teknik puan sayılmaz. Proje yalnızca ortak USDT evrenindeki yüksek güvenli ad/alias eşleşmesiyle erken izlemeye alınır.",
                 "DEX Screener ve CoinGecko trend işaretleri eşleşen coinlerde piyasa keşif etkinliğini destekler; bağımsız haber teyidi değildir.",

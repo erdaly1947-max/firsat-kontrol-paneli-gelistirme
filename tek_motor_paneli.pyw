@@ -1963,9 +1963,10 @@ class ControlPanel(tk.Tk):
             lines.extend([
                 "",
                 "ERİŞİM: CoinMarketCap ücretsiz Keyless kategori uçları; hesap, e-posta, API anahtarı veya kart gerektirmez.",
-                "Kategori listesi altı saatte bir taranır. Aynı taramada en fazla üç kategori coin listesi istenir; sonraki grup altı saat sonra yenilenir.",
+                "Kategori kataloğu altı saatte bir, en fazla 5.000 kayıt olarak alınır; tanınan temalar ve güçlü yeni kategori adayları birlikte izlenir.",
+                "Ayrıntılı coin eşlemesi altı saatte en fazla üç kategori için yapılır: iki öncelikli, bir geniş evren rotasyon adayı.",
                 "Coinler yalnızca ortak Binance–BtcTurk USDT evrenindeki benzersiz CMC ID eşleşmesiyle ilişkilendirilir.",
-                "Bu kaynak tema/proje keşfidir; bağımsız haber teyidi veya güçlü fırsat/alım alarmı değildir.",
+                "Coin eşleşmesi bekleyen kategori yalnızca keşif adayıdır; bağımsız haber teyidi veya güçlü fırsat/alım alarmı değildir.",
             ])
         elif source_id.startswith("cmc_") or source_id in ("cmc100_index", "cmc20_index"):
             lines.extend([
