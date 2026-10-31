@@ -138,7 +138,7 @@ def _records(payload: Any) -> list[dict[str, Any]]:
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
     if isinstance(data, dict):
-        for key in ("cryptoCurrencyList", "list", "items", "results"):
+        for key in ("topics", "cryptoCurrencyList", "list", "items", "results", "tokens"):
             rows = data.get(key)
             if isinstance(rows, list):
                 return [item for item in rows if isinstance(item, dict)]
