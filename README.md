@@ -2,7 +2,7 @@
 
 Bu README, projenin güncel teknik özeti, gerçek çalışma durumu, kabul edilmiş işlev gereksinimleri ve bağlayıcı çalışma kurallarının tek kaydıdır. Eski günlükler ve birbiriyle çelişen talimatlar yerine aşağıdaki güncel durum ve kurallar geçerlidir. Tarihsel kayıtlar yalnızca hâlâ işe yarayan bir sürüm kimliği veya doğrulama kanıtı sağlıyorsa tutulur.
 
-## Güncel doğrulanmış durum — 28 Ekim 2026
+## Güncel doğrulanmış durum — 31 Ekim 2026
 
 ### Canlı Render hizmeti
 
@@ -12,10 +12,11 @@ Bu README, projenin güncel teknik özeti, gerçek çalışma durumu, kabul edil
 - Kaynak depo: https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme
 - Kaynak dalı: main; otomatik dağıtım açık.
 - Çalışma ortamı: Node.js. Derleme komutu: npm install --prefix render_relay --omit=dev --no-package-lock. Başlatma komutu: npm start --prefix render_relay.
-- 28 Ekim 2026 saat 20:21 TRT civarında commit 008b678 başarıyla dağıtıldı; Render günlükleri sunucunun 10000 portunda hazır olduğunu ve hizmetin canlıya geçtiğini gösterdi.
+- 28 Ekim 2026 saat 20:21 TRT civarında commit 008b678 başarıyla dağıtıldı; Render günlükleri sunucunun 10000 portunda hazır olduğunu ve hizmetin canlıya geçtiğini gösterdi. Bu tarihsel dağıtım doğrulaması, 31 Ekim'deki mevcut hizmet durumunu göstermez.
 - CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY ve CLOUDINARY_API_SECRET değerleri Render ortam değişkenlerine girildi; gizli değerler bu README'ye, masaüstü paketine veya sohbete yazılmaz.
 - Dağıtım sonrası canlı /images/manifest uç noktasından JSON biçiminde ok: true yanıtı ve görüntü kayıtları alındı. Bu, canlı hizmetin Cloudinary'den mevcut görüntü listesini okuyabildiğini doğrular; masaüstü programından canlı hizmete tam yükleme akışının uçtan uca çalıştığını tek başına kanıtlamaz.
-- Masaüstü görüntü aktarımının canlı adrese geçirilmesi commit `5ae27ccf19b361c2333d6ccf10a5834dfcc46807` ile yapıldı. Bu commitin GitHub Actions doğrulaması [#40741310609](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40741310609) başarıyla tamamlandı; Render canlı hizmeti yeni kaynaktan çalışıyor. Canlı manifest tekrar `ok: true` döndürdü.
+- Masaüstü görüntü aktarımının canlı adrese geçirilmesi commit `5ae27ccf19b361c2333d6ccf10a5834dfcc46807` ile yapıldı. Bu commitin GitHub Actions doğrulaması [#40741310609](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/40741310609) başarıyla tamamlandı; o tarihte Render canlı hizmeti yeni kaynaktan çalışıyor ve canlı manifest `ok: true` döndürüyordu.
+- 31 Ekim 2026 tarihli son canlı kontrol [Actions #41128528909](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/41128528909) Render `/healthz` için HTTP 503 `Service Suspended` döndürdü. Kullanım kotası sınırına ulaşıldığı için Render hizmeti askıya alınmış durumdaydı. Aynı çalıştırmada doğrudan BtcTurk USDT fiyat kontrolü 191 pariteyle başarılıydı; Render hatası Binance'in doğrudan bağlantısının başarısız olduğunu göstermez.
 
 ### Görüntü aktarımını canlıya geçirme — 28 Ekim 2026 tarihli önceki uygulama
 
@@ -43,13 +44,21 @@ Masaüstü kodundaki ilgili işlevler analysis_report.py içindedir: görüntü 
 
 Bu bölüm, bağlantı maliyetini azaltan ve doğrudan erişim başarısız olduğunda mevcut Render geçidini koruyan uygulama akışını açıklar. Hedef, veri akışını veya tarama sıklığını azaltmak değil; aynı piyasa olaylarını ve rapor/görüntü işlevlerini daha az ara sunucu trafiğiyle taşımaktır.
 
-- **Binance ve BtcTurk REST:** İzin verilen piyasa istekleri önce resmî borsa adreslerine gider. Bağlantı/TLS gibi erişim hatalarında uygun alternatif doğrudan adresler denenir; bunlar başarısız olursa Render geçidine dönülür. Borsa kaynaklı HTTP 429/418 gibi hız sınırı yanıtları, başka bir host üzerinden tekrar edilerek aşılmaya çalışılmaz. REST yol durumu borsa ve veri türü bazında ayrı izlenir; Render yedeğinde geçici bekleme sonunda doğrudan yol yeniden sınanır.
-- **Binance WebSocket:** Resmî doğrudan akış adresleri önce denenir; Render WebSocket yalnızca son yedektir. Render yedeği format=fkp1 ile 25 ms'lik küçük gruplarda kayıpsız deflate sıkıştırması kullanır. Her özgün Binance olayı satır sınırlarıyla korunur; masaüstü FKP1 işaretini ve sıkıştırmayı çözer, olayları sırayla işler. Mumlar birleştirilmez, ara olaylar atlanmaz ve tarama aralığı büyütülmez. Render yedeğinde bağlantı 300 saniyede bir yenilenerek doğrudan erişim yeniden sınanır.
+- **Binance ve BtcTurk REST:** İzin verilen piyasa istekleri önce resmî borsa adreslerine gider. Bağlantı/TLS gibi erişim hatalarında uygun alternatif doğrudan adresler denenir; bunlar başarısız olursa Render geçidine dönülür. Borsa kaynaklı HTTP 429/418 gibi hız sınırı yanıtları, başka bir host üzerinden tekrar edilerek aşılmaya çalışılmaz. REST yol durumu borsa ve veri türü bazında ayrı izlenir. Render yedeği çalışırken doğrudan yol 30–60 saniyede bir yeniden sınanır; Render da erişilemez olursa sistem bekleme süresini beklemeden doğrudan borsa adreslerini hemen yeniden dener.
+- **Binance WebSocket:** Resmî doğrudan akış adresleri önce denenir; Render WebSocket yalnızca son yedektir. Render yedeği format=fkp1 ile 25 ms'lik küçük gruplarda kayıpsız deflate sıkıştırması kullanır. Her özgün Binance olayı satır sınırlarıyla korunur; masaüstü FKP1 işaretini ve sıkıştırmayı çözer, olayları sırayla işler. Mumlar birleştirilmez, ara olaylar atlanmaz ve tarama aralığı büyütülmez. Render yedeğinde bağlantı 60 saniyede bir yenilenerek doğrudan erişim yeniden sınanır.
 - **Analiz ve durum raporları:** analysis_report.py önce raporu Cloudflare Worker'a doğrudan gönderir. Doğrudan gönderim başarısız olursa aynı gövde mevcut Render rapor geçidine yedeklenir. Gzip/ZIP biçimleri ve rapor veri yapıları korunur.
 - **Ekran görüntüsü yükleme:** Masaüstü önce Render /api/images/sign-upload uç noktasından kısa bir imzalı yükleme talimatı alır. Render kimlik doğrulamasını yapar ve Cloudinary gizli anahtarını sunucuda tutarak imzayı üretir. Görüntü baytları daha sonra masaüstünden Cloudinary'ye doğrudan gönderilir. Bu doğrudan aktarım başarısız olursa mevcut Render /api/images/stage yolu yedek olarak kullanılır. Commit/abort ve manifest işlemleri Render üzerinden sürer.
 - **Ekran görüntüsü indirme:** Manifestteki Cloudinary teslim adresi yalnızca beklenen Cloudinary alan adı, hesap ve dosya kimliği doğrulanırsa kullanılır. Doğrudan indirme başarısız olursa mevcut Render görüntü indirme yolu yedek olarak denenir. Önizleme, orijinal görüntü dosyasını değiştirmez.
 
 **Çalışma sınırı:** İmzalı doğrudan yükleme için imza alma, grup commit/abort ve güncel manifest okuma hâlâ Render hizmetine erişim gerektirir. Görüntü baytlarının Cloudinary'ye doğrudan gönderilmesi veya indirilmesi, ancak bu Render kontrol/manifest adımlarından sonra mümkündür. Render hizmeti askıdaysa doğrudan Cloudinary bayt aktarımı tek başına yeni bir yükleme/manifest akışı başlatamaz; bu durum, Render yedeğinin hazır olduğu veya canlı görüntü akışının çalıştığı şeklinde yorumlanmamalıdır. Canlı hizmet kontrolü başarısızsa otomatik test sonucu bunu ayrıca belirtmelidir.
+
+### Doğrudan ve Render canlı testleri; ZIP paketleme ayrımı — 31 Ekim 2026
+
+- **Binance doğrudan WebSocket testi:** `render_relay/direct-binance-smoke-check.mjs` resmî Binance WebSocket adreslerini sırayla dener. Yalnızca bağlantı el sıkışmasının başarılı olmasını yeterli saymaz; BTCUSDT 1 dakikalık canlı mum mesajını gerçekten alıp doğrular. Render adresini kullanmaz.
+- **Render WebSocket testi:** `render_relay/smoke-check.mjs` Render sağlık yanıtını, Render üzerinden Binance REST verisini ve `/ws/binance/stream` adresinden gerçek canlı mum mesajını ayrı şekilde doğrular.
+- İki canlı test GitHub Actions içinde ayrı adımlarda yürür ve ayrı sonuç üretir. Böylece doğrudan Binance testi başarısızken Render testi, Render testi başarısızken doğrudan Binance testi ayrıca görülebilir.
+- **ZIP üretimi canlı bağlantı testlerinden bağımsızdır.** Python/JavaScript doğrulamaları, birim testleri ve gerçek Windows arayüz testi başarılıysa; kullanıcı `workflow_dispatch` üzerinden `publish_package=true` açık onayıyla paketlemeyi başlatmışsa ZIP, SHA-256 ve istenen Release/artefakt yüklemesi canlı test sonuçları birleştirilmeden önce tamamlanır. Canlı testlerden biri başarısızsa Actions çalıştırması ayrıca başarısız olarak raporlanabilir; daha önce oluşturulan ZIP silinmez veya paketleme atlanmaz.
+- Bu canlı ağ testleri GitHub Actions sunucusunda çalışır; kullanıcının o anda bağlı olduğu ev/telefon internetini ölçtüğü anlamına gelmez. Masaüstü programının doğrudan Binance ve Render yedeği arasında otomatik geçiş mantığı kaynak kod ve birim testleriyle ayrıca doğrulanır.
 
 ## Programın amacı ve mevcut kapsamı
 
@@ -90,7 +99,7 @@ Bu bölüm, bir hizmet/eklenti bağlantısı yeniden kurulacağı veya bir işle
 
 - Ana depo: https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme
 - Güncel dal: main. Kabul edilmiş sürüm zinciri, main tamamlanıp sabitlendikten sonra yeni sürüm dallarına bir önceki sürümün eksiksiz kopyalanması esasına dayanır.
-- .github/workflows/validate-and-package.yml Python derlemesini/birim testlerini, Worker testlerini, Render hizmet testlerini, gerçek Windows Tkinter pencere/gezinme testini ve yapılandırılmış canlı piyasa/görüntü manifesti kontrollerini çalıştırır. Yerel otomatik testlerin başarılı olması, askıdaki canlı Render hizmetini veya masaüstü→Cloudinary→manifest uçtan uca aktarımını doğrulamış sayılmaz.
+- .github/workflows/validate-and-package.yml Python derlemesini/birim testlerini, Worker testlerini, gerçek Windows Tkinter pencere/gezinme testini ve ayrı doğrudan Binance/Render canlı bağlantı kontrollerini çalıştırır. Render testinin başarısız olması doğrudan Binance testinin sonucunu gizlemez.
 - Render canlı hizmeti aynı depodaki main dalına bağlıdır ve otomatik dağıtım açıktır.
 - Gizli değerler koda, README'ye, commit mesajlarına veya loglara yazılmaz.
 - Paketleme tamamlandığında kullanıcıya Actions kapsayıcı arşivi değil yalnızca doğrulanmış program ZIP'i teslim edilir.
