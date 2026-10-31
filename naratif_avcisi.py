@@ -21,7 +21,7 @@ from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
 
@@ -57,6 +57,7 @@ TRENDKIA_MCP_URL = "https://trendkia.com/mcp"
 MCP_PROTOCOL_VERSION = "2025-03-26"
 DEX_PROFILES_URL = "https://api.dexscreener.com/token-profiles/latest/v1"
 DEX_COMMUNITY_URL = "https://api.dexscreener.com/community-takeovers/latest/v1"
+DEX_TOKENS_URL = "https://api.dexscreener.com/tokens/v1"
 COINGECKO_TRENDING_URL = "https://api.coingecko.com/api/v3/search/trending"
 SANTIMENT_GRAPHQL_URL = "https://api.santiment.net/graphql"
 
@@ -86,6 +87,7 @@ SOURCE_INTERVALS = {
     "trendkia_news": 1800,
     "dex_profiles": 600,
     "dex_community": 900,
+    "dex_market_activity": 900,
     "coingecko_trending": 600,
     "santiment_project_catalog": 30 * 86400,
     "santiment_active_addresses": 6 * 3600,
@@ -108,6 +110,9 @@ RSS_MIN_INTERVAL_SECONDS = 900
 RSS_DEDUP_WINDOW_SECONDS = 72 * 3600
 MAX_SANTIMENT_SYMBOLS = 30
 MAX_AIXBT_TOPICS_PER_REFRESH = 5
+MAX_DEX_ACTIVITY_BATCHES_PER_REFRESH = 2
+MAX_DEX_ACTIVITY_ADDRESSES_PER_BATCH = 30
+MAX_DEX_ACTIVITY_CANDIDATES = 180
 MAX_AIXBT_PROJECTS_PER_TOPIC = 50
 AIXBT_PROJECT_MAPPING_MAX_AGE_SECONDS = 8 * 3600
 USER_AGENT = "FirsatKontrolPaneli-NarrativeResearch/1.0 (+local desktop research client)"
@@ -827,24 +832,327 @@ def _retry_after_seconds(value: Any) -> int:
 
 
 
-def parse_dex_records(payload: Any) -> list[dict[str, Any]]:
+def parse_dex_records(
+    payload: Any,
+    *,
+    source_kind: str = "dex_community_activity",
+) -> list[dict[str, Any]]:
+    """Normalize DEX Screener profile/community records and retain token addresses."""
     result = []
     for item in _records(payload):
-        chain = str(item.get("chainId") or item.get("chain_id") or "")
+        chain = str(item.get("chainId") or item.get("chain_id") or "").strip().lower()
+        token_address = str(
+            item.get("tokenAddress") or item.get("token_address")
+            or item.get("address") or ""
+        ).strip()
         symbol = str(item.get("symbol") or "").strip().upper()
         name = str(item.get("name") or "").strip()
         description = str(item.get("description") or "")
         links = item.get("links") if isinstance(item.get("links"), list) else []
-        url = next((str(link.get("url")) for link in links if isinstance(link, dict) and link.get("url")), "")
+        url = next(
+            (str(link.get("url")) for link in links if isinstance(link, dict) and link.get("url")),
+            "",
+        )
+        socials = item.get("socials") if isinstance(item.get("socials"), list) else []
         result.append({
             "chain": chain,
+            "token_address": token_address,
             "symbol": symbol,
             "name": name,
             "description": description[:1000],
-            "url": url,
-            "source_kind": "dex_community_activity",
+            "url": url[:1000],
+            "links": [dict(link) for link in links[:12] if isinstance(link, dict)],
+            "socials": [dict(row) for row in socials[:12] if isinstance(row, dict)],
+            "source_kind": source_kind,
         })
     return result[:MAX_SOURCE_ITEMS]
+
+
+def _dex_address_key(value: Any) -> str:
+    address = str(value or "").strip()
+    return address.lower() if address.startswith("0x") else address
+
+
+def build_dex_token_candidates(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Collect explicit chain+tokenAddress pairs from the latest DEX feeds."""
+    unique: dict[tuple[str, str], dict[str, str]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        chain = str(row.get("chain") or "").strip().lower()
+        address = str(row.get("token_address") or "").strip()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,39}", chain):
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9]{20,100}", address):
+            continue
+        key = (chain, _dex_address_key(address))
+        item = unique.setdefault(key, {
+            "chain": chain,
+            "token_address": address,
+            "name": str(row.get("name") or "")[:180],
+            "symbol": str(row.get("symbol") or "").upper()[:32],
+        })
+        if not item["name"] and row.get("name"):
+            item["name"] = str(row.get("name"))[:180]
+        if not item["symbol"] and row.get("symbol"):
+            item["symbol"] = str(row.get("symbol")).upper()[:32]
+    return list(unique.values())[:MAX_DEX_ACTIVITY_CANDIDATES]
+
+
+def parse_dex_market_pairs(payload: Any) -> list[dict[str, Any]]:
+    """Normalize real pair snapshots returned by DEX Screener tokens/v1."""
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = payload.get("pairs") or payload.get("data") or payload.get("results") or []
+        if isinstance(rows, dict):
+            rows = rows.get("pairs") or rows.get("items") or []
+    else:
+        rows = []
+    if not isinstance(rows, list):
+        return []
+
+    result = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        base = item.get("baseToken") if isinstance(item.get("baseToken"), dict) else {}
+        quote_token = item.get("quoteToken") if isinstance(item.get("quoteToken"), dict) else {}
+        liquidity = item.get("liquidity") if isinstance(item.get("liquidity"), dict) else {}
+        volume = item.get("volume") if isinstance(item.get("volume"), dict) else {}
+        txns = item.get("txns") if isinstance(item.get("txns"), dict) else {}
+        price_change = item.get("priceChange") if isinstance(item.get("priceChange"), dict) else {}
+        chain = str(item.get("chainId") or item.get("chain_id") or "").strip().lower()
+        if not chain or not base.get("address") or not quote_token.get("address"):
+            continue
+        pair_address = str(item.get("pairAddress") or item.get("pair_address") or "").strip()
+        if not pair_address:
+            pair_address = _event_id(
+                f"{chain}|{base.get('address')}|{quote_token.get('address')}"
+            )
+        periods = ("m5", "h1", "h6", "h24")
+        normalized_txns = {}
+        for period in periods:
+            entry = txns.get(period) if isinstance(txns.get(period), dict) else {}
+            normalized_txns[period] = {
+                "buys": max(0, _safe_int(entry.get("buys")) or 0),
+                "sells": max(0, _safe_int(entry.get("sells")) or 0),
+            }
+        created_ms = _safe_float(item.get("pairCreatedAt"))
+        result.append({
+            "chain": chain,
+            "dex_id": str(item.get("dexId") or ""),
+            "pair_address": pair_address,
+            "pair_id": f"{chain}:{pair_address}",
+            "url": str(item.get("url") or "")[:1000],
+            "base_token": {
+                "address": str(base.get("address") or ""),
+                "name": str(base.get("name") or ""),
+                "symbol": str(base.get("symbol") or "").upper(),
+            },
+            "quote_token": {
+                "address": str(quote_token.get("address") or ""),
+                "name": str(quote_token.get("name") or ""),
+                "symbol": str(quote_token.get("symbol") or "").upper(),
+            },
+            "price_usd": _safe_float(item.get("priceUsd")),
+            "price_native": _safe_float(item.get("priceNative")),
+            "volume_usd": {
+                period: _safe_float(volume.get(period))
+                for period in periods
+            },
+            "transactions": normalized_txns,
+            "price_change_pct": {
+                period: _safe_float(price_change.get(period))
+                for period in periods
+            },
+            "liquidity_usd": _safe_float(liquidity.get("usd")),
+            "fdv_usd": _safe_float(item.get("fdv")),
+            "market_cap_usd": _safe_float(item.get("marketCap")),
+            "pair_created_at_ms": created_ms,
+        })
+    return result[:5000]
+
+
+def _dex_exact_name_symbol(
+    name: str,
+    symbols: list[str],
+    aliases: dict[str, list[str]],
+) -> str | None:
+    """Map only a unique exact full project-name or alias; never guess from ticker similarity."""
+    normalized = re.sub(r"[^0-9a-zçğıöşü]+", " ", str(name or "").casefold()).strip()
+    if len(normalized) < 3:
+        return None
+    matches = []
+    for symbol in symbols:
+        if any(
+            re.sub(r"[^0-9a-zçğıöşü]+", " ", str(alias or "").casefold()).strip() == normalized
+            for alias in aliases.get(symbol, [])
+        ):
+            matches.append(symbol)
+    matches = sorted(set(matches))
+    return matches[0] if len(matches) == 1 else None
+
+
+def aggregate_dex_market_activity(
+    pairs: list[dict[str, Any]],
+    candidates: list[dict[str, str]],
+    symbols: list[str],
+    aliases: dict[str, list[str]],
+    *,
+    now_epoch: float | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Aggregate pair liquidity, USD volume and transaction flow for uniquely matched assets."""
+    candidate_keys = {
+        (str(row.get("chain") or "").lower(), _dex_address_key(row.get("token_address")))
+        for row in candidates if isinstance(row, dict)
+    }
+    aggregates: dict[str, dict[str, Any]] = {}
+    seen_pairs: set[str] = set()
+    now_value = now_epoch if now_epoch is not None else time.time()
+
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            continue
+        pair_id = str(pair.get("pair_id") or "")
+        if not pair_id or pair_id in seen_pairs:
+            continue
+        seen_pairs.add(pair_id)
+        chain = str(pair.get("chain") or "").lower()
+        sides = (
+            ("base", pair.get("base_token") if isinstance(pair.get("base_token"), dict) else {}),
+            ("quote", pair.get("quote_token") if isinstance(pair.get("quote_token"), dict) else {}),
+        )
+        matched_sides = []
+        for side_name, token in sides:
+            if (chain, _dex_address_key(token.get("address"))) not in candidate_keys:
+                continue
+            symbol = _dex_exact_name_symbol(str(token.get("name") or ""), symbols, aliases)
+            if symbol:
+                matched_sides.append((side_name, symbol))
+
+        for side_name, symbol in matched_sides:
+            row = aggregates.setdefault(symbol, {
+                "pair_ids": set(),
+                "chains": set(),
+                "dex_ids": set(),
+                "liquidity_usd": 0.0,
+                "volume_usd_m5": 0.0,
+                "volume_usd_h1": 0.0,
+                "volume_usd_h6": 0.0,
+                "volume_usd_h24": 0.0,
+                "buys_h24": 0,
+                "sells_h24": 0,
+                "weighted_price_sum": 0.0,
+                "price_weight_sum": 0.0,
+                "weighted_change_sum": 0.0,
+                "change_weight_sum": 0.0,
+                "market_cap_usd": None,
+                "fdv_usd": None,
+                "top_pairs": [],
+            })
+            if pair_id in row["pair_ids"]:
+                continue
+            row["pair_ids"].add(pair_id)
+            row["chains"].add(chain)
+            dex_id = str(pair.get("dex_id") or "")
+            if dex_id:
+                row["dex_ids"].add(dex_id)
+
+            liquidity_usd = max(0.0, _safe_float(pair.get("liquidity_usd")) or 0.0)
+            row["liquidity_usd"] += liquidity_usd
+            volume = pair.get("volume_usd") if isinstance(pair.get("volume_usd"), dict) else {}
+            for period in ("m5", "h1", "h6", "h24"):
+                row[f"volume_usd_{period}"] += max(0.0, _safe_float(volume.get(period)) or 0.0)
+
+            txns = pair.get("transactions") if isinstance(pair.get("transactions"), dict) else {}
+            h24_txns = txns.get("h24") if isinstance(txns.get("h24"), dict) else {}
+            buys = max(0, _safe_int(h24_txns.get("buys")) or 0)
+            sells = max(0, _safe_int(h24_txns.get("sells")) or 0)
+            if side_name == "quote":
+                buys, sells = sells, buys
+            row["buys_h24"] += buys
+            row["sells_h24"] += sells
+
+            price_usd = _safe_float(pair.get("price_usd"))
+            price_native = _safe_float(pair.get("price_native"))
+            token_price = price_usd if side_name == "base" else (
+                price_usd / price_native
+                if price_usd is not None and price_native is not None and price_native > 0
+                else None
+            )
+            weight = max(1.0, liquidity_usd)
+            if token_price is not None and token_price > 0:
+                row["weighted_price_sum"] += token_price * weight
+                row["price_weight_sum"] += weight
+
+            price_changes = pair.get("price_change_pct") if isinstance(pair.get("price_change_pct"), dict) else {}
+            change = _safe_float(price_changes.get("h24"))
+            if change is not None:
+                if side_name == "quote" and 1.0 + change / 100.0 > 0:
+                    change = (1.0 / (1.0 + change / 100.0) - 1.0) * 100.0
+                row["weighted_change_sum"] += change * weight
+                row["change_weight_sum"] += weight
+
+            for field in ("market_cap_usd", "fdv_usd"):
+                value = _safe_float(pair.get(field))
+                if value is not None and value > 0:
+                    row[field] = value if row[field] is None else max(row[field], value)
+
+            created_ms = _safe_float(pair.get("pair_created_at_ms"))
+            pair_age_hours = (
+                max(0.0, (now_value - created_ms / 1000.0) / 3600.0)
+                if created_ms and created_ms > 0 else None
+            )
+            row["top_pairs"].append({
+                "chain": chain,
+                "dex_id": dex_id,
+                "pair_address": pair.get("pair_address"),
+                "url": pair.get("url"),
+                "base_symbol": (pair.get("base_token") or {}).get("symbol"),
+                "quote_symbol": (pair.get("quote_token") or {}).get("symbol"),
+                "liquidity_usd": liquidity_usd,
+                "volume_usd_h24": max(0.0, _safe_float(volume.get("h24")) or 0.0),
+                "buys_h24": buys,
+                "sells_h24": sells,
+                "price_change_24h_pct": change,
+                "pair_age_hours": round(pair_age_hours, 1) if pair_age_hours is not None else None,
+            })
+
+    result: dict[str, dict[str, Any]] = {}
+    for symbol, row in aggregates.items():
+        top_pairs = sorted(
+            row["top_pairs"],
+            key=lambda item: (item.get("liquidity_usd") or 0.0, item.get("volume_usd_h24") or 0.0),
+            reverse=True,
+        )[:5]
+        result[symbol] = {
+            "symbol": symbol,
+            "pair_count": len(row["pair_ids"]),
+            "chain_count": len(row["chains"]),
+            "chains": sorted(row["chains"]),
+            "dex_ids": sorted(row["dex_ids"]),
+            "liquidity_usd": round(row["liquidity_usd"], 2),
+            "volume_usd_m5": round(row["volume_usd_m5"], 2),
+            "volume_usd_h1": round(row["volume_usd_h1"], 2),
+            "volume_usd_h6": round(row["volume_usd_h6"], 2),
+            "volume_usd_h24": round(row["volume_usd_h24"], 2),
+            "buys_h24": row["buys_h24"],
+            "sells_h24": row["sells_h24"],
+            "transactions_h24": row["buys_h24"] + row["sells_h24"],
+            "buy_sell_ratio_h24": round(row["buys_h24"] / row["sells_h24"], 3) if row["sells_h24"] else None,
+            "current_price_usd": round(row["weighted_price_sum"] / row["price_weight_sum"], 10)
+            if row["price_weight_sum"] else None,
+            "price_change_24h_pct": round(row["weighted_change_sum"] / row["change_weight_sum"], 2)
+            if row["change_weight_sum"] else None,
+            "market_cap_usd": row["market_cap_usd"],
+            "fdv_usd": row["fdv_usd"],
+            "top_pairs": top_pairs,
+            "scope": "SON DEX PROFİL/TOPLULUK TOKEN LİSTELERİNDEKİ ADRESLER",
+        }
+    return result
+
+
 
 
 def canonicalize_news_url(value: str) -> str:
@@ -1729,6 +2037,107 @@ class NarrativeEngine:
             result.append({"id": feed_id, "name": name[:100], "url": url, "kind": kind})
         return result[:20]
 
+    def _fetch_dex_market_activity(
+        self,
+        dex_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Rotate two bounded 30-token pair requests per refresh."""
+        candidates = build_dex_token_candidates(dex_rows)
+        if not candidates:
+            return {
+                "pairs": [],
+                "token_candidates": [],
+                "candidate_token_count": 0,
+                "requested_token_count": 0,
+                "batch_request_count": 0,
+                "chain_batch_count": 0,
+                "partial_errors": [],
+                "checked_at_utc": utc_now(),
+                "scope": "GÜNCEL PROFİL/TOPLULUK AKIŞINDA TOKEN ADRESİ BULUNMADI",
+            }
+
+        by_chain: dict[str, list[dict[str, str]]] = {}
+        for candidate in candidates:
+            by_chain.setdefault(candidate["chain"], []).append(candidate)
+        batches: list[tuple[str, list[dict[str, str]]]] = []
+        for chain in sorted(by_chain):
+            rows = by_chain[chain]
+            for offset in range(0, len(rows), MAX_DEX_ACTIVITY_ADDRESSES_PER_BATCH):
+                batches.append((chain, rows[offset:offset + MAX_DEX_ACTIVITY_ADDRESSES_PER_BATCH]))
+        if not batches:
+            return {
+                "pairs": [],
+                "token_candidates": candidates,
+                "candidate_token_count": len(candidates),
+                "requested_token_count": 0,
+                "batch_request_count": 0,
+                "chain_batch_count": 0,
+                "partial_errors": [],
+                "checked_at_utc": utc_now(),
+                "scope": "SORGULANABİLİR ZİNCİR/ADRES GRUBU BULUNAMADI",
+            }
+
+        rotation = self.cache.get("dex_market_activity_rotation")
+        rotation = rotation if isinstance(rotation, dict) else {}
+        rotation_data = rotation.get("data") if isinstance(rotation.get("data"), dict) else {}
+        cursor = (_safe_int(rotation_data.get("next_cursor")) or 0) % len(batches)
+        batch_count = min(MAX_DEX_ACTIVITY_BATCHES_PER_REFRESH, len(batches))
+        selected = [batches[(cursor + index) % len(batches)] for index in range(batch_count)]
+
+        pairs: list[dict[str, Any]] = []
+        errors: list[str] = []
+        requested_tokens = 0
+        completed_requests = 0
+        for chain, token_rows in selected:
+            addresses = [row["token_address"] for row in token_rows]
+            requested_tokens += len(addresses)
+            address_path = quote(",".join(addresses), safe=",")
+            url = f"{DEX_TOKENS_URL}/{quote(chain, safe='')}/{address_path}"
+            try:
+                payload = self._get_json(url)
+                batch_pairs = parse_dex_market_pairs(payload)
+                pairs.extend(batch_pairs)
+                completed_requests += 1
+                if not batch_pairs:
+                    errors.append(f"{chain}: geçerli pair kaydı dönmedi.")
+            except Exception as exc:
+                errors.append(f"{chain}: {type(exc).__name__}: {str(exc)[:220]}")
+
+        self.cache["dex_market_activity_rotation"] = {
+            "data": {
+                "next_cursor": (cursor + batch_count) % len(batches),
+                "batch_count": len(batches),
+                "last_batch_chains": [chain for chain, _rows in selected],
+            },
+            "last_attempt_epoch": self.clock(),
+            "last_success_epoch": self.clock() if completed_requests else (
+                _safe_float(rotation.get("last_success_epoch")) or 0.0
+            ),
+            "last_error": "; ".join(errors)[:500] if errors else None,
+        }
+        unique_pairs = {}
+        for pair in pairs:
+            pair_id = str(pair.get("pair_id") or "")
+            if pair_id:
+                unique_pairs[pair_id] = pair
+
+        if completed_requests == 0 and errors:
+            raise RuntimeError("; ".join(errors)[:500])
+
+        return {
+            "pairs": list(unique_pairs.values()),
+            "token_candidates": candidates,
+            "candidate_token_count": len(candidates),
+            "requested_token_count": requested_tokens,
+            "batch_request_count": completed_requests,
+            "selected_batch_count": batch_count,
+            "chain_batch_count": len(batches),
+            "selected_chains": [chain for chain, _rows in selected],
+            "partial_errors": errors,
+            "checked_at_utc": utc_now(),
+            "scope": "SON DEX PROFİL/TOPLULUK TOKEN LİSTELERİNDEKİ ADRESLER",
+        }
+
     def _collect_sources(self) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
         statuses: dict[str, Any] = {}
         topics = self._fetch_source(
@@ -2006,7 +2415,7 @@ class NarrativeEngine:
         dex_profiles_status = _source_status("dex_profiles", role="DEX token/proje profil görünürlüğü; haber doğrulaması değildir.")
         dex_profiles = self._fetch_source(
             "dex_profiles", SOURCE_INTERVALS["dex_profiles"],
-            lambda: parse_dex_records(self._get_json(DEX_PROFILES_URL)),
+            lambda: parse_dex_records(self._get_json(DEX_PROFILES_URL), source_kind="dex_token_profile"),
             dex_profiles_status,
             count_fn=lambda value: len(value or []),
         )
@@ -2015,11 +2424,37 @@ class NarrativeEngine:
         dex_community_status = _source_status("dex_community", role="Topluluk/DEX profil hareketi; bağımsız haber teyidi değildir.")
         dex_community = self._fetch_source(
             "dex_community", SOURCE_INTERVALS["dex_community"],
-            lambda: parse_dex_records(self._get_json(DEX_COMMUNITY_URL)),
+            lambda: parse_dex_records(self._get_json(DEX_COMMUNITY_URL), source_kind="dex_community_activity"),
             dex_community_status,
             count_fn=lambda value: len(value or []),
         )
         statuses["dex_community"] = dex_community_status
+
+        dex_market_status = _source_status(
+            "dex_market_activity",
+            role="DEX Screener gerçek pair faaliyeti: son profil/topluluk token adresleri; fiyat, hacim, likidite ve alış/satış.",
+        )
+        dex_market_activity = self._fetch_source(
+            "dex_market_activity",
+            SOURCE_INTERVALS["dex_market_activity"],
+            lambda: self._fetch_dex_market_activity(
+                (dex_profiles or []) + (dex_community or [])
+            ),
+            dex_market_status,
+            count_fn=lambda value: len(value.get("pairs", []))
+            if isinstance(value, dict) and isinstance(value.get("pairs"), list) else 0,
+        )
+        if isinstance(dex_market_activity, dict):
+            dex_market_status["candidate_token_count"] = dex_market_activity.get("candidate_token_count", 0)
+            dex_market_status["requested_token_count"] = dex_market_activity.get("requested_token_count", 0)
+            dex_market_status["batch_request_count"] = dex_market_activity.get("batch_request_count", 0)
+            dex_market_status["selected_chains"] = dex_market_activity.get("selected_chains", [])
+            dex_market_status["partial_errors"] = dex_market_activity.get("partial_errors", [])
+            if dex_market_activity.get("scope") and not dex_market_activity.get("pairs"):
+                dex_market_status["status"] = "ADRES/PAIR VERİSİ BEKLENİYOR"
+            elif dex_market_activity.get("partial_errors"):
+                dex_market_status["status"] = "KISMİ VERİ — BAZI ZİNCİR SORGULARI BAŞARISIZ"
+        statuses["dex_market_activity"] = dex_market_status
 
         cg_key = os.environ.get("COINGECKO_DEMO_API_KEY", "").strip()
         cg_status = _source_status(
@@ -2127,6 +2562,7 @@ class NarrativeEngine:
             "market_context": market_context,
             "dex_profiles": dex_profiles or [],
             "dex_community": dex_community or [],
+            "dex_market_activity": dex_market_activity if isinstance(dex_market_activity, dict) else {},
             "coingecko": cg or {},
         }
 
@@ -2613,6 +3049,7 @@ class NarrativeEngine:
         coingecko: Any,
         symbols: list[str],
         aliases: dict[str, list[str]],
+        dex_market_activity: dict[str, Any] | None = None,
     ) -> dict[str, dict[str, Any]]:
         result: dict[str, dict[str, Any]] = {}
         allowed = set(symbols)
@@ -2657,6 +3094,20 @@ class NarrativeEngine:
                     result.setdefault(match["symbol"], {"symbol": match["symbol"]})[
                         "coingecko_trending"
                     ] = True
+
+        dex_root = dex_market_activity if isinstance(dex_market_activity, dict) else {}
+        dex_pairs = dex_root.get("pairs") if isinstance(dex_root.get("pairs"), list) else []
+        dex_candidates = build_dex_token_candidates(
+            dex_root.get("token_candidates", [])
+            if isinstance(dex_root.get("token_candidates"), list) else []
+        )
+        dex_aggregates = aggregate_dex_market_activity(
+            dex_pairs, dex_candidates, symbols, aliases,
+        ) if dex_candidates and dex_pairs else {}
+        for symbol, metrics in dex_aggregates.items():
+            item = result.setdefault(symbol, {"symbol": symbol})
+            item["dex_market_activity"] = metrics
+            item["dex_activity"] = True
         return result
 
     def _build_narratives(
@@ -2953,6 +3404,31 @@ class NarrativeEngine:
                 watch["discovery_sources"].update(discovery_sources)
                 if confidence == "YÜKSEK" or (confidence == "ORTA" and watch["confidence"] == "DÜŞÜK"):
                     watch["confidence"] = confidence
+
+        # Actual DEX pair activity can create a separate early-watch row.
+        # It is market data, not editorial news or a technical trading signal.
+        for symbol, market_row in market_map.items():
+            dex_activity = market_row.get("dex_market_activity") if isinstance(market_row, dict) else None
+            if not isinstance(dex_activity, dict) or not dex_activity.get("pair_count"):
+                continue
+            if symbol not in early_watch:
+                early_watch[symbol] = {
+                    "symbol": symbol,
+                    "narrative_score": None,
+                    "phase": "BELİRSİZ",
+                    "interest_direction": "İLK GÖZLEM",
+                    "data_freshness_seconds": None,
+                    "narratives": ["DEX gerçek piyasa faaliyeti"],
+                    "sources": set(),
+                    "discovery_sources": {"dex_market_activity"},
+                    "aixbt_topic_associations": [],
+                    "confidence": "DÜŞÜK",
+                    "market_activity": market_row,
+                    "reason": (
+                        "Gerçek DEX pair verisinde fiyat, hacim, likidite ve alış/satış faaliyeti görüldü. "
+                        "Bu piyasa keşif kaydıdır; haber teyidi, teknik aday veya güçlü fırsat değildir."
+                    ),
+                }
 
         for watch in early_watch.values():
             watch["sources"] = sorted(watch["sources"])
@@ -3361,6 +3837,7 @@ class NarrativeEngine:
             source_data["coingecko"],
             symbols,
             aliases,
+            source_data.get("dex_market_activity", {}),
         )
         santiment_map = self._collect_santiment(statuses, events, aliases)
         # Supplementary detail only: the narrative scorer reads price/volume fields, not this nested field.
@@ -3458,6 +3935,16 @@ class NarrativeEngine:
                 "cmc_theme_coin_matches": len(source_data["cmc_category_coins"]),
                 "dex_profiles_count": len(source_data["dex_profiles"]),
                 "dex_community_count": len(source_data["dex_community"]),
+                "dex_market_pair_count": len(source_data.get("dex_market_activity", {}).get("pairs", []))
+                if isinstance(source_data.get("dex_market_activity"), dict) else 0,
+                "dex_market_candidate_token_count": source_data.get("dex_market_activity", {}).get("candidate_token_count", 0)
+                if isinstance(source_data.get("dex_market_activity"), dict) else 0,
+                "dex_market_batch_request_count": source_data.get("dex_market_activity", {}).get("batch_request_count", 0)
+                if isinstance(source_data.get("dex_market_activity"), dict) else 0,
+                "dex_market_coin_count": sum(
+                    1 for item in market_map.values()
+                    if isinstance(item, dict) and isinstance(item.get("dex_market_activity"), dict)
+                ),
                 "aixbt_project_topic_count": len(
                     source_data.get("aixbt_project_mappings", {}).get("by_topic", {})
                     if isinstance(source_data.get("aixbt_project_mappings"), dict) else {}
@@ -3477,6 +3964,8 @@ class NarrativeEngine:
                 "CMC Categories Keyless uçları her altı saatte bir 5.000 kayda kadar kategori kataloğunu alır; tanınan temalar ve güçlü ama henüz sınıflandırılmayan kategori adayları korunur. Ayrıntı sorguları altı saatte en fazla üçtür: iki öncelikli kategori ve bir geniş evren rotasyon adayı.",
                 "Kategori coinleri yalnızca ortak Binance–BtcTurk USDT evrenindeki benzersiz CMC ID eşleşmesiyle erken izlemeye alınır; sembol benzerliği tek başına yeterli değildir.",
                 "AIXBT gönderi/katılımcı sayısı ve konu→proje eşlemesi topluluk keşif verisidir; bağımsız haber teyidi veya teknik puan sayılmaz. Proje yalnızca ortak USDT evrenindeki yüksek güvenli ad/alias eşleşmesiyle erken izlemeye alınır.",
+                "DEX Screener profil/topluluk akışından alınan token adresleri için gerçek pair verisi; fiyat, likidite, hacim ve alış/satış işlemlerini kapsar. Her 15 dakikada en fazla iki istek, istek başına 30 adres; zincir/adres grupları rotasyonla taranır.",
+                "DEX pair faaliyeti yalnızca son profil/topluluk listelerinde görünen token adreslerini kapsar; tüm DEX evreninin eksiksiz taraması değildir. Tekil tam proje adı eşleşmesiyle erken izlemeye bağlanır; haber teyidi, teknik puan veya güçlü fırsat koşulu değildir.",
                 "DEX Screener ve CoinGecko trend işaretleri eşleşen coinlerde piyasa keşif etkinliğini destekler; bağımsız haber teyidi değildir.",
                 "TrendKia herkese açık MCP üzerinden API anahtarı veya kart olmadan okunur; 30 yazılık akış 30 dakikada bir alınır ve 72 saat filtresinden geçirilir.",
                 "TrendKia yalnızca naratif haber kanıtıdır; teknik puanı ve güçlü fırsat koşullarını değiştirmez.",
