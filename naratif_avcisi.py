@@ -15,6 +15,7 @@ import sqlite3
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -35,7 +36,17 @@ HISTORY_PATH = DATA_DIR / "naratif_gecmisi.sqlite3"
 LOG_PATH = LOG_DIR / "naratif_avcisi.log"
 
 AIXBT_TOPICS_URL = "https://api.aixbt.tech/v3/topics"
-CMC_LISTINGS_URL = "https://pro-api.coinmarketcap.com/public-api/v3/cryptocurrency/listings/latest"
+CMC_KEYLESS_BASE_URL = "https://pro-api.coinmarketcap.com/public-api"
+CMC_LISTINGS_URL = f"{CMC_KEYLESS_BASE_URL}/v3/cryptocurrency/listings/latest"
+CMC_ID_MAP_URL = f"{CMC_KEYLESS_BASE_URL}/v1/cryptocurrency/map"
+CMC_QUOTES_URL = f"{CMC_KEYLESS_BASE_URL}/v3/cryptocurrency/quotes/latest"
+CMC_GLOBAL_METRICS_URL = f"{CMC_KEYLESS_BASE_URL}/v1/global-metrics/quotes/latest"
+CMC_FEAR_GREED_URL = f"{CMC_KEYLESS_BASE_URL}/v3/fear-and-greed/latest"
+CMC_ALTCOIN_SEASON_URL = f"{CMC_KEYLESS_BASE_URL}/v1/altcoin-season-index/latest"
+CMC100_INDEX_URL = f"{CMC_KEYLESS_BASE_URL}/v3/index/cmc100-latest"
+CMC20_INDEX_URL = f"{CMC_KEYLESS_BASE_URL}/v3/index/cmc20-latest"
+TRENDKIA_MCP_URL = "https://trendkia.com/mcp"
+MCP_PROTOCOL_VERSION = "2025-03-26"
 DEX_PROFILES_URL = "https://api.dexscreener.com/token-profiles/latest/v1"
 DEX_COMMUNITY_URL = "https://api.dexscreener.com/community-takeovers/latest/v1"
 COINGECKO_TRENDING_URL = "https://api.coingecko.com/api/v3/search/trending"
@@ -49,7 +60,15 @@ DEFAULT_FEEDS = [
 ]
 SOURCE_INTERVALS = {
     "aixbt_topics": 300,
-    "cmc_market_activity": 600,
+    "cmc_market_activity": 3600,
+    "cmc_id_map": 6 * 3600,
+    "cmc_quotes": 3600,
+    "cmc_global_metrics": 3600,
+    "cmc_fear_greed": 3600,
+    "cmc_altcoin_season": 4 * 3600,
+    "cmc100_index": 6 * 3600,
+    "cmc20_index": 6 * 3600,
+    "trendkia_news": 1800,
     "dex_profiles": 600,
     "dex_community": 900,
     "coingecko_trending": 600,
@@ -179,19 +198,81 @@ def parse_aixbt_topics(payload: Any) -> list[dict[str, Any]]:
     return result[:25]
 
 
+def _cmc_data_records(payload: Any) -> list[dict[str, Any]]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        for key in ("cryptoCurrencyList", "list", "items", "results", "tokens"):
+            rows = data.get(key)
+            if isinstance(rows, list):
+                return [item for item in rows if isinstance(item, dict)]
+        if any(key in data for key in ("id", "symbol", "name", "quote", "value")):
+            return [data]
+        rows = []
+        for key, value in data.items():
+            if isinstance(value, dict):
+                row = dict(value)
+                row.setdefault("id", _safe_int(key))
+                rows.append(row)
+        return rows
+    return _records(payload)
+
+
+def _cmc_usd_quote(item: dict[str, Any]) -> dict[str, Any]:
+    quote = item.get("quote")
+    if isinstance(quote, list):
+        for entry in quote:
+            if isinstance(entry, dict) and str(entry.get("symbol") or "").upper() == "USD":
+                return entry
+        return next((entry for entry in quote if isinstance(entry, dict)), {})
+    if isinstance(quote, dict):
+        usd = quote.get("USD")
+        return usd if isinstance(usd, dict) else quote
+    return {}
+
+
+def parse_cmc_id_map(payload: Any) -> list[dict[str, Any]]:
+    rows = []
+    for item in _cmc_data_records(payload):
+        symbol = str(item.get("symbol") or "").strip().upper()
+        name = str(item.get("name") or "").strip()
+        cmc_id = _safe_int(item.get("id"))
+        if symbol and name and cmc_id is not None:
+            rows.append({
+                "id": cmc_id, "symbol": symbol, "name": name,
+                "slug": str(item.get("slug") or ""),
+                "is_active": _safe_int(item.get("is_active")),
+            })
+    return rows[:2000]
+
+
+def build_cmc_id_lookup(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, dict[int, dict[str, Any]]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol") or "").strip().upper()
+        cmc_id = _safe_int(row.get("id"))
+        if symbol and cmc_id is not None:
+            grouped.setdefault(symbol, {})[cmc_id] = row
+    return {
+        symbol: dict(next(iter(items.values())))
+        for symbol, items in grouped.items() if len(items) == 1
+    }
+
+
 def parse_cmc_market_listings(payload: Any) -> list[dict[str, Any]]:
-    """Normalize CoinMarketCap keyless public listings as market activity, never as news."""
+    """Normalize CMC Keyless listings as market activity, never as news."""
     result = []
-    for item in _records(payload):
+    for item in _cmc_data_records(payload):
         symbol = str(item.get("symbol") or "").strip().upper()
         name = str(item.get("name") or "").strip()
         if not symbol or not name:
             continue
-        quote = item.get("quote") if isinstance(item.get("quote"), dict) else {}
-        usd = quote.get("USD") if isinstance(quote.get("USD"), dict) else quote
+        usd = _cmc_usd_quote(item)
         result.append({
-            "symbol": symbol,
-            "name": name,
+            "id": _safe_int(item.get("id")), "symbol": symbol, "name": name,
             "slug": str(item.get("slug") or ""),
             "rank": _safe_int(item.get("cmc_rank") or item.get("rank")),
             "price": _safe_float(usd.get("price")),
@@ -201,6 +282,190 @@ def parse_cmc_market_listings(payload: Any) -> list[dict[str, Any]]:
             "market_cap": _safe_float(usd.get("market_cap")),
         })
     return result[:MAX_SOURCE_ITEMS]
+
+
+def parse_cmc_quotes(payload: Any) -> list[dict[str, Any]]:
+    rows = []
+    for item in _cmc_data_records(payload):
+        symbol = str(item.get("symbol") or "").strip().upper()
+        cmc_id = _safe_int(item.get("id"))
+        if not symbol or cmc_id is None:
+            continue
+        usd = _cmc_usd_quote(item)
+        rows.append({
+            "id": cmc_id, "symbol": symbol, "name": str(item.get("name") or ""),
+            "slug": str(item.get("slug") or ""),
+            "rank": _safe_int(item.get("cmc_rank")),
+            "price": _safe_float(usd.get("price")),
+            "volume_24h": _safe_float(usd.get("volume_24h")),
+            "volume_change_24h": _safe_float(usd.get("volume_change_24h")),
+            "percent_change_24h": _safe_float(usd.get("percent_change_24h")),
+            "market_cap": _safe_float(usd.get("market_cap")),
+            "last_updated": str(usd.get("last_updated") or item.get("last_updated") or ""),
+        })
+    return rows[:250]
+
+
+def parse_cmc_global_metrics(payload: Any) -> dict[str, Any]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    if not isinstance(data, dict):
+        return {}
+    usd = _cmc_usd_quote(data)
+    return {
+        "total_market_cap_usd": _safe_float(usd.get("total_market_cap") or data.get("total_market_cap")),
+        "total_volume_24h_usd": _safe_float(usd.get("total_volume_24h") or data.get("total_volume_24h")),
+        "bitcoin_dominance_pct": _safe_float(data.get("btc_dominance") or data.get("bitcoin_dominance")),
+        "ethereum_dominance_pct": _safe_float(data.get("eth_dominance") or data.get("ethereum_dominance")),
+        "last_updated": str(data.get("last_updated") or data.get("timestamp") or ""),
+    }
+
+
+def _cmc_single_snapshot(payload: Any) -> dict[str, Any]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def parse_cmc_fear_greed(payload: Any) -> dict[str, Any]:
+    data = _cmc_single_snapshot(payload)
+    return {
+        "value": _safe_int(data.get("value") or data.get("fear_greed_index")),
+        "classification": str(data.get("value_classification") or data.get("classification") or ""),
+        "timestamp": str(data.get("timestamp") or data.get("update_time") or data.get("last_updated") or ""),
+    }
+
+
+def parse_cmc_altcoin_season(payload: Any) -> dict[str, Any]:
+    data = _cmc_single_snapshot(payload)
+    return {
+        "index": _safe_int(data.get("altcoin_index") or data.get("value")),
+        "snapshot_time": str(data.get("snapshot_time") or data.get("timestamp") or ""),
+        "yearly_high": _safe_int(data.get("yearly_high")),
+        "yearly_low": _safe_int(data.get("yearly_low")),
+    }
+
+
+def parse_cmc_index_snapshot(payload: Any) -> dict[str, Any]:
+    data = _cmc_single_snapshot(payload)
+    if not data:
+        return {}
+    keep = ("id", "name", "symbol", "value", "price", "percent_change_24h", "last_updated", "timestamp")
+    return {key: data[key] for key in keep if key in data}
+
+
+def _parse_published_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = parsedate_to_datetime(raw)
+        except (TypeError, ValueError, OverflowError):
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+TRENDKIA_RELEVANCE_TERMS = (
+    "crypto", "cryptocurrency", "bitcoin", "btc", "ethereum", "ether", "eth",
+    "altcoin", "token", "blockchain", "binance", "solana", "defi", "stablecoin",
+    "federal reserve", "fed", "interest rate", "inflation", "economy", "economic",
+    "finance", "financial", "etf", "regulation", "central bank", "treasury",
+    "dollar", "bond yield", "cpi", "pce", "nonfarm", "recession", "geopolitical",
+    "क्रिप्टो", "बिटकॉइन", "एथेरियम", "फेड", "डॉलर", "मुद्रास्फीति", "महंगाई",
+)
+
+
+def parse_trendkia_articles(
+    markdown_text: str, *, now_epoch: float | None = None, max_age_seconds: int = 72 * 3600
+) -> list[dict[str, Any]]:
+    """Extract current crypto/macro stories from TrendKia's public MCP feed."""
+    if not isinstance(markdown_text, str) or not markdown_text.strip():
+        return []
+    now = float(now_epoch if now_epoch is not None else time.time())
+    rows = []
+    sections = re.findall(r"(?ms)^##\\s+(.+?)\\s*\\n(.*?)(?=^##\\s+|\\Z)", markdown_text)
+    for title, block in sections:
+        fields: dict[str, str] = {}
+        for line in block.splitlines():
+            match = re.match(r"^\\s*-\\s*([^:]+):\\s*(.*)$", line)
+            if match:
+                fields[match.group(1).strip().lower()] = match.group(2).strip()
+        url = fields.get("url", "")
+        parsed_url = urlparse(url)
+        if parsed_url.scheme != "https" or (parsed_url.hostname or "").lower() not in {"trendkia.com", "www.trendkia.com"}:
+            continue
+        published = _parse_published_datetime(fields.get("published") or fields.get("date"))
+        if published is None:
+            continue
+        age = now - published.timestamp()
+        if age < -6 * 3600 or age > max_age_seconds:
+            continue
+        category, summary, tags = fields.get("category", ""), fields.get("summary", ""), fields.get("tags", "")
+        searchable = " ".join((title, category, summary, tags)).casefold()
+        if not any(term in searchable for term in TRENDKIA_RELEVANCE_TERMS):
+            continue
+        clean_title = re.sub(r"\\s+", " ", title).strip()
+        if not clean_title:
+            continue
+        rows.append({
+            "id": "trendkia:" + _event_id(clean_title), "title": clean_title[:300],
+            "summary": summary[:1800], "url": url[:1000],
+            "published_at": published.isoformat(timespec="seconds"),
+            "source_id": "trendkia_news", "source_name": "TrendKia News",
+            "source_kind": "media", "category": category[:120], "tags": tags[:500],
+        })
+    return rows[:50]
+
+
+def extract_mcp_text(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        raise RuntimeError("TrendKia MCP beklenen JSON-RPC yanıtını döndürmedi.")
+    if payload.get("error"):
+        raise RuntimeError(f"TrendKia MCP JSON-RPC hatası: {str(payload.get('error'))[:400]}")
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        raise RuntimeError("TrendKia MCP yanıtında result alanı bulunamadı.")
+    if result.get("isError"):
+        raise RuntimeError("TrendKia MCP aracı hata döndürdü.")
+    content = result.get("content")
+    texts = [
+        str(item.get("text") or "")
+        for item in content if isinstance(item, dict) and item.get("type") == "text"
+    ] if isinstance(content, list) else []
+    if texts:
+        return chr(10).join(texts)
+    structured = result.get("structuredContent")
+    if isinstance(structured, str):
+        return structured
+    if isinstance(structured, (dict, list)):
+        return json.dumps(structured, ensure_ascii=False)
+    raise RuntimeError("TrendKia MCP yanıtında okunabilir içerik bulunamadı.")
+
+
+class SourceRateLimited(RuntimeError):
+    def __init__(self, message: str, retry_after_seconds: int = 0):
+        super().__init__(message)
+        self.retry_after_seconds = max(0, int(retry_after_seconds))
+
+
+def _retry_after_seconds(value: Any) -> int:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0
+    try:
+        return max(0, min(24 * 3600, int(float(raw))))
+    except ValueError:
+        parsed = _parse_published_datetime(raw)
+        return max(0, min(24 * 3600, int(parsed.timestamp() - time.time()))) if parsed else 0
+
+
 
 
 def parse_dex_records(payload: Any) -> list[dict[str, Any]]:
@@ -622,6 +887,11 @@ class NarrativeEngine:
         self.previous_state = _read_json(self.state_path, {})
         if not isinstance(self.previous_state, dict):
             self.previous_state = {}
+        self.mcp_session_id: str | None = None
+        self.mcp_protocol_version = MCP_PROTOCOL_VERSION
+        self.mcp_request_id = 1
+        self.trendkia_initialized = False
+        self.trendkia_tool_names: set[str] = set()
         self.logger = self._logger()
 
     def _logger(self) -> logging.Logger:
@@ -642,10 +912,18 @@ class NarrativeEngine:
             params=params,
             timeout=10,
         )
-        if response.status_code in (418, 429):
-            raise RuntimeError(f"Kaynak hız sınırı yanıtı verdi: HTTP {response.status_code}; alternatif hostla aşılmadı.")
+        if response.status_code == 429:
+            raise SourceRateLimited("Kaynak HTTP 429 hız sınırı yanıtı verdi.",
+                                    _retry_after_seconds(response.headers.get("Retry-After")))
+        if response.status_code == 418:
+            raise RuntimeError("Kaynak HTTP 418 hız sınırı yanıtı verdi; alternatif hostla aşılmadı.")
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        if isinstance(payload, dict) and isinstance(payload.get("status"), dict):
+            error_code = payload["status"].get("error_code")
+            if error_code not in (None, 0, "0"):
+                raise RuntimeError(f"CoinMarketCap API hatası {error_code}: {str(payload['status'].get('error_message') or '')[:300]}")
+        return payload
 
     def _post_graphql(self, query: str) -> Any:
         api_key = os.environ.get("SANTIMENT_API_KEY", "").strip()
@@ -683,15 +961,120 @@ class NarrativeEngine:
             headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"},
             timeout=10,
         )
-        if response.status_code in (418, 429):
-            raise RuntimeError(f"RSS kaynağı hız sınırı yanıtı verdi: HTTP {response.status_code}.")
+        if response.status_code == 429:
+            raise SourceRateLimited("RSS kaynağı HTTP 429 hız sınırı yanıtı verdi.",
+                                    _retry_after_seconds(response.headers.get("Retry-After")))
+        if response.status_code == 418:
+            raise RuntimeError("RSS kaynağı HTTP 418 hız sınırı yanıtı verdi.")
         response.raise_for_status()
         return response.text
 
+    @staticmethod
+    def _mcp_response_payload(response: Any) -> dict[str, Any]:
+        content_type = str(response.headers.get("Content-Type") or "").lower()
+        if "text/event-stream" in content_type:
+            normalized = response.text.replace(chr(13) + chr(10), chr(10))
+            for block in reversed(normalized.split(chr(10) + chr(10))):
+                data_lines = [line[5:].strip() for line in block.splitlines() if line.startswith("data:")]
+                if not data_lines:
+                    continue
+                try:
+                    value = json.loads(chr(10).join(data_lines))
+                except ValueError:
+                    continue
+                if isinstance(value, dict) and ("result" in value or "error" in value):
+                    return value
+            raise RuntimeError("TrendKia MCP SSE yanıtında JSON-RPC sonucu bulunamadı.")
+        try:
+            value = response.json()
+        except ValueError as exc:
+            raise RuntimeError("TrendKia MCP geçerli JSON/SSE yanıtı döndürmedi.") from exc
+        if not isinstance(value, dict):
+            raise RuntimeError("TrendKia MCP yanıtı JSON nesnesi değil.")
+        return value
+
+    def _post_mcp(self, payload: dict[str, Any]) -> dict[str, Any]:
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        if self.mcp_session_id:
+            headers["MCP-Session-Id"] = self.mcp_session_id
+            headers["MCP-Protocol-Version"] = self.mcp_protocol_version
+        response = self.session.post(
+            TRENDKIA_MCP_URL,
+            data=json.dumps(payload, ensure_ascii=False),
+            headers=headers,
+            timeout=20,
+        )
+        if response.status_code == 429:
+            raise SourceRateLimited("TrendKia MCP HTTP 429 hız sınırı yanıtı verdi.",
+                                    _retry_after_seconds(response.headers.get("Retry-After")))
+        session_id = response.headers.get("MCP-Session-Id")
+        if session_id:
+            self.mcp_session_id = session_id
+        if response.status_code == 202 or not response.content:
+            return {}
+        response.raise_for_status()
+        return self._mcp_response_payload(response)
+
+    def _ensure_trendkia(self) -> None:
+        if self.trendkia_initialized:
+            return
+        request_id = self.mcp_request_id
+        self.mcp_request_id += 1
+        initialized = self._post_mcp({
+            "jsonrpc": "2.0", "id": request_id, "method": "initialize",
+            "params": {
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "FirsatKontrolPaneli", "version": "1.0"},
+            },
+        })
+        result = initialized.get("result") if isinstance(initialized, dict) else None
+        if not isinstance(result, dict):
+            raise RuntimeError("TrendKia MCP initialize el sıkışması tamamlanamadı.")
+        self.mcp_protocol_version = str(result.get("protocolVersion") or MCP_PROTOCOL_VERSION)
+        self._post_mcp({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        list_id = self.mcp_request_id
+        self.mcp_request_id += 1
+        listed = self._post_mcp({
+            "jsonrpc": "2.0", "id": list_id, "method": "tools/list", "params": {},
+        })
+        if listed.get("error"):
+            raise RuntimeError(f"TrendKia MCP araç listesi alınamadı: {str(listed['error'])[:300]}")
+        rows = (listed.get("result") or {}).get("tools", [])
+        if not isinstance(rows, list):
+            raise RuntimeError("TrendKia MCP araç listesi beklenen biçimde değil.")
+        self.trendkia_tool_names = {
+            str(item.get("name")) for item in rows if isinstance(item, dict) and item.get("name")
+        }
+        if "list_recent_articles" not in self.trendkia_tool_names:
+            raise RuntimeError("TrendKia MCP list_recent_articles aracı bulunamadı.")
+        self.trendkia_initialized = True
+
+    def _fetch_trendkia_recent(self) -> list[dict[str, Any]]:
+        self._ensure_trendkia()
+        call_id = self.mcp_request_id
+        self.mcp_request_id += 1
+        result = self._post_mcp({
+            "jsonrpc": "2.0", "id": call_id, "method": "tools/call",
+            "params": {
+                "name": "list_recent_articles",
+                "arguments": {"limit": 30, "lang": "en"},
+            },
+        })
+        return parse_trendkia_articles(extract_mcp_text(result), now_epoch=self.clock())
+
     def _due(self, key: str, interval: int) -> bool:
         entry = self.cache.get(key) if isinstance(self.cache.get(key), dict) else {}
+        now = self.clock()
+        retry_after = _safe_float(entry.get("retry_after_epoch"))
+        if retry_after is not None and now < retry_after:
+            return False
         last = _safe_float(entry.get("last_attempt_epoch")) or 0.0
-        return self.clock() - last >= interval
+        return now - last >= interval
 
     def _cached_data(self, key: str) -> Any:
         entry = self.cache.get(key) if isinstance(self.cache.get(key), dict) else {}
@@ -729,6 +1112,8 @@ class NarrativeEngine:
                     "last_attempt_epoch": attempted,
                     "last_success_epoch": success,
                     "last_error": None,
+                    "retry_after_epoch": None,
+                    "rate_limit_failures": 0,
                 }
                 last_success = success
                 last_error = None
@@ -737,7 +1122,19 @@ class NarrativeEngine:
                 self.logger.info("%s kaynağı yenilendi.", key)
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {str(exc)[:300]}"
-                self.cache[key] = {**entry, "last_attempt_epoch": attempted, "last_error": last_error}
+                failure_count = int(_safe_int(entry.get("rate_limit_failures")) or 0)
+                updated_entry = {**entry, "last_attempt_epoch": attempted, "last_error": last_error}
+                if isinstance(exc, SourceRateLimited):
+                    failure_count = min(8, failure_count + 1)
+                    exponential_delay = min(6 * 3600, 60 * (2 ** (failure_count - 1)))
+                    delay = max(interval, exponential_delay, exc.retry_after_seconds)
+                    retry_after_epoch = attempted + delay
+                    updated_entry["retry_after_epoch"] = retry_after_epoch
+                    updated_entry["rate_limit_failures"] = failure_count
+                    status["retry_after_utc"] = datetime.fromtimestamp(
+                        retry_after_epoch, timezone.utc
+                    ).isoformat(timespec="seconds")
+                self.cache[key] = updated_entry
                 status["status"] = "HATA — ÖNCEKİ VERİ VAR" if data is not None else "ERİŞİLEMEDİ"
                 status["error"] = last_error
                 self.logger.warning("%s kaynağı başarısız: %s", key, last_error)
@@ -799,6 +1196,74 @@ class NarrativeEngine:
             count_fn=lambda value: len(value or []),
         )
         statuses["cmc_market_activity"] = cmc_status
+
+        tracked_symbols, _universe_status = _load_common_symbols(self.root)
+        tracked_symbols = sorted({str(symbol).strip().upper() for symbol in tracked_symbols if str(symbol).strip()})[:200]
+        cmc_map_status = _source_status(
+            "cmc_id_map",
+            role="CMC kanonik coin kimliği; ortak USDT evrenini CMC ID değerleriyle eşleştirir.",
+            enabled=bool(tracked_symbols),
+            status="BEKLİYOR" if tracked_symbols else "ORTAK USDT EVRENİ YOK — DEVRE DIŞI",
+        )
+        cmc_map = self._fetch_source(
+            "cmc_id_map", SOURCE_INTERVALS["cmc_id_map"],
+            lambda: parse_cmc_id_map(self._get_json(CMC_ID_MAP_URL, params={"symbol": ",".join(tracked_symbols)})),
+            cmc_map_status, count_fn=lambda value: len(value or []),
+        ) if tracked_symbols else []
+        statuses["cmc_id_map"] = cmc_map_status
+        cmc_lookup = build_cmc_id_lookup(cmc_map or [])
+        cmc_ids = sorted({str(row["id"]) for row in cmc_lookup.values() if _safe_int(row.get("id")) is not None})
+        cmc_quotes_status = _source_status(
+            "cmc_quotes",
+            role="CMC Keyless USD fiyat/hacim; benzersiz CMC ID ile eşleşen ortak evren coinleri.",
+            enabled=bool(cmc_ids),
+            status="BEKLİYOR" if cmc_ids else "BENZERSİZ CMC ID YOK — DEVRE DIŞI",
+        )
+        cmc_quotes = self._fetch_source(
+            "cmc_quotes", SOURCE_INTERVALS["cmc_quotes"],
+            lambda: parse_cmc_quotes(self._get_json(
+                CMC_QUOTES_URL,
+                params={"id": ",".join(cmc_ids[:200]), "convert": "USD", "skip_invalid": "true"},
+            )),
+            cmc_quotes_status, count_fn=lambda value: len(value or []),
+        ) if cmc_ids else []
+        statuses["cmc_quotes"] = cmc_quotes_status
+
+        market_context: dict[str, Any] = {}
+        cmc_context_sources = (
+            ("cmc_global_metrics", CMC_GLOBAL_METRICS_URL, SOURCE_INTERVALS["cmc_global_metrics"],
+             parse_cmc_global_metrics, "Toplam piyasa değeri/hacmi ve BTC/ETH hâkimiyeti; teknik puana girmez.",
+             {"convert": "USD"}),
+            ("cmc_fear_greed", CMC_FEAR_GREED_URL, SOURCE_INTERVALS["cmc_fear_greed"],
+             parse_cmc_fear_greed, "CMC Korku ve Açgözlülük; piyasa bağlamıdır.", None),
+            ("cmc_altcoin_season", CMC_ALTCOIN_SEASON_URL, SOURCE_INTERVALS["cmc_altcoin_season"],
+             parse_cmc_altcoin_season, "Altcoin Sezon Endeksi; piyasa rejimi bağlamıdır.", None),
+            ("cmc100_index", CMC100_INDEX_URL, SOURCE_INTERVALS["cmc100_index"],
+             parse_cmc_index_snapshot, "CMC100 piyasa endeksi; genel piyasa bağlamıdır.", None),
+            ("cmc20_index", CMC20_INDEX_URL, SOURCE_INTERVALS["cmc20_index"],
+             parse_cmc_index_snapshot, "CMC20 piyasa endeksi; genel piyasa bağlamıdır.", None),
+        )
+        for source_key, source_url, interval, parser, role, params in cmc_context_sources:
+            source_status = _source_status(source_key, role=role)
+            value = self._fetch_source(
+                source_key, interval,
+                lambda url=source_url, parse=parser, query=params: parse(self._get_json(url, params=query)),
+                source_status, count_fn=lambda item: 1 if isinstance(item, dict) and item else 0,
+            )
+            statuses[source_key] = source_status
+            market_context[source_key] = value if isinstance(value, dict) else {}
+
+        trendkia_status = _source_status(
+            "trendkia_news",
+            role="Herkese açık TrendKia MCP haber akışı; kripto/makro filtreli ve tarih kontrollü.",
+        )
+        trendkia_events = self._fetch_source(
+            "trendkia_news", SOURCE_INTERVALS["trendkia_news"],
+            self._fetch_trendkia_recent, trendkia_status,
+            count_fn=lambda value: len(value or []),
+        )
+        statuses["trendkia_news"] = trendkia_status
+        rss_events: list[dict[str, Any]] = list(trendkia_events or [])
 
         dex_profiles_status = _source_status("dex_profiles", role="DEX token/proje profil görünürlüğü; haber doğrulaması değildir.")
         dex_profiles = self._fetch_source(
@@ -873,13 +1338,28 @@ class NarrativeEngine:
         )
         statuses["reddit"] = _source_status(
             "reddit",
-            role="Reddit gönderi/topluluk akışı; bu sürümde API bağlantısı veya veri toplama yok.",
+            role="Reddit Data API; başvuru gönderildi ancak açık erişim onayı ve OAuth bilgileri bekleniyor.",
             enabled=False,
-            status="BAĞLI DEĞİL — ENTEGRASYON YOK",
+            status="ONAY BEKLİYOR — API ÇAĞRISI YOK",
+        )
+        statuses["the_fly"] = _source_status(
+            "the_fly",
+            role="Ücretsiz geliştirici planı olsa da içerik toplama/birleştirme kullanım izni netleşmedi; otomatik çağrı yapılmaz.",
+            enabled=False,
+            status="KULLANIM İZNİ BEKLİYOR — API ÇAĞRISI YOK",
+        )
+        statuses["investing_calendar"] = _source_status(
+            "investing_calendar",
+            role="Investing.com ekonomik takvimi resmi Türkçe sayfada harici tarayıcıda açılır; veri otomatik çekilmez.",
+            enabled=False,
+            status="HARİCİ TAKVİM — OTOMATİK VERİ AKTARIMI YOK",
         )
         return statuses, rss_events, {
             "topics": topics or [],
             "cmc": cmc or [],
+            "cmc_id_map": cmc_map or [],
+            "cmc_quotes": cmc_quotes or [],
+            "market_context": market_context,
             "dex_profiles": dex_profiles or [],
             "dex_community": dex_community or [],
             "coingecko": cg or {},
@@ -1522,7 +2002,7 @@ class NarrativeEngine:
         aliases = self._aliases(source_data["cmc"])
         events = self._normalise_events(source_data["topics"], rss_events, symbols, aliases)
         market_map = self._market_map(
-            source_data["cmc"],
+            source_data["cmc"] + source_data["cmc_quotes"],
             source_data["dex_profiles"] + source_data["dex_community"],
             source_data["coingecko"],
             symbols,
@@ -1541,7 +2021,8 @@ class NarrativeEngine:
         self._save_history(narratives, events)
         alerts = self._alerts(narratives)
         news_statuses = [
-            item for key, item in statuses.items() if key.startswith("rss_")
+            item for key, item in statuses.items()
+            if key.startswith("rss_") or key == "trendkia_news"
         ]
         topic_status = statuses.get("aixbt_topics", {})
         connected_news = sum(
@@ -1588,9 +2069,12 @@ class NarrativeEngine:
             "narratives": narratives,
             "early_watch": early_watch,
             "alerts": alerts,
+            "market_context": source_data.get("market_context", {}),
             "market_activity": {
                 "cmc_role": "MARKET_ACTIVITY_NOT_NEWS",
                 "cmc_coin_count": len(source_data["cmc"]),
+                "cmc_universe_quotes_count": len(source_data["cmc_quotes"]),
+                "cmc_unique_id_count": len(build_cmc_id_lookup(source_data["cmc_id_map"])),
                 "dex_profiles_count": len(source_data["dex_profiles"]),
                 "dex_community_count": len(source_data["dex_community"]),
                 "santiment_coin_count": len(santiment_map),
@@ -1599,7 +2083,14 @@ class NarrativeEngine:
             "limits": [
                 "AIXBT ücretsiz/anahtarsız Topics uç noktası mevcut ilk 25 konuyu verir; tüm AIXBT konu arşivi değildir.",
                 "AIXBT konu→proje ayrıntılı eşlemesi ek API erişimi gerektirebilir ve bu sürümde kullanılmaz.",
-                "CoinMarketCap anahtarsız listeleme verisi piyasa aktivitesidir; haber veya bağımsız haber teyidi sayılmaz.",
+                "CoinMarketCap Keyless Public API hesap, kayıt, API anahtarı veya kart istemez; ortak IP kotası nedeniyle çağrılar seyrek ve seri yapılır.",
+                "CMC ID Map sembol çakışmalarını tahmin etmez; tekil CMC ID eşleşmesi bulunmayan coinlerin quote verisi atlanır.",
+                "CMC Global Metrics, Fear and Greed, Altcoin Season, CMC100 ve CMC20 piyasa bağlamıdır; teknik puan, güçlü fırsat kapısı ve teknik alarmı değiştirmez.",
+                "CMC fiyat/hacim verisi yalnızca mevcut naratif piyasa tepkisi alanını tamamlar; teknik radar puanına aktarılmaz.",
+                "TrendKia herkese açık MCP üzerinden API anahtarı veya kart olmadan okunur; 30 yazılık akış 30 dakikada bir alınır ve 72 saat filtresinden geçirilir.",
+                "TrendKia yalnızca naratif haber kanıtıdır; teknik puanı ve güçlü fırsat koşullarını değiştirmez.",
+                "Investing.com ekonomik takvimi yalnızca resmi Türkçe sayfaya harici bağlantı olarak açılır; API bulunmadığı için veri otomatik çekilmez veya saklanmaz.",
+                "The Fly ve Reddit otomatik entegrasyonları erişim/kullanım izni doğrulanmadan çağrılmaz.",
                 "CoinGecko Demo API anahtarı yoksa devre dışıdır; anahtar gizli ortam değişkeninden okunur.",
                 "DEX profil/topluluk hareketi organik ilgi veya bağımsız haber teyidi olarak tek başına yorumlanmaz.",
                 "Santiment yalnızca ücretsiz active_addresses_24h ve dev_activity modern:v1 ölçümlerini, en fazla 30 eşleşen aday coin için altı saatte bir toplu sorgular.",
