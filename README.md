@@ -666,7 +666,7 @@ Bu bölüm, aşağıdaki 154. ve 155. maddelerin **en güncel durum kaydıdır**
 
 Kullanıcı 154. maddeyi onaylamıştır. Tasarım kararı kesinleşmiştir ve yeniden sorulmayacaktır. Geçmiş test anında yalnızca o tarihte gerçekten erişilebilir veri kullanılacak; adaylar, sinyaller ve teknik plan seviyeleri kaydedilecek, sonraki mumlar kronolojik olarak ilerletilerek gerçek fiyat davranışıyla karşılaştırılacaktır. Radarın erken tespit başarısı ile teknik plan sonuçları ayrı ölçülecek; eksik veri veya belirsiz olay sırası uydurulmayacak.
 
-Bu onay, tarihsel geri test motorunun kaynak koda eklendiğini veya ölçümlerin çalıştırılarak doğrulandığını göstermez.
+154. maddenin ilk tasarım kaydında kodun henüz yazılmadığı belirtilmişti. **31 Ekim 2026 güncel uygulama durumu** aşağıdaki “154 uygulama durumu” bölümünde kayıtlıdır; bu eski cümle artık güncel kod durumunu tanımlamaz.
 
 ### 155. Bütün ekranların son tasarım tutarlılığı kontrolü — devam ediyor
 
@@ -740,3 +740,27 @@ Her madde birbirinden ayrı şu başlıklarda izlenir:
 Çalışma yöntemini, onay akışını veya burada yazılı bağlayıcı kuralları değiştirmeden önce kullanıcıya değişiklik önerisi ve gerekçesi sunulur; **açık onay alınmadan kural değiştirilmez ve yeni kural uygulanmaz.** Kullanıcının bu bölümde açıkça verdiği talimat, bu izleme ve kayıt düzeninin kendisi için onaydır.
 
 Bu izleme/kayıt yetkisi, kaynak kodu, testleri, dağıtımı veya paketlemeyi değiştirmek için gereken mevcut açık onay şartını kaldırmaz. Yalnızca talep ve gerçekleşen işlerin durumunu takip etme ve onaylanmış değişiklikleri gerekçeleriyle README'ye kaydetme işlemleri için ayrıca onay gerekmez.
+
+### 154 uygulama durumu — 31 Ekim 2026
+
+**Tasarım kararı:** Kullanıcı tarafından onaylandı.  
+**Kod karşılığı:** Uygulandı; mevcut mum arşivi ve canlı teknik analiz çekirdeğiyle entegre edildi.  
+**Test/doğrulama:** Otomatik testler başarılı; gerçek kullanıcı bilgisayarındaki tam tarihsel arşivle çalışma henüz doğrulanmadı.  
+**README kaydı:** Bu bölümde kaydedildi.
+
+Uygulanan dosyalar:
+- `tarihsel_geri_test.py` — kapanmış 5 dakikalık mumların kronolojik yeniden oynatılması, geçmiş zaman noktasında aday üretimi, A/B/C ve karar değişimlerinin kaydı, 1h/4h/24h ileri getiri, 24 saatlik MFE/MAE, teknik giriş-stop-hedef olayları ve JSON/CSV.GZ raporları.
+- `binance_mum_arsivi.py` — arşivdeki pariteleri listeleme işlevi.
+- `radar_core.py` — tarihsel puanlama yolu; arşivlenmemiş geçmiş likiditeyi başarısız saymama ve ölçülebilen puanı ayrı gösterme.
+- `tek_motor_paneli.pyw` — Raporlar ekranına parite/tarih seçimi, başlat/durdur, ilerleme ve sonuç özeti.
+- `tests/test_historical_backtest.py` ve `tests/windows_ui_smoke.py` — tarihsel geri test ve gerçek Windows panel entegrasyon testleri.
+
+**Son doğrulama:** GitHub Actions [#41178554903](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/41178554903). Python birim testlerinin 145'i başarılı; kaynak derleme, ayar JSON doğrulaması, JavaScript testleri, Render yerel testleri ve Windows Tkinter arayüz testi başarılı. Doğrudan Binance WebSocket ve BtcTurk fiyat kontrolleri de başarılı. Genel Actions sonucu, canlı Render ve buna bağlı görüntü/Cloudinary kontrollerinde Render hizmetinin HTTP 503 `Service Suspended` yanıtı vermesi nedeniyle başarısızdır. Bu, tarihsel geri test birim testlerinin başarısız olduğu anlamına gelmez. ZIP oluşturma adımı bu doğrulama çalıştırmasında ayrıca talep edilmediğinden atlanmıştır.
+
+**Kapsam sınırları:** Geçmiş emir defteri/spread/derinlik arşivlenmediği için tarihsel likidite ve güçlü fırsat teyidi “değerlendirilemedi” kalır. Tarihsel Naratif Avcı gözlemleri henüz yoktur. Sayısal “kaçırılmış yükseliş” eşiği tasarımda ayrıca tanımlanmadığından bu ölçüm üretilmez. Aynı 5 dakikalık mumda giriş ile hedef/stop görülürse olay sırası belirsiz bırakılır. Otomatik testler örnek arşiv üzerinde uçtan uca çalışmıştır; kullanıcının kendi bilgisayarındaki tam arşiv üzerinde gerçek veri çalıştırması henüz yapılmamıştır.
+
+### Bir sonraki geliştirme adımı — kullanıcının görüşü bekleniyor
+
+Tarihsel geri test aşamasından sonra burada durulacaktır. Kullanıcıdan bu modülün mevcut hali ve kapsamı hakkında görüş alınmadan **Naratif Avcı kodlamasına başlanmayacaktır**. Naratif Avcı'nın tasarım kararı 153. madde ve 153.1–153.15 alt kararlarıyla zaten onaylıdır; bu tasarım kararları yeniden sorulmayacaktır. Kullanıcının geri test hakkındaki görüşü alınıp gerekli düzeltmeler netleştirildikten sonra, açıkça izin verilen sıradaki geliştirme Naratif Avcı'nın kodlanması, mevcut sisteme entegrasyonu ve testidir.
+
+
