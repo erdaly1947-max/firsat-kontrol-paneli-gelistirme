@@ -104,7 +104,7 @@ class NarrativeRuntimeTests(unittest.TestCase):
             symbols, status = narrative._load_common_symbols(root)
             self.assertEqual(symbols, ["SOL"])
             self.assertFalse(status["verified"])
-            self.assertIn("doğrulanmadı", status["mode"].casefold())
+            self.assertIn("BINANCE", status["mode"])
 
     def test_republishing_same_headline_does_not_multiply_events(self):
         engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
