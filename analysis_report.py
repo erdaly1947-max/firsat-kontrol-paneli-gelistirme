@@ -243,7 +243,7 @@ def build_analysis_report(state: Any, narrative_state: Any = None) -> dict[str, 
     }
     return {
         "report_type": "analysis",
-        "schema_version": 2,
+        "schema_version": 1,
         "application": "FIRSAT-KONTROL PANELİ",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "source_state_generated_at_utc": state.get("generated_at_utc"),
