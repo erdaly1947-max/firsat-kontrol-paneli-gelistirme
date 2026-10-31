@@ -171,7 +171,15 @@ class NarrativeRuntimeTests(unittest.TestCase):
     def test_analysis_report_keeps_narrative_separate_from_technical_candidates(self):
         from analysis_report import build_analysis_report
         report = build_analysis_report(
-            {"candidates": [{"symbol": "ETH", "opportunity_score": 70}]},
+            {"candidates": [{
+                "symbol": "ETH", "opportunity_score": 70,
+                "narrative_support": {
+                    "narrative_score": 61,
+                    "narratives": ["Katman-2 (Layer 2)"],
+                    "phase": "GÜÇLENME",
+                    "confidence": "ORTA",
+                },
+            }]},
             {
                 "status": "ÇALIŞIYOR",
                 "generated_at_utc": "2026-10-31T09:00:00+00:00",
@@ -185,6 +193,9 @@ class NarrativeRuntimeTests(unittest.TestCase):
         self.assertEqual(report["narrative"]["narrative_count"], 1)
         self.assertEqual(report["narrative"]["early_watch"][0]["symbol"], "ARB")
         self.assertNotIn("narrative_score", report["candidates"][0])
+        self.assertEqual(
+            report["candidates"][0]["narrative_support"]["narrative_score"], 61
+        )
         self.assertFalse(report["narrative"]["historical_narrative_backfill"])
 
 
