@@ -274,7 +274,7 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn('candidate["narrative_support"]', RADAR_SOURCE)
         self.assertIn("strong_alarm_eligible", RADAR_SOURCE)
         self.assertIn('"narrative_early_watch"', RADAR_SOURCE)
-        self.assertIn("narrative puanı teknik puandan ayrıdır", PANEL_SOURCE.casefold())
+        self.assertIn("naratif puanı teknik puandan", PANEL_SOURCE.casefold())
 
     def test_narrative_first_early_watch_is_visible_in_radar_without_technical_signal(self):
         refresh = ast.unparse(_method("_refresh_radar_narrative_watch"))
