@@ -159,6 +159,14 @@ test("valid report is stored compressed and /latest returns readable JSON", asyn
       { symbol: "XYZUSDT", final_decision: "GİRİŞ KOŞULU BEKLE" },
     ],
     candidate_count: 2,
+    narrative: {
+      status: "RUNNING",
+      narrative_count: 1,
+      early_watch_count: 1,
+      historical_narrative_backfill: false,
+      narratives: [{ name: "Layer 2", narrative_score: 72 }],
+      early_watch: [{ symbol: "ARB", narrative_score: 72 }],
+    },
   });
   const response = await worker.fetch(uploadRequest(await gzipJson(report)), env);
   assert.equal(response.status, 201);
