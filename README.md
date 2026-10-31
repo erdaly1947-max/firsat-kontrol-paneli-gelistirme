@@ -884,6 +884,16 @@ Bu sınırlar Reddit'in izin verdiği kotanın tamamını tüketmek için değil
 
 Silindiği tespit edilen gönderi ve ona bağlı içerik/kayıtlar kaldırılacaktır. Yazar adı ve kullanıcı kimliği gereksiz yere saklanmayacaktır. Ham gönderi içeriği 48 saatten uzun tutulmayacak; uzun dönemli takip için yalnızca gerekli toplulaştırılmış duygu/yoğunluk ölçümleri değerlendirilecektir.
 
+### Tek seferlik kullanıcı yetkilendirmesinin anlamı — netleştirme
+
+“Reddit hesabındaki tek seferlik yetkilendirme”, ChatGPT hesabını Reddit'e bağlamak değildir. Amaç, Fırsat-Kontrol Paneli masaüstü uygulamasının Reddit Data API erişimini kullanıcının kendi Reddit hesabıyla OAuth üzerinden yetkilendirmesidir.
+
+İşlem sırası birbirinden ayrı iki adımdır:
+1. Reddit'in harici Data API uygulaması için istediği geliştirici erişim kaydı/onayı ve uygulama kimliğinin edinilmesi. Bu adım tamamlanmadan masaüstü uygulaması için geçerli OAuth bağlantısı açılamaz.
+2. Kod entegrasyonu tamamlandıktan sonra panelin “Reddit'e bağlan” akışının Reddit'in resmî izin ekranını açması. Kullanıcı burada bir kez izin verir; panel OAuth erişim belirtecini ve yenileme bilgisini yalnızca yerel bilgisayarda güvenli biçimde saklar. Kimlik bilgileri sohbete veya GitHub'a yazılmaz.
+
+ChatGPT'nin Reddit hesabına bağlanması veya asistanın Reddit hesabını kullanması bu işin parçası değildir. Reddit içeriklerini Naratif Avcı, kendi uygulama bağlantısı üzerinden toplar ve işler.
+
 ### Kullanıcıdan beklenen işlem ve entegrasyon durumu
 
 - Kullanıcı kendi Reddit hesabıyla harici Data API erişim talebini Reddit Help üzerinden gönderecektir. Başvuruda uygulamanın tek kullanıcılı, kişisel, ticari olmayan ve yerel Windows masaüstü aracı olduğu; kapsamının yalnızca izin verilen herkese açık kripto topluluklarından sınırlı sayıda gönderiyi salt okunur biçimde almak ve yerelde özetlemek olduğu açıkça belirtilecektir.
