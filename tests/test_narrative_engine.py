@@ -153,5 +153,27 @@ class NarrativeRuntimeTests(unittest.TestCase):
             self.assertNotIn("COINGECKO_DEMO_API_KEY", engine.settings)
 
 
+
+
+    def test_analysis_report_keeps_narrative_separate_from_technical_candidates(self):
+        from analysis_report import build_analysis_report
+        report = build_analysis_report(
+            {"candidates": [{"symbol": "ETH", "opportunity_score": 70}]},
+            {
+                "status": "ÇALIŞIYOR",
+                "generated_at_utc": "2026-10-31T09:00:00+00:00",
+                "narratives": [{"name": "Katman-2 (Layer 2)", "narrative_score": 73}],
+                "early_watch": [{"symbol": "ARB", "narrative_score": 73}],
+                "source_statuses": {"aixbt_topics": {"name": "AIXBT Topics", "status": "BAĞLI"}},
+            },
+        )
+        self.assertEqual(report["candidate_count"], 1)
+        self.assertEqual(report["narrative"]["narrative_count"], 1)
+        self.assertEqual(report["narrative"]["early_watch"][0]["symbol"], "ARB")
+        self.assertNotIn("narrative_score", report["candidates"][0])
+        self.assertFalse(report["narrative"]["historical_narrative_backfill"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
