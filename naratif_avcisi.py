@@ -390,11 +390,11 @@ def parse_trendkia_articles(
         return []
     now = float(now_epoch if now_epoch is not None else time.time())
     rows = []
-    sections = re.findall(r"(?ms)^##\\s+(.+?)\\s*\\n(.*?)(?=^##\\s+|\\Z)", markdown_text)
+    sections = re.findall(r"(?ms)^##\s+(.+?)\s*\n(.*?)(?=^##\s+|\Z)", markdown_text)
     for title, block in sections:
         fields: dict[str, str] = {}
         for line in block.splitlines():
-            match = re.match(r"^\\s*-\\s*([^:]+):\\s*(.*)$", line)
+            match = re.match(r"^\s*-\s*([^:]+):\s*(.*)$", line)
             if match:
                 fields[match.group(1).strip().lower()] = match.group(2).strip()
         url = fields.get("url", "")
@@ -411,7 +411,7 @@ def parse_trendkia_articles(
         searchable = " ".join((title, category, summary, tags)).casefold()
         if not any(term in searchable for term in TRENDKIA_RELEVANCE_TERMS):
             continue
-        clean_title = re.sub(r"\\s+", " ", title).strip()
+        clean_title = re.sub(r"\s+", " ", title).strip()
         if not clean_title:
             continue
         rows.append({
