@@ -320,6 +320,16 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn("error", detail)
         self.assertIn("last_attempt_utc", detail)
 
+    def test_narrative_detail_panel_keeps_narrative_watch_and_source_selection_exclusive(self):
+        narrative_detail = ast.unparse(_method("_narrative_show_selected"))
+        watch_detail = ast.unparse(_method("_narrative_show_watch"))
+        source_detail = ast.unparse(_method("_narrative_show_source_status"))
+        refresh = ast.unparse(_method("_refresh_narrative_page"))
+        for body in (narrative_detail, watch_detail, source_detail):
+            self.assertIn("selection_remove", body)
+        self.assertIn("elif selected_id", refresh)
+        self.assertIn("elif selected_symbol", refresh)
+
     def test_analysis_chart_uses_only_motor_closed_candles_and_eight_timeframes(self):
         refresh = ast.unparse(_method("_refresh_analysis_view"))
         drawing = ast.unparse(_method("_draw_analysis_chart"))
