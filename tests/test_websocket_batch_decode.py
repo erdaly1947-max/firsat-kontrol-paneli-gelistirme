@@ -40,6 +40,9 @@ class BinanceWebSocketBatchDecoderTests(unittest.TestCase):
         with self.assertRaises((zlib.error, UnicodeDecodeError)):
             engine._decode_binance_websocket_messages(b"FKP1not-deflate-data")
 
+    def test_render_fallback_rechecks_direct_route_once_per_minute(self):
+        self.assertEqual(engine.DIRECT_WS_RECHECK_SECONDS, 60)
+
     def test_non_text_frame_is_ignored(self):
         self.assertEqual(engine._decode_binance_websocket_messages(None), [])
 
