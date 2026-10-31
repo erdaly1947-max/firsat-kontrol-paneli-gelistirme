@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "smoke": "node smoke-check.mjs"
+    "smoke": "node smoke-check.mjs",
+    "smoke:direct": "node direct-binance-smoke-check.mjs"
   },
   "dependencies": {
     "ws": "^8.18.3"
