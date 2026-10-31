@@ -4955,16 +4955,15 @@ class ControlPanel(tk.Tk):
             messagebox.showerror("Klasör açılamadı", str(exc))
 
     def _on_close(self) -> None:
-        backtest_cancel = getattr(self, "_historical_backtest_cancel", None)
-        if backtest_cancel is not None:
-            backtest_cancel.set()
         if self.engine and self.engine.poll() is None:
             if not messagebox.askyesno("Paneli kapat", "Motor çalışıyor. Kontrollü durdurma isteği gönderip panel kapatılsın mı?"):
                 return
+            self._historical_backtest_cancel.set()
             self.close_after_stop = True
             self.stop_engine()
             self.status_var.set("Motor kapanması bekleniyor…")
             return
+        self._historical_backtest_cancel.set()
         self._btcturk_price_stop.set()
         self.destroy()
 
