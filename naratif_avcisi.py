@@ -789,6 +789,19 @@ class NarrativeEngine:
             topic_rank = group["aixbt_rank"]
             previous_row = previous.get(key, {})
             old_score = _safe_float(previous_row.get("narrative_score"))
+            previous_components = previous_row.get("score_components")
+            previous_static_components = (
+                [
+                    _safe_float(value)
+                    for name, value in previous_components.items()
+                    if name != "interest_velocity" and _safe_float(value) is not None
+                ]
+                if isinstance(previous_components, dict) else []
+            )
+            old_base_score = (
+                sum(previous_static_components) / len(previous_static_components)
+                if previous_static_components else old_score
+            )
             components: dict[str, float] = {}
 
             if topic_rank is not None:
@@ -848,19 +861,23 @@ class NarrativeEngine:
                     max(0.0, min(100.0, 50.0 + average_volume_change * 0.5)), 1
                 )
 
-            # Measure acceleration from the preceding observed score, then include it
-            # as its own component. The technical radar score is never touched.
+            # Measure acceleration from the preceding static evidence score.
+            # Velocity is a bounded adjustment around the neutral 50 point, not an
+            # averaged component that would lower a stable theme by itself.
             static_score = round(sum(components.values()) / len(components), 1) if components else None
             preliminary_change = (
-                static_score - old_score
-                if static_score is not None and old_score is not None else None
+                static_score - old_base_score
+                if static_score is not None and old_base_score is not None else None
             )
+            score = static_score
             if preliminary_change is not None:
-                components["interest_velocity"] = round(
+                velocity_score = round(
                     max(0.0, min(100.0, 50.0 + preliminary_change * 2.0)), 1
                 )
-            score = round(sum(components.values()) / len(components), 1) if components else None
-            change = round(score - old_score, 1) if score is not None and old_score is not None else None
+                components["interest_velocity"] = velocity_score
+                velocity_adjustment = max(-10.0, min(10.0, (velocity_score - 50.0) * 0.2))
+                score = round(max(0.0, min(100.0, static_score + velocity_adjustment)), 1)
+            change = round(preliminary_change, 1) if preliminary_change is not None else None
             direction = (
                 "İLK GÖZLEM" if change is None else
                 "YÜKSELİYOR" if change >= 5 else
