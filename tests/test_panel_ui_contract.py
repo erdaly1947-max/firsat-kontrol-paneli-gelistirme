@@ -291,7 +291,7 @@ class PanelUIContractTests(unittest.TestCase):
         builder = ast.unparse(_method("_build_additional_workspace_pages"))
         refresh = ast.unparse(_method("_refresh_narrative_page"))
         detail = ast.unparse(_method("_narrative_show_selected"))
-        self.assertIn('"data"', builder)
+        self.assertIn("'data'", builder)
         self.assertIn("İlişkili coinler", builder)
         self.assertIn("coin_label", refresh)
         self.assertIn("EKSİK", refresh)
