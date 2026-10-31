@@ -52,6 +52,8 @@ def main() -> int:
             )
         if not hasattr(app, "narrative_tree") or not hasattr(app, "narrative_watch_tree"):
             raise AssertionError("Naratif Avcısı page is missing its narrative/early-watch tables.")
+        if not hasattr(app, "radar_narrative_tree"):
+            raise AssertionError("Fırsat Radarı is missing the narrative-first early-watch preview.")
         if not hasattr(app, "narrative_source_tree") or not hasattr(app, "narrative_detail_text"):
             raise AssertionError("Naratif Avcısı source-status or detail panel is missing.")
         if not hasattr(app, "backtest_symbols_var") or not hasattr(app, "backtest_start_button"):
