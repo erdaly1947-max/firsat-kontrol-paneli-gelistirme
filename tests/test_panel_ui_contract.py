@@ -234,6 +234,7 @@ class PanelUIContractTests(unittest.TestCase):
             ("radar", "Fırsat Radarı"),
             ("tracking", "Aktif Takip"),
             ("analysis", "Parite Analizi"),
+            ("narrative", "Naratif Avcısı"),
             ("market", "BTC ve Piyasa"),
             ("plans", "Planlar ve Uyarılar"),
             ("reports", "Raporlar"),
@@ -249,6 +250,30 @@ class PanelUIContractTests(unittest.TestCase):
             "toggle_alarm", "_test_sound", "open_screenshot_upload",
         ):
             self.assertIn(f"command=self.{method_name}", source)
+
+    def test_shared_start_stop_controls_both_live_engines_but_not_historical_backtest(self):
+        start = ast.unparse(_method("start_engine"))
+        stop = ast.unparse(_method("stop_engine"))
+        poll = ast.unparse(_method("_poll"))
+        self.assertIn("NARRATIVE_ENGINE_PATH", start)
+        self.assertIn("ENGINE_PATH", start)
+        self.assertIn("NARRATIVE_STOP_FILE", stop)
+        self.assertIn("STOP_FILE", stop)
+        self.assertIn("narrative_engine", poll)
+        self.assertIn("engine", poll)
+        historical_start = ast.unparse(_method("_start_historical_backtest"))
+        historical_stop = ast.unparse(_method("_cancel_historical_backtest"))
+        self.assertIn("_historical_backtest_thread", historical_start)
+        self.assertIn("_historical_backtest_cancel", historical_stop)
+        self.assertNotIn("start_engine", historical_start)
+        self.assertNotIn("stop_engine", historical_stop)
+
+    def test_narrative_is_not_in_technical_opportunity_score(self):
+        radar = RADAR_SOURCE if "RADAR_SOURCE" in globals() else ""
+        if radar:
+            self.assertIn('candidate["narrative_support"]', radar)
+            self.assertIn("strong_alarm_eligible", radar)
+        self.assertIn("narrative puanı teknik puandan ayrıdır", PANEL_SOURCE.casefold())
 
     def test_analysis_chart_uses_only_motor_closed_candles_and_eight_timeframes(self):
         refresh = ast.unparse(_method("_refresh_analysis_view"))
