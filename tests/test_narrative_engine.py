@@ -167,6 +167,7 @@ class NarrativeRuntimeTests(unittest.TestCase):
                 "source_statuses": {"aixbt_topics": {"name": "AIXBT Topics", "status": "BAĞLI"}},
             },
         )
+        self.assertEqual(report["schema_version"], 1)
         self.assertEqual(report["candidate_count"], 1)
         self.assertEqual(report["narrative"]["narrative_count"], 1)
         self.assertEqual(report["narrative"]["early_watch"][0]["symbol"], "ARB")
