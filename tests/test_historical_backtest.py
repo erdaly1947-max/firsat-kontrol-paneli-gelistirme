@@ -211,7 +211,14 @@ class HistoricalReplayTests(unittest.TestCase):
             with gzip.open(result["observations_csv_gz"], "rt", encoding="utf-8", newline="") as handle:
                 observations = list(csv.DictReader(handle))
             self.assertEqual(len(observations), result["candidate_observation_count"])
-            self.assertTrue(all(row["data_freshness"] if "data_freshness" in row else True for row in observations))
+            self.assertTrue(all(
+                "DEĞERLENDİRİLEMEDİ" in row["strong_opportunity_qualification_status"]
+                for row in observations
+            ))
+            self.assertTrue(all(
+                "DEĞERLENDİRİLEMEDİ" in row["narrative_history_status"]
+                for row in observations
+            ))
 
 
 if __name__ == "__main__":
