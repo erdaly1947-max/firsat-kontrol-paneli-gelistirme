@@ -63,6 +63,12 @@ from btcturk_pro import (
     fetch_btcturk_pro_ticker,
     format_exchange_price,
 )
+from tarihsel_geri_test import (
+    BacktestCancelled,
+    date_end_exclusive_ms,
+    date_start_ms,
+    run_historical_backtest,
+)
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -735,6 +741,8 @@ class ControlPanel(tk.Tk):
         self.btcturk_prices_updated_at: float | None = None
         self.btcturk_price_error: str | None = None
         self._btcturk_price_stop = threading.Event()
+        self._historical_backtest_cancel = threading.Event()
+        self._historical_backtest_thread: threading.Thread | None = None
 
         self.status_var = tk.StringVar(value="Motor durduruldu")
         self.live_status_var = tk.StringVar(value="CANLI AKIŞ  ·  UYARI")
@@ -1391,6 +1399,45 @@ class ControlPanel(tk.Tk):
         ttk.Button(report_actions, text="Günlük Rapor Oluştur", command=self.create_report).pack(side="left")
         ttk.Button(report_actions, text="Analiz Raporu Oluştur", command=self.create_analysis_report).pack(side="left", padx=(6, 0))
         ttk.Button(report_actions, text="Sorun Giderme ZIP", command=self.create_handoff_zip).pack(side="left", padx=(6, 0))
+
+        backtest_frame = ttk.LabelFrame(
+            self.reports_page, text="Tarihsel Geri Test — kapanmış mumlarla geçmişi yeniden oynat",
+            padding=(9, 7),
+        )
+        backtest_frame.pack(fill="x", padx=12, pady=(0, 8))
+        backtest_inputs = ttk.Frame(backtest_frame)
+        backtest_inputs.pack(fill="x")
+        self.backtest_symbols_var = tk.StringVar(value="")
+        self.backtest_start_date_var = tk.StringVar(value="")
+        self.backtest_end_date_var = tk.StringVar(value="")
+        self.backtest_status_var = tk.StringVar(
+            value="Hazır. Parite boşsa arşivlenmiş tüm USDT pariteleri taranır; tarihler isteğe bağlıdır (UTC)."
+        )
+        ttk.Label(backtest_inputs, text="Pariteler").pack(side="left")
+        ttk.Entry(backtest_inputs, textvariable=self.backtest_symbols_var, width=30).pack(side="left", padx=(5, 12))
+        ttk.Label(backtest_inputs, text="Başlangıç (YYYY-AA-GG)").pack(side="left")
+        ttk.Entry(backtest_inputs, textvariable=self.backtest_start_date_var, width=13).pack(side="left", padx=(5, 12))
+        ttk.Label(backtest_inputs, text="Bitiş").pack(side="left")
+        ttk.Entry(backtest_inputs, textvariable=self.backtest_end_date_var, width=13).pack(side="left", padx=(5, 12))
+        self.backtest_start_button = ttk.Button(
+            backtest_inputs, text="Geri Testi Başlat", command=self._start_historical_backtest,
+        )
+        self.backtest_start_button.pack(side="left")
+        self.backtest_cancel_button = ttk.Button(
+            backtest_inputs, text="Durdur", command=self._cancel_historical_backtest,
+            state="disabled",
+        )
+        self.backtest_cancel_button.pack(side="left", padx=(6, 0))
+        ttk.Label(
+            backtest_frame, textvariable=self.backtest_status_var, wraplength=1100,
+        ).pack(fill="x", anchor="w", pady=(6, 3))
+        self.backtest_result_text = tk.Text(
+            backtest_frame, wrap="word", state="disabled", height=6,
+            background="#000000", foreground="#FFFFFF", insertbackground="#FFFFFF",
+            relief="flat", padx=6, pady=5, font=("Consolas", max(8, self.font_size - 1)),
+        )
+        self.backtest_result_text.pack(fill="x")
+
         reports_split = ttk.Panedwindow(self.reports_page, orient="horizontal")
         reports_split.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         radar_report = ttk.LabelFrame(reports_split, text="Radarın erken tespit performansı", padding=10)
@@ -4336,6 +4383,170 @@ class ControlPanel(tk.Tk):
             parent=self,
         )
 
+    def _set_historical_backtest_text(self, value: str) -> None:
+        widget = getattr(self, "backtest_result_text", None)
+        if widget is None:
+            return
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        widget.insert("1.0", value)
+        widget.configure(state="disabled")
+
+    def _start_historical_backtest(self) -> None:
+        running = self._historical_backtest_thread
+        if running is not None and running.is_alive():
+            self.backtest_status_var.set("Tarihsel geri test zaten çalışıyor.")
+            return
+        raw_symbols = self.backtest_symbols_var.get().strip()
+        symbols = [value.upper() for value in re.split(r"[,;\s]+", raw_symbols) if value] if raw_symbols else None
+        raw_start = self.backtest_start_date_var.get().strip()
+        raw_end = self.backtest_end_date_var.get().strip()
+        try:
+            start_ms = date_start_ms(raw_start) if raw_start else None
+            end_ms = date_end_exclusive_ms(raw_end) if raw_end else None
+            if start_ms is not None and end_ms is not None and end_ms <= start_ms:
+                raise ValueError("Bitiş tarihi başlangıç tarihinden sonra olmalı.")
+        except (TypeError, ValueError) as exc:
+            messagebox.showerror("Tarihsel geri test", f"Tarih biçimi geçersiz: {exc}", parent=self)
+            return
+
+        self._historical_backtest_cancel.clear()
+        self.backtest_start_button.configure(state="disabled")
+        self.backtest_cancel_button.configure(state="normal")
+        self.backtest_status_var.set("Tarihsel mum arşivi hazırlanıyor…")
+        self._set_historical_backtest_text(
+            "Test, arşivdeki kapanmış 5 dakikalık mumlar üzerinde çalışır. "
+            "İşlem arka planda yürür; panel kullanılmaya devam edebilir. Durdur düğmesi testi iptal eder."
+        )
+        settings = self.settings if isinstance(self.settings, dict) else {}
+
+        def _run() -> None:
+            try:
+                result = run_historical_backtest(
+                    symbols=symbols, start_ms=start_ms, end_ms=end_ms,
+                    settings=settings,
+                    cancel_event=self._historical_backtest_cancel,
+                    progress_callback=lambda item: self.after(
+                        0, lambda progress=item: self._historical_backtest_progress(progress)
+                    ),
+                )
+            except BacktestCancelled as exc:
+                error = str(exc)
+                try:
+                    self.after(0, lambda message=error: self._historical_backtest_finished(None, message))
+                except tk.TclError:
+                    pass
+            except Exception as exc:
+                LOGGER.exception("Tarihsel geri test başarısız")
+                error = f"{type(exc).__name__}: {exc}"
+                try:
+                    self.after(0, lambda message=error: self._historical_backtest_finished(None, message))
+                except tk.TclError:
+                    pass
+            else:
+                try:
+                    self.after(0, lambda payload=result: self._historical_backtest_finished(payload, None))
+                except tk.TclError:
+                    pass
+
+        self._historical_backtest_thread = threading.Thread(
+            target=_run, name="historical-backtest", daemon=True,
+        )
+        self._historical_backtest_thread.start()
+        self._log_line("Tarihsel geri test başlatıldı; kapanmış mum arşivi yeniden oynatılıyor.")
+
+    def _historical_backtest_progress(self, progress: dict[str, Any]) -> None:
+        if self._historical_backtest_cancel.is_set():
+            self.backtest_status_var.set("Tarihsel geri test durduruluyor…")
+            return
+        symbol = str(progress.get("symbol") or "—")
+        index = int(progress.get("symbol_index", 0) or 0)
+        total = int(progress.get("symbol_total", 0) or 0)
+        evaluated = int(progress.get("evaluated_points", 0) or 0)
+        observations = int(progress.get("observations", 0) or 0)
+        self.backtest_status_var.set(
+            f"{symbol} · parite {index}/{total} · değerlendirilen 5m noktası {evaluated:,} · aday gözlemi {observations:,}"
+        )
+
+    def _cancel_historical_backtest(self) -> None:
+        if self._historical_backtest_thread is None or not self._historical_backtest_thread.is_alive():
+            self.backtest_status_var.set("Çalışan tarihsel geri test yok.")
+            return
+        self._historical_backtest_cancel.set()
+        self.backtest_cancel_button.configure(state="disabled")
+        self.backtest_status_var.set("Durdurma isteği gönderildi; mevcut mum adımı güvenle tamamlanıyor…")
+
+    def _historical_backtest_finished(
+        self, result: dict[str, Any] | None, error: str | None,
+    ) -> None:
+        self._historical_backtest_thread = None
+        self.backtest_start_button.configure(state="normal")
+        self.backtest_cancel_button.configure(state="disabled")
+        if error:
+            self.backtest_status_var.set(f"Tarihsel geri test tamamlanmadı: {error}")
+            self._set_historical_backtest_text(
+                "Test iptal edildi veya hata nedeniyle durdu. Tamamlanmamış rapor yayımlanmadı."
+            )
+            self._log_line(f"Tarihsel geri test tamamlanmadı: {error}")
+            return
+        if not isinstance(result, dict):
+            self.backtest_status_var.set("Tarihsel geri test sonucu alınamadı.")
+            return
+
+        summary = result.get("forward_return_summary", {})
+        plan_counts = result.get("technical_plan_status_counts", {})
+        lines = [
+            f"Tamamlandı · {result.get('signal_episode_count', 0)} sinyal dönemi · "
+            f"{result.get('candidate_observation_count', 0)} aday gözlemi.",
+            f"İncelenen parite: {len(result.get('tested_symbols', []))} · "
+            f"değerlendirilen 5m nokta: {result.get('evaluated_5m_points', 0)} · "
+            f"eksik/atlanmış nokta: {result.get('skipped_5m_points', 0)}.",
+            "",
+            "Radarın ileri fiyat sonuçları:",
+        ]
+        for horizon in ("1h", "4h", "24h"):
+            row = summary.get(horizon, {}) if isinstance(summary, dict) else {}
+            lines.append(
+                f"  {horizon}: örnek {row.get('observations', 0)}, "
+                f"ortalama {row.get('mean_return_pct') if row.get('mean_return_pct') is not None else '—'}%, "
+                f"medyan {row.get('median_return_pct') if row.get('median_return_pct') is not None else '—'}%, "
+                f"pozitif {row.get('positive_return_count', 0)}."
+            )
+        lines.extend(["", "Teknik plan sonuçları:"])
+        for status, count in sorted(plan_counts.items()):
+            lines.append(f"  {status}: {count}")
+        lines.extend([
+            "",
+            "Not: Geçmiş emir defteri/likidite ve naratif kayıtları yoksa bu ölçümler değerlendirilmedi olarak kalır.",
+            "Kaçırılmış yükseliş sayısı için tasarımda sayısal yükseliş eşiği tanımlanmadığından eşik uydurulmaz.",
+            "",
+            f"Özet JSON: {result.get('summary_json')}",
+            f"Aday gözlemleri CSV.GZ: {result.get('observations_csv_gz')}",
+            "",
+            "İlk 12 sinyal dönemi:",
+        ])
+        signals = result.get("signals", [])
+        ranked = sorted(
+            [item for item in signals if isinstance(item, dict)],
+            key=lambda item: (
+                float(item.get("maximum_score") or 0),
+                {"C": 3, "B": 2, "A": 1}.get(item.get("maximum_phase"), 0),
+            ),
+            reverse=True,
+        )
+        for item in ranked[:12]:
+            lines.append(
+                f"  {item.get('symbol')} · {item.get('initial_phase')} · "
+                f"puan {item.get('initial_score')} · {item.get('initial_decision')} · "
+                f"{item.get('first_detected_at_utc')}"
+            )
+        self.backtest_status_var.set("Tarihsel geri test tamamlandı; özet ve gözlem dosyaları reports klasörüne kaydedildi.")
+        self._set_historical_backtest_text("\n".join(lines))
+        self._log_line(
+            f"Tarihsel geri test tamamlandı: {result.get('signal_episode_count', 0)} sinyal dönemi; "
+            f"rapor={result.get('summary_json')}"
+        )
+
     def _make_report(self) -> tuple[Path, Path, Path, str]:
         REPORT_DIR.mkdir(parents=True, exist_ok=True)
         base = "firsat_kontrol_raporu"
@@ -4744,6 +4955,9 @@ class ControlPanel(tk.Tk):
             messagebox.showerror("Klasör açılamadı", str(exc))
 
     def _on_close(self) -> None:
+        backtest_cancel = getattr(self, "_historical_backtest_cancel", None)
+        if backtest_cancel is not None:
+            backtest_cancel.set()
         if self.engine and self.engine.poll() is None:
             if not messagebox.askyesno("Paneli kapat", "Motor çalışıyor. Kontrollü durdurma isteği gönderip panel kapatılsın mı?"):
                 return
