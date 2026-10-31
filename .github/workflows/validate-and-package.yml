@@ -231,6 +231,7 @@ jobs:
           PY
 
       - name: Başarılı testlerden sonra Sürüm 01 ZIP ve SHA-256 oluştur
+        id: package_zip
         if: success() && needs.windows-ui-smoke.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
         run: |
           python - <<'PY'
@@ -412,8 +413,10 @@ jobs:
           DIRECT_WS_OUTCOME: ${{ steps.direct_ws_live.outcome }}
           IMAGE_OUTCOME: ${{ steps.image_live.outcome }}
           BTCTURK_OUTCOME: ${{ steps.btcturk_live.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package_zip.outcome }}
         run: |
           failed=0
+          incomplete=0
           echo "## Canlı bağlantı kontrolleri" >> "$GITHUB_STEP_SUMMARY"
           for entry in \
             "Binance doğrudan WebSocket:${DIRECT_WS_OUTCOME}" \
@@ -426,12 +429,23 @@ jobs:
             echo "- **${name}:** ${result}" >> "$GITHUB_STEP_SUMMARY"
             if [ "${result}" = "failure" ] || [ "${result}" = "cancelled" ]; then
               failed=1
+            elif [ "${result}" != "success" ]; then
+              incomplete=1
             fi
           done
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${PACKAGE_OUTCOME}" = "success" ]; then
+            echo "ZIP/SHA-256 paketlemesi canlı kontrollerden önce başarıyla tamamlandı." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ZIP paketleme sonucu: ${PACKAGE_OUTCOME:-bilinmiyor}. Paket adımı, temel doğrulama veya açık manuel paketleme koşulları sağlanmadığı için çalışmamış olabilir." >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ "${failed}" -ne 0 ]; then
-            echo "Canlı entegrasyon kontrollerinden en az biri başarısız. ZIP üretimi canlı bağlantı sonuçlarından bağımsız tamamlandı; başarısız rota ayrıca raporlandı."
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "En az bir canlı entegrasyon kontrolü başarısız. Paketleme bundan etkilenmedi; ZIP/SHA-256 ve açıkça istenmiş Release güncellemesi önceki adımlarda tamamlandı." >> "$GITHUB_STEP_SUMMARY"
+            echo "Canlı entegrasyon kontrollerinden en az biri başarısız. Paketleme ayrı sonuçla raporlandı."
+            exit 1
+          fi
+          if [ "${incomplete}" -ne 0 ]; then
+            echo "Canlı entegrasyon kontrollerinin bir kısmı çalıştırılamadı; başarılı olarak işaretlenmedi."
+            echo "Canlı kontrollerin bir kısmı çalıştırılamadı; sonuçları başarı sayılmadı." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           echo "Doğrudan Binance ve Render canlı kontrolleri dahil tüm canlı entegrasyon kontrolleri başarılı."
