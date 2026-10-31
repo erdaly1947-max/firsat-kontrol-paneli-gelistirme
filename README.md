@@ -2,6 +2,96 @@
 
 Bu README, projenin güncel teknik özeti, gerçek çalışma durumu, kabul edilmiş işlev gereksinimleri ve bağlayıcı çalışma kurallarının tek kaydıdır. Eski günlükler ve birbiriyle çelişen talimatlar yerine aşağıdaki güncel durum ve kurallar geçerlidir. Tarihsel kayıtlar yalnızca hâlâ işe yarayan bir sürüm kimliği veya doğrulama kanıtı sağlıyorsa tutulur.
 
+## Güncel uygulama durumu — 31 Ekim 2026 (önceki tarihli durum kayıtlarının yerine geçer)
+
+Tarihsel Geri Test aşaması kullanıcıyla değerlendirilmiş ve kabul edilmiştir. Kullanıcı, 31 Ekim 2026 tarihinde daha önce onaylanan 153. madde Naratif Avcı tasarımının uygulanmasına, canlı teknik radar ile birlikte çalışmasına, ortak Başlat/Durdur yönetimine ve bütünleşik testine açıkça izin vermiştir. Bu bölüm, daha aşağıdaki “kodlama başlamadı”, “Naratif Avcı için kullanıcı görüşü bekleniyor” ve “Başlat/Durdur yalnızca teknik motoru yönetiyor” şeklindeki eski uygulama kayıtlarının yerine geçer.
+
+**Bu aşamanın sonucu:** Naratif Avcı motoru, teknik radar bağlantısı, arayüz sayfası, radar erken izleme alanı, rapor aktarımı ve iki canlı motorun ortak kontrolü main dalına eklendi. Tasarım 153.1–153.15 için kod karşılıkları aşağıda tek tek izlenir. GitHub Actions doğrulaması tamamlanmadan testlerin başarılı olduğu ileri sürülmez. Kullanıcı görüşü alınana kadar sonraki genel arayüz aşamasına geçilmez.
+
+### 153.1–153.15 uygulama ve kayıt takibi
+
+| Madde | Onaylanmış tasarımın kod karşılığı | Durum |
+|---|---|---|
+| 153.1 | Naratif puanı teknik puandan ayrıdır. Teknik adaylara yalnızca destek bilgisi eklenir; güçlü fırsat kapısı ve teknik puan değiştirilmez. | Uygulandı; birim/sözleşme testi eklendi. |
+| 153.2 | Her kaynak için ayrı yenileme aralığı ve yerel önbellek kullanılır. | Uygulandı. |
+| 153.3 | Bir kaynağın hatası diğerlerini durdurmaz. Önceki veri korunur ve eski/hatalı durum görünür kalır. | Uygulandı; kaynak hatası testi eklendi. |
+| 153.4 | Ücretsiz/izinli AIXBT Topics, anahtarsız CMC listeleme, DEX Screener ve RSS/Atom kaynakları bağlanır; anahtar veya entegrasyon gerektirenler ayrı işaretlenir. | Kısmen uygulandı; kaynak tablosu aşağıdadır. |
+| 153.5 | Tek kaynaklı kayıtlar silinmez; güven seviyesi ve eksik kanıt gösterilir. | Uygulandı. |
+| 153.6 | İlgi ivmesi, veri güncelliği, bağımsız kaynak çeşitliliği, olay sayısı, proje yayılımı, fiyat ve hacim tepkisi mevcut veriye göre ayrı bileşenlerdir. | Uygulandı; başlangıç sezgisel puanlaması, henüz piyasa geçmişinde kalibre edilmedi. |
+| 153.7 | Başlangıç, Yayılma, Güçlenme, Aşırı Isınma, Zayıflama ve Belirsiz aşamaları kullanılır. | Uygulandı. |
+| 153.8 | Naratif, olay ve bildirim geçmişi SQLite'a kaydedilir; ilk gözlem zamanı korunur. | Uygulandı; geçmişe dönük veri doldurulmaz. |
+| 153.9 | Kayıtlı ortak Binance–BtcTurk USDT evreni varsa kullanılır; yoksa yerel BtcTurk listesine düşülür ve kesişimin doğrulanmadığı açıkça yazılır. | Uygulandı; güncel ortak evrenin gerçek zamanlı tazeliği ayrıca izlenmelidir. |
+| 153.10 | Proje adı/alias ve sınırları belirlenmiş sembol eşleştirmesi yapılır; belirsiz sembol eşleşmesi düşük güvenle işaretlenir. | Uygulandı; serbest yazım benzerliğiyle bulanık eşleştirme bu sürümde yoktur. |
+| 153.11 | Aynı başlıklı yinelenen haber tek olay sayılır; tekrar yayıncıları ayrı teyit puanı üretmez. | Uygulandı. |
+| 153.12 | Naratif listesi, ilişkili coinler, ayrıntı, kaynak durumu, gelişmeler ve piyasa tepkisi arayüzde gösterilir. | Uygulandı. |
+| 153.13 | Yükselen, kanıtı daha güçlü ve aşırı ısınmamış naratifler üstte sıralanır; eksik veri kaydı görünür kalır. | Uygulandı. |
+| 153.14 | Aşama ve ilgi yönü filtreleri eklendi. | Uygulandı. |
+| 153.15 | Yeni naratif ve Yayılma/Güçlenme geçişi bildirimi oluşturulur; bildirim alım veya güçlü fırsat emri değildir. | Uygulandı; JSON durumuna, SQLite'a ve rapora yazılır. |
+
+### Naratif Avcı — gerçek kaynak kapsamı
+
+Kaynak kodda bir adresin bulunması, canlı bağlantının başarılı olduğu anlamına gelmez. Çalışma anındaki kesin durum Naratif Avcı sayfasında her kaynağın BAĞLI, ÖNBELLEK, ERİŞİLEMEDİ, HATA, ESKİ VERİ veya BAĞLI DEĞİL durumu ile gösterilir. Kaynak seçildiğinde rolü, son başarılı erişimi, son denemesi, veri yaşı ve hata metni açılır.
+
+| Kaynak | Kullanım ve sınır |
+|---|---|
+| AIXBT v3 Topics | Ücretsiz/anahtarsız konu keşfi; ilk 25 konu ile sınırlı. Konu→proje ayrıntılı eşlemesi bu kodda çağrılmıyor. |
+| CoinMarketCap halka açık v3 listeleme | Anahtarsız piyasa listeleme/aktivite verisi. Haber veya bağımsız haber kaynağı olarak sayılmaz; ilk 100 kayıtla sınırlı istek yapılır. |
+| DEX Screener token profiles | Anahtarsız proje/token görünürlüğü. Tek başına organik talep veya haber teyidi değildir. |
+| DEX Screener community takeovers | Anahtarsız topluluk görünürlüğü. Tek başına bağımsız haber teyidi değildir. |
+| CoinGecko Trending | Ücretsiz Demo erişimi için COINGECKO_DEMO_API_KEY ortam değişkeni gerekir. Anahtar yoksa devre dışıdır; gizli anahtar ayarlar dosyasına yazılmaz. |
+| RSS/Atom | Varsayılan akışlar Ethereum Foundation, CoinDesk, Cointelegraph ve The Block. HTTPS adresleri ayarlar.json içindeki narrative_rss_feeds ile, aralık narrative_rss_interval_seconds ile düzenlenebilir. Her yayın akışının erişimi ayrı izlenir. |
+| AIXBT konu→proje eşlemesi | Ek API erişimi/hesap yetkisi gerekebileceği için kullanılmıyor; bağlı gibi gösterilmez. |
+| X, Reddit, Santiment | Bu sürümde veri toplama entegrasyonu yoktur; arayüzde açıkça “bağlı değil” gösterilir ve puana katılmaz. |
+
+Naratif motoru kaynak hatasında diğer kaynaklara devam eder. HTTP isteklerinin zaman aşımı 10 saniyedir. Kaynak aralıkları AIXBT 5 dakika, CMC/DEX profilleri/CoinGecko 10 dakika, DEX topluluk akışı 15 dakika; RSS varsayılan 15 dakika olup ayardan değiştirilebilir. Herhangi bir kaynağın canlı erişimi yalnızca programın çalışma anında BAĞLI sonucu alınırsa doğrulanmış sayılır.
+
+### Naratif puanı ve geçmişin yorumu
+
+Puan; mevcut kanıta göre AIXBT konu sırası, farklı olay sayısı, bağımsız haber kaynağı sayısı, ortak evrende ilişkilendirilen proje sayısı, kaynak güncelliği, ilişkili coinlerin 24 saatlik fiyat tepkisi ve 24 saatlik hacim tepkisi bileşenlerinin kullanılabilir olanlarının ortalamasını temel alır. Önceki gözlem varsa ilgi ivmesi ayrıca hesaplanır ve taban puanı en fazla ±10 puan etkiler; nötr ivme tek başına puanı düşürmez. Mevcut olmayan bileşenler uydurulmaz, eksik kanıt listesinde kalır.
+
+Bu eşikler ilk uygulama sezgisidir; geçmiş naratif veri setiyle kalibre edilmiş veya kârlılığı kanıtlanmış değildir. AIXBT konu sırası keşif verisidir, bağımsız haber teyidi değildir. CMC/DEX piyasa aktivitesi haber olarak değerlendirilmez. Yinelenen haberler kaynak çeşitliliğini yapay olarak artırmaz.
+
+Naratif geçmişi motorun ilk gerçek çalıştırıldığı andan itibaren oluşur. Önceki tarihlere haber veya puan geri doldurulmaz. Bu nedenle 154 Tarihsel Geri Test aşamasının geçmiş sonuçlarına naratif katkı eklenmiş gibi davranılmaz. 154'ün teknik geçmiş sonuçları geçerliliğini korur; naratifin gelecekteki etkisi ancak bundan sonra birikecek gerçek gözlemler üzerinden değerlendirilebilir.
+
+### Teknik radar, arayüz ve raporlama entegrasyonu
+
+- naratif_avcisi.py bağımsız süreçtir; kaynak önbelleği, durum JSON'u, SQLite geçmişi ve ayrı log dosyası kullanır.
+- binance_erken_firsat_radari.py naratif durumunu her tarama döngüsünde okur. Teknik adayla eşleşen naratif bilgisi ayrı narrative_support alanında tutulur. Teknik sinyal bulunmayan coinler ayrıca narrative_early_watch listesine yazılır.
+- Fırsat Radarı'nda teknik adaylardan ayrı “Naratif erken izleme” tablosu bulunur. Buradaki coinler teknik aday veya güçlü fırsat gibi gösterilmez. Naratif Avcı sayfasında ayrıntıları açılır.
+- Parite Analizi ve teknik aday ayrıntısı naratif desteğini ayrı gösterir; teknik puan, likidite kapısı ve güçlü fırsat alarmı bundan etkilenmez.
+- Rapor, mevcut Cloudflare Worker sözleşmesiyle uyum için schema_version: 1 değerini korur. Teknik adayda narrative_support; ayrı narrative bölümünde naratifler, erken izleme, kaynak durumları, bildirimler ve kapsam sınırları yer alır.
+- Naratif puanı tek başına güçlü fırsat/alım alarmı oluşturmaz. Program otomatik emir göndermez.
+
+### İki canlı motorun ortak yönetimi — 155 kapsamındaki onaylı alt iş
+
+- Üst Başlat düğmesi teknik radar ile Naratif Avcı'yı iki ayrı Python süreci olarak birlikte başlatır.
+- Durdur düğmesi iki sürece kendi durdurma işaretini gönderir. Her sürecin PID/çalışma/durdurma ve hata durumu ayrı izlenir; birinin başlatma hatası diğerinin başarılı başlamasını engellemez.
+- Panel kapanırken çalışan canlı süreçler için kontrollü durdurma istenir.
+- Tarihsel Geri Test ayrı iş parçacığı ve kendi iptal işaretiyle çalışır. Canlı motorların Başlat/Durdur düğmeleri tarihsel geri testi başlatmaz veya durdurmaz.
+
+### Bu aşamada değiştirilen dosyalar
+
+- naratif_avcisi.py
+- binance_erken_firsat_radari.py
+- tek_motor_paneli.pyw
+- analysis_report.py
+- tests/test_narrative_engine.py
+- tests/test_panel_ui_contract.py
+- tests/windows_ui_smoke.py
+- cloudflare/report-worker/test/index.test.js
+
+Test kapsamı AIXBT/CMC/RSS ayrıştırması, sembol eşleştirme, olay tekilleştirme, kaynak hata/önbellek davranışı, geçmiş kayıt, bildirimler, puan ayrımı/ivmesi, rapor şeması, arayüz sözleşmesi, iki motorun ortak kontrolü ve Windows gezinmesini içerir. Son kod commitinde GitHub Actions doğrulaması başlatılmıştır; Windows testi, Python birim testleri, kaynak derlemesi ve Worker/Render testlerinin sonucu Actions tamamlanınca ayrıca kaydedilecektir. Canlı kaynak kontrolleri CI'da o anki dış servis durumunu gösterir; kullanıcının kendi bilgisayarındaki tüm kaynak erişimlerini veya kendi tam piyasa arşivini doğrulamaz.
+
+**ZIP/paketleme:** Bu aşamada ZIP veya GitHub Release üretilmedi. Paketleme iş akışının ayrı açık onay gerektiren adımı başlatılmadı.
+
+### Bu aşamada özellikle yapılmayan işler ve durma noktası
+
+- Kullanıcının istediği Dosya Gezgini benzeri genel çalışma alanı/sekme/araç çubuğu tasarımı henüz baştan sona uygulanmadı. Şimdiki Naratif sayfası mevcut Tkinter yapısına eklenmiş işlevsel bir sayfadır; nihai görsel tasarım olarak kabul edilmez.
+- Kullanıcının grafik çizimlerinin arayüzden ve koddan çıkarılması talimatı bu aşamada uygulanmadı. Mevcut grafik alanı ve ona ait testlerin kaldırılması sonraki arayüz çalışmasının açık işidir.
+- 155. maddenin tamamı bitmiş sayılmaz. Yalnızca iki canlı motorun ortak Başlat/Durdur alt işi uygulanmıştır. Genel ekran düzeni, gezinme ve son 1–155 karşılaştırması bekler.
+- Kullanıcıya bu tamamlanan aşama sunulacak ve görüşü alınacaktır. Bu görüş alınmadan Dosya Gezgini benzeri genel arayüz yenilemesine, grafik kaldırma işine veya başka bir sonraki geliştirme aşamasına başlanmayacaktır.
+
+
 ## Güncel doğrulanmış durum — 31 Ekim 2026
 
 ### Canlı Render hizmeti
@@ -83,7 +173,7 @@ Kodda işlevin bulunması, o işlevin tarihsel piyasa koşullarında kârlı ça
 - Raporlar: her sinyal döneminin ilk tespit anı, A/B/C gelişimi ve karar değişimleri; 1h/4h/24h ileri kapanış getirileri; 24h MFE/MAE; teknik giriş/stop/ilk hedef olayları; JSON özet ve sıkıştırılmış aday-gözlem CSV dosyası.
 - Teknik plan geri testi: giriş bölgesi, stop ve ilk hedef yalnızca sonraki 5m mumlarının OHLC aralığından izlenir. Giriş ve hedef/stop aynı mumda görülürse olay sırası bilinmediği için sonuç belirsiz bırakılır. Seviye görülmesi gerçek emir dolumu sayılmaz. Tahmini komisyon varsayımı uygulanır; fiyat kayması (slippage) ve emir defteri etkisi hesaplanmaz.
 - Puan karşılaştırması: arşivde geçmiş emir defteri/spread/derinlik saklanmadığı için likidite bileşeni ölçülemez. Tarihsel puan bu 5 puanı toplamdan çıkarıp ölçülebilir bileşenleri 100'e ölçekler; güçlü fırsat uygunluğu ise `DEĞERLENDİRİLEMEDİ` kalır. Bu sonuç başarısız likidite kapısı veya güçlü fırsat teyidi gibi yorumlanmaz.
-- Naratif Avcı henüz bu aşamanın parçası değildir. Geçmiş tarihli naratif kayıtları mevcut olmadığından tarihsel naratif katkısı raporda açıkça değerlendirilemedi olarak gösterilir.
+- 154 geliştirme aşamasındaki tarihsel kayıt: O tarihte Naratif Avcı henüz uygulanmamıştı. 31 Ekim 2026'da sonradan eklenen canlı Naratif Avcı, geçmişe dönük kayıt üretmez; tarihsel test dönemine naratif katkısı eklenmiş gibi gösterilmez. Güncel kod ve entegrasyon durumu bu README'nin başındaki 31 Ekim güncel bölümünde kayıtlıdır.
 - Kaçırılmış yükseliş sayısı, sayısal yükseliş eşiği mevcut tasarımda tanımlanmadığı için tahmin edilmez. Bu eşik ayrıca netleşmeden başarı/kaçırma oranı uydurulmaz.
 - Testler: `tests/test_historical_backtest.py` zaman sınırı, mum boşluğu, ileri fiyat ufukları, aynı mumdaki belirsiz olay sırası, arşiv parite listesi ve uçtan uca rapor yazımını sınar. `tests/windows_ui_smoke.py` Raporlar ekranında geri test başlat/durdur kontrollerini gerçek Windows Tkinter penceresinde doğrular.
 
@@ -608,7 +698,7 @@ Her iki yol aynı aday değerlendirmesinde birleşecek. Naratif puanı, mevcut 1
 
 Analiz Raporu'na naratif verisi eklemek, raporun kendiliğinden bu ChatGPT sohbetine mesaj göndermesi anlamına gelmez; doğrudan sohbet aktarımı ayrıca tasarlanmalıdır.
 
-**153. maddenin durumu:** Tamamlandı. 153.1–153.15 kararları ve naratifin hem teknik adaylara destek olması hem teknik sinyalden önce aday keşfetmesi yaklaşımı tek tasarımda birleştirildi. Bu kayıt tasarım hedefidir; işlevlerin kodda mevcut veya test edilmiş olduğu anlamına gelmez.
+**153. tasarım kararı:** 153.1–153.15 onaylandı ve tasarım tamamlandı. Tasarımın kod karşılığı, kaynak kapsamı, testler ve henüz bağlı olmayan kaynaklar bu README'nin başındaki 31 Ekim güncel uygulama bölümünde ayrı ayrı kaydedilmiştir.
 
 
 ### 154. Tarihsel geri test ve ölçüm yöntemi — onaylandı
@@ -689,7 +779,7 @@ Bu sıra onaylanmış geliştirme yöntemidir; kendi başına kod değişikliği
 - Her motorun gerçek çalışma durumu ayrı ve anlaşılır biçimde izlenebilir olmalıdır.
 - Bir motorun veya naratif kaynağının hata vermesi hâlinde diğer motorun davranışı, kontrollü durdurma ve hata bildirimi ayrıntıları güncel kod ve mimari incelendikten sonra netleştirilecektir; bunlar henüz ayrı bir kesin tasarım kararı değildir.
 
-**Mevcut kod ile tasarım hedefinin ayrımı:** İncelenen `tek_motor_paneli.pyw` dosyasında mevcut Başlat düğmesi `binance_erken_firsat_radari.py` teknik analiz motorunu başlatıyor. Başlat/Durdur üzerinden Naratif Avcısı'nın da çalıştırıldığı doğrulanmış değildir. Naratif Avcısı'nın birlikte çalışması onaylanmış hedef davranıştır; uygulanmış özellik olarak sunulmayacaktır.
+**30 Ekim 2026 tarihli önceki kod fotoğrafı:** O incelemede Başlat düğmesinin yalnızca teknik radarı yönettiği görülmüştü. Bu ifade 31 Ekim güncel uygulama kaydıyla geçersiz kalmıştır; mevcut kodda iki canlı motorun ortak Başlat/Durdur yönetimi eklenmiştir.
 
 #### 155'in kalan işi
 
@@ -700,10 +790,10 @@ Bu sıra onaylanmış geliştirme yöntemidir; kendi başına kod değişikliği
 
 ### Çalışma sınırı ve yeni başlangıç noktası
 
-- Kod, test, dağıtım veya paketleme değişikliklerine başlamadan önce kullanıcıdan ayrıca açık onay alınacaktır.
-- İlk uygulama işi, mevcut `main` dalının güncel kod/test durumunu salt okunur biçimde denetlemek ve bulguları önem sırasına koymaktır. Bu denetim sırasında dosya veya kod değiştirilmeyecektir.
-- Tasarım hedefiyle kodda doğrulanmış davranış birbirinden ayrı gösterilecektir.
-- Bu güncellemede yalnızca README karar kaydı değiştirilmektedir; kaynak kod ve test dosyaları değiştirilmemiştir.
+- Genel çalışma kuralı olarak kod, test, dağıtım ve paketleme değişikliklerinde gereken kullanıcı onayı korunur.
+- 31 Ekim güncel uygulama kaydı: Kullanıcı Naratif Avcı'nın kodlanmasına, iki canlı motorun birlikte yönetilmesine ve bütünleşik testine bu sohbette açıkça izin verdi; bu kod çalışması bu izin kapsamında yapıldı.
+- Tasarım hedefi, kaynakta mevcut davranış ve testle doğrulanmış davranış ayrı tutulur.
+- 30 Ekim salt okunur inceleme başlangıç talimatı tamamlanmış tarihsel kayıttır; bu aşamadaki onaylı kod uygulamasının yerine geçmez.
 ### Bütünleşik arayüz ve motor doğrulaması — 30 Ekim 2026
 
 - `tek_motor_paneli.pyw` çok sayfalı arayüz entegrasyonundan sonra mevcut otomatik doğrulama iş akışı yeniden çalıştırılacaktır.
@@ -759,8 +849,8 @@ Uygulanan dosyalar:
 
 **Kapsam sınırları:** Geçmiş emir defteri/spread/derinlik arşivlenmediği için tarihsel likidite ve güçlü fırsat teyidi “değerlendirilemedi” kalır. Tarihsel Naratif Avcı gözlemleri henüz yoktur. Sayısal “kaçırılmış yükseliş” eşiği tasarımda ayrıca tanımlanmadığından bu ölçüm üretilmez. Aynı 5 dakikalık mumda giriş ile hedef/stop görülürse olay sırası belirsiz bırakılır. Otomatik testler örnek arşiv üzerinde uçtan uca çalışmıştır; kullanıcının kendi bilgisayarındaki tam arşiv üzerinde gerçek veri çalıştırması henüz yapılmamıştır.
 
-### Bir sonraki geliştirme adımı — kullanıcının görüşü bekleniyor
+### 31 Ekim 2026 durum güncellemesi — önceki durma talimatı yerine geçti
 
-Tarihsel geri test aşamasından sonra burada durulacaktır. Kullanıcıdan bu modülün mevcut hali ve kapsamı hakkında görüş alınmadan **Naratif Avcı kodlamasına başlanmayacaktır**. Naratif Avcı'nın tasarım kararı 153. madde ve 153.1–153.15 alt kararlarıyla zaten onaylıdır; bu tasarım kararları yeniden sorulmayacaktır. Kullanıcının geri test hakkındaki görüşü alınıp gerekli düzeltmeler netleştirildikten sonra, açıkça izin verilen sıradaki geliştirme Naratif Avcı'nın kodlanması, mevcut sisteme entegrasyonu ve testidir.
+Kullanıcı Tarihsel Geri Test'i değerlendirmiş ve kabul ettikten sonra Naratif Avcı kodlamasına geçilmesine açıkça izin vermiştir. Naratif Avcı'nın 153.1–153.15 kapsamındaki ilk uygulaması, teknik radar bağlantısı, ortak canlı motor kontrolleri ve rapor/arayüz entegrasyonu main dalına eklenmiştir. Bundan sonraki durma noktası, bu uygulama ve test sonuçlarının kullanıcıya sunulmasıdır. Kullanıcının görüşü alınmadan genel Dosya Gezgini arayüz yenilemesine veya grafiklerin koddan çıkarılmasına başlanmayacaktır.
 
 
