@@ -744,10 +744,13 @@ class NarrativeEngine:
         events: list[dict[str, Any]],
         market_map: dict[str, dict[str, Any]],
         previous_rows: list[dict[str, Any]],
+        source_statuses: dict[str, Any] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Score themes from available evidence; missing evidence remains visible."""
+        source_statuses = source_statuses if isinstance(source_statuses, dict) else {}
         previous = {
-            str(item.get("narrative_id")): _safe_float(item.get("narrative_score"))
-            for item in previous_rows if isinstance(item, dict)
+            str(item.get("narrative_id")): item
+            for item in previous_rows if isinstance(item, dict) and item.get("narrative_id")
         }
         grouped: dict[str, dict[str, Any]] = {}
         for event in events:
@@ -755,55 +758,119 @@ class NarrativeEngine:
                 key = re.sub(r"[^a-z0-9]+", "-", str(theme).casefold()).strip("-")[:80] or "genel"
                 group = grouped.setdefault(key, {
                     "narrative_id": key, "name": str(theme), "events": [],
-                    "coins": {}, "news_sources": set(), "aixbt_rank": None,
+                    "coins": {}, "news_sources": set(), "discovery_sources": set(),
+                    "aixbt_rank": None,
                 })
                 group["events"].append(event)
+                source_id = str(event.get("source_id") or "")
                 if event.get("source_kind") in ("official", "media"):
-                    # AIXBT Topics is discovery intelligence, not an independent news publisher.
-                    group["news_sources"].add(str(event.get("source_id") or ""))
-                if event.get("source_kind") == "topic_discovery":
+                    group["news_sources"].add(source_id)
+                elif event.get("source_kind") == "topic_discovery":
+                    # AIXBT is narrative discovery intelligence, not an editorial publisher.
+                    group["discovery_sources"].add(source_id)
                     rank = _safe_int(event.get("rank"))
                     if rank and (group["aixbt_rank"] is None or rank < group["aixbt_rank"]):
                         group["aixbt_rank"] = rank
                 for match in event.get("symbols", []):
-                    base = str(match.get("symbol") or "")
+                    base = str(match.get("symbol") or "").upper()
                     if base:
-                        group["coins"][base] = min(
-                            int(match.get("confidence") == "YÜKSEK") + 1,
-                            2,
+                        group["coins"][base] = max(
+                            group["coins"].get(base, 0),
+                            2 if match.get("confidence") == "YÜKSEK" else 1,
                         )
 
-        narratives = []
+        narratives: list[dict[str, Any]] = []
         early_watch: dict[str, dict[str, Any]] = {}
         for key, group in grouped.items():
             group_events = group["events"]
             symbols = sorted(group["coins"])
-            sources = sorted(group["news_sources"])
+            sources = sorted(group["news_sources"] - {""})
+            discovery_sources = sorted(group["discovery_sources"] - {""})
             topic_rank = group["aixbt_rank"]
+            previous_row = previous.get(key, {})
+            old_score = _safe_float(previous_row.get("narrative_score"))
             components: dict[str, float] = {}
+
             if topic_rank is not None:
                 components["aixbt_topic_rank"] = round(max(0.0, 100.0 - (topic_rank - 1) * 4.0), 1)
             if group_events:
-                components["distinct_evidence_events"] = round(min(100.0, len({e["event_id"] for e in group_events}) * 25.0), 1)
+                components["distinct_evidence_events"] = round(
+                    min(100.0, len({e["event_id"] for e in group_events}) * 25.0), 1
+                )
             if sources:
                 components["independent_source_families"] = round(min(100.0, len(sources) * 30.0), 1)
             if symbols:
                 components["project_spread"] = round(min(100.0, len(symbols) * 20.0), 1)
+
+            source_ids = set(sources) | set(discovery_sources)
+            source_ages = []
+            for source_id in source_ids:
+                source_key = source_id if source_id in source_statuses else f"rss_{source_id}"
+                source_row = source_statuses.get(source_key)
+                age_value = _safe_float(source_row.get("age_seconds")) if isinstance(source_row, dict) else None
+                if age_value is not None and age_value >= 0:
+                    source_ages.append(age_value)
+            freshest_source_age = min(source_ages) if source_ages else None
+            if freshest_source_age is not None:
+                if freshest_source_age <= 300:
+                    freshness_score = 100.0
+                elif freshest_source_age <= 900:
+                    freshness_score = 80.0
+                elif freshest_source_age <= 1800:
+                    freshness_score = 60.0
+                elif freshest_source_age <= 3600:
+                    freshness_score = 40.0
+                else:
+                    freshness_score = 10.0
+                components["data_freshness"] = freshness_score
+
             market_changes = [
                 _safe_float(market_map.get(symbol, {}).get("percent_change_24h"))
                 for symbol in symbols
             ]
             market_changes = [value for value in market_changes if value is not None]
-            if market_changes:
-                average_change = sum(market_changes) / len(market_changes)
-                components["market_reaction"] = round(max(0.0, min(100.0, 50.0 + average_change)), 1)
-            else:
-                average_change = None
+            average_change = sum(market_changes) / len(market_changes) if market_changes else None
+            if average_change is not None:
+                components["market_price_reaction_24h"] = round(
+                    max(0.0, min(100.0, 50.0 + average_change)), 1
+                )
+
+            volume_changes = [
+                _safe_float(market_map.get(symbol, {}).get("volume_change_24h"))
+                for symbol in symbols
+            ]
+            volume_changes = [value for value in volume_changes if value is not None]
+            average_volume_change = (
+                sum(volume_changes) / len(volume_changes) if volume_changes else None
+            )
+            if average_volume_change is not None:
+                components["market_volume_reaction_24h"] = round(
+                    max(0.0, min(100.0, 50.0 + average_volume_change * 0.5)), 1
+                )
+
+            # Measure acceleration from the preceding observed score, then include it
+            # as its own component. The technical radar score is never touched.
+            static_score = round(sum(components.values()) / len(components), 1) if components else None
+            preliminary_change = (
+                static_score - old_score
+                if static_score is not None and old_score is not None else None
+            )
+            if preliminary_change is not None:
+                components["interest_velocity"] = round(
+                    max(0.0, min(100.0, 50.0 + preliminary_change * 2.0)), 1
+                )
             score = round(sum(components.values()) / len(components), 1) if components else None
-            old_score = previous.get(key)
             change = round(score - old_score, 1) if score is not None and old_score is not None else None
-            direction = "İLK GÖZLEM" if change is None else "YÜKSELİYOR" if change >= 5 else "DÜŞÜYOR" if change <= -5 else "YATAY"
-            confidence = "YÜKSEK" if len(sources) >= 3 and len(group_events) >= 3 else "ORTA" if len(sources) >= 2 else "DÜŞÜK"
+            direction = (
+                "İLK GÖZLEM" if change is None else
+                "YÜKSELİYOR" if change >= 5 else
+                "DÜŞÜYOR" if change <= -5 else "YATAY"
+            )
+            confidence = (
+                "YÜKSEK" if len(sources) >= 3 and len(group_events) >= 3 else
+                "ORTA" if len(sources) >= 2 else "DÜŞÜK"
+            )
+
             if not components or not group_events:
                 phase = "BELİRSİZ"
             elif change is not None and change <= -10:
@@ -822,6 +889,17 @@ class NarrativeEngine:
                 key=lambda e: str(e.get("published_at") or ""),
                 reverse=True,
             )
+            coverage_missing = [
+                name for name, available in (
+                    ("önceki gözlem / ilgi hızı", old_score is not None),
+                    ("AIXBT konu sırası", topic_rank is not None),
+                    ("bağımsız haber kaynağı", bool(sources)),
+                    ("ortak evrende eşleşen coin", bool(symbols)),
+                    ("kaynak veri güncelliği", freshest_source_age is not None),
+                    ("24 saatlik fiyat tepkisi", average_change is not None),
+                    ("24 saatlik hacim tepkisi", average_volume_change is not None),
+                ) if not available
+            ]
             narrative = {
                 "narrative_id": key,
                 "name": group["name"],
@@ -834,21 +912,17 @@ class NarrativeEngine:
                 "coverage": {
                     "event_count": len({e["event_id"] for e in group_events}),
                     "independent_news_sources": len(sources),
+                    "discovery_sources": len(discovery_sources),
                     "related_coin_count": len(symbols),
                     "available_components": len(components),
-                    "missing": [
-                        name for name, available in (
-                            ("önceki gözlem/değişim", old_score is not None),
-                            ("AIXBT konu sırası", topic_rank is not None),
-                            ("bağımsız haber kaynağı", bool(sources)),
-                            ("ortak evrende eşleşen coin", bool(symbols)),
-                            ("24 saatlik piyasa tepkisi", bool(market_changes)),
-                        ) if not available
-                    ],
+                    "missing": coverage_missing,
                 },
                 "related_coins": symbols,
                 "sources": sources,
+                "discovery_sources": discovery_sources,
+                "data_freshness_seconds": round(freshest_source_age, 1) if freshest_source_age is not None else None,
                 "market_reaction_24h_pct_avg": round(average_change, 2) if average_change is not None else None,
+                "average_volume_change_24h": round(average_volume_change, 2) if average_volume_change is not None else None,
                 "first_observed_at_utc": None,
                 "last_observed_at_utc": utc_now(),
                 "latest_events": [
@@ -864,35 +938,56 @@ class NarrativeEngine:
                 ],
             }
             narratives.append(narrative)
+
             for symbol in symbols:
                 watch = early_watch.setdefault(symbol, {
                     "symbol": symbol,
                     "narrative_score": score,
                     "phase": phase,
+                    "interest_direction": direction,
+                    "data_freshness_seconds": narrative["data_freshness_seconds"],
                     "narratives": [],
                     "sources": set(),
+                    "discovery_sources": set(),
                     "confidence": confidence,
                     "market_activity": market_map.get(symbol, {}),
                     "reason": "Teknik sinyalden bağımsız naratif erken izleme; teknik puan ve güçlü alarm değişmez.",
                 })
-                if score is not None:
-                    current = _safe_float(watch.get("narrative_score"))
-                    watch["narrative_score"] = max(current or 0.0, score)
+                current_score = _safe_float(watch.get("narrative_score"))
+                if score is not None and (current_score is None or score > current_score):
+                    watch["narrative_score"] = score
+                    watch["phase"] = phase
+                    watch["interest_direction"] = direction
+                    watch["data_freshness_seconds"] = narrative["data_freshness_seconds"]
                 watch["narratives"].append(group["name"])
                 watch["sources"].update(sources)
+                watch["discovery_sources"].update(discovery_sources)
                 if confidence == "YÜKSEK" or (confidence == "ORTA" and watch["confidence"] == "DÜŞÜK"):
                     watch["confidence"] = confidence
+
         for watch in early_watch.values():
             watch["sources"] = sorted(watch["sources"])
+            watch["discovery_sources"] = sorted(watch["discovery_sources"])
             watch["narratives"] = sorted(set(watch["narratives"]))
+
+        # Rising, evidence-backed and non-overheated themes lead the list;
+        # incomplete themes remain visible below them.
         narratives.sort(key=lambda item: (
-            item.get("narrative_score") is not None,
-            item.get("narrative_score") or -1,
+            item.get("phase") != "AŞIRI ISINMA",
             item.get("interest_direction") == "YÜKSELİYOR",
+            item.get("confidence") == "YÜKSEK",
+            item.get("coverage", {}).get("independent_news_sources", 0),
+            item.get("narrative_score") is not None,
+            item.get("narrative_score") if item.get("narrative_score") is not None else -1,
         ), reverse=True)
         watch_rows = sorted(
             early_watch.values(),
-            key=lambda item: (item.get("narrative_score") is not None, item.get("narrative_score") or -1),
+            key=lambda item: (
+                item.get("phase") != "AŞIRI ISINMA",
+                item.get("interest_direction") == "YÜKSELİYOR",
+                item.get("narrative_score") is not None,
+                item.get("narrative_score") if item.get("narrative_score") is not None else -1,
+            ),
             reverse=True,
         )
         return narratives, watch_rows
@@ -1062,6 +1157,7 @@ class NarrativeEngine:
             events,
             market_map,
             self.previous_state.get("narratives", []) if isinstance(self.previous_state.get("narratives"), list) else [],
+            source_statuses=statuses,
         )
         self._save_history(narratives, events)
         alerts = self._alerts(narratives)
