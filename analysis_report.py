@@ -209,12 +209,15 @@ def build_analysis_report(state: Any, narrative_state: Any = None) -> dict[str, 
     narratives = narrative_state.get("narratives")
     early_watch = narrative_state.get("early_watch")
     source_statuses = narrative_state.get("source_statuses")
+    alerts = narrative_state.get("alerts")
     if not isinstance(narratives, list):
         narratives = []
     if not isinstance(early_watch, list):
         early_watch = []
     if not isinstance(source_statuses, dict):
         source_statuses = {}
+    if not isinstance(alerts, list):
+        alerts = []
     compact_sources = {
         key: {
             field: item.get(field)
@@ -234,6 +237,7 @@ def build_analysis_report(state: Any, narrative_state: Any = None) -> dict[str, 
         "early_watch_count": len(early_watch),
         "narratives": narratives[:25],
         "early_watch": early_watch[:100],
+        "alerts": alerts[-50:],
         "source_statuses": compact_sources,
         "market_activity": narrative_state.get("market_activity", {}),
         "limits": narrative_state.get("limits", [
