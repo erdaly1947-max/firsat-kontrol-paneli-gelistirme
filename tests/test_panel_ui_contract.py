@@ -305,7 +305,7 @@ class PanelUIContractTests(unittest.TestCase):
         detail = ast.unparse(_method("_narrative_show_source_status"))
         self.assertIn("narrative_source_tree", builder)
         self.assertIn("<<TreeviewSelect>>", builder)
-        self.assertIn("last_success_utc", refresh)
+        self.assertIn("last_success_utc", detail)
         for required in (
             "COINGECKO_DEMO_API_KEY",
             "narrative_rss_feeds",
@@ -314,7 +314,7 @@ class PanelUIContractTests(unittest.TestCase):
             "cmc_market_activity",
             "dex_profiles",
             "aixbt_project_mapping",
-            "independent",
+            "bağımsız",
         ):
             self.assertIn(required, detail)
         self.assertIn("error", detail)
