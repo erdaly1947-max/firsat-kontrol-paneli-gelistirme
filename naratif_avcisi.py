@@ -281,6 +281,14 @@ def _event_id(title: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
 
 
+def _narrative_slug(value: str) -> str:
+    """Create stable ASCII IDs while preserving Turkish letters semantically."""
+    folded = str(value or "").casefold().translate(str.maketrans({
+        "ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u",
+    }))
+    return re.sub(r"[^a-z0-9]+", "-", folded).strip("-")[:80] or "genel"
+
+
 def _load_common_symbols(root: Path = ROOT) -> tuple[list[str], dict[str, Any]]:
     """Prefer the last saved Binance/BtcTurk intersection, otherwise disclose the local-list fallback."""
     common_path = root / "data" / "single_engine_common_universe.json"
@@ -400,6 +408,11 @@ class NarrativeEngine:
         self.settings = _read_json(self.settings_path, {})
         if not isinstance(self.settings, dict):
             self.settings = {}
+        # Secrets are sourced only from environment variables, never from ayarlar.json.
+        self.settings = {
+            key: value for key, value in self.settings.items()
+            if str(key).upper() not in {"AIXBT_API_KEY", "COINGECKO_DEMO_API_KEY"}
+        }
         self.cache = _read_json(self.cache_path, {})
         if not isinstance(self.cache, dict):
             self.cache = {}
@@ -773,7 +786,7 @@ class NarrativeEngine:
         grouped: dict[str, dict[str, Any]] = {}
         for event in events:
             for theme in event.get("themes", []) or ["Piyasa Gelişmeleri"]:
-                key = re.sub(r"[^a-z0-9]+", "-", str(theme).casefold()).strip("-")[:80] or "genel"
+                key = _narrative_slug(str(theme))
                 group = grouped.setdefault(key, {
                     "narrative_id": key, "name": str(theme), "events": [],
                     "coins": {}, "news_sources": set(), "discovery_sources": set(),
@@ -817,7 +830,7 @@ class NarrativeEngine:
                 if isinstance(previous_components, dict) else []
             )
             old_base_score = (
-                sum(previous_static_components) / len(previous_static_components)
+                round(sum(previous_static_components) / len(previous_static_components), 1)
                 if previous_static_components else old_score
             )
             components: dict[str, float] = {}
