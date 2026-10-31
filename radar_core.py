@@ -2154,6 +2154,7 @@ def score_opportunity(
     candidate: dict[str, Any],
     *,
     btc_context: dict[str, Any] | None = None,
+    historical: bool = False,
 ) -> dict[str, Any]:
     """Produce one evidence-based 0–100 score and a single final decision label."""
     assessments = candidate.get("timeframes")
@@ -2383,9 +2384,18 @@ def score_opportunity(
         "relative_strength_group_leadership": relative_strength_score,
         "btc_market_context": btc_score,
         "btc_correlation_risk_adjustment": int(correlation_adjustment["score_adjustment"]),
-        "liquidity_tradability": liquidity_score,
+        # Historical candle archives do not contain a continuous, as-of order-book
+        # history. Unknown liquidity must not be scored as a failed gate.
+        "liquidity_tradability": None if historical else liquidity_score,
     }
-    total_score = min(100, max(0, int(round(sum(components.values())))))
+    raw_assessable_score = sum(
+        value for value in components.values() if isinstance(value, (int, float))
+    )
+    if historical:
+        # Exclude the five unknown liquidity points from both numerator and denominator.
+        total_score = min(100, max(0, int(round(raw_assessable_score * 100.0 / 95.0))))
+    else:
+        total_score = min(100, max(0, int(round(raw_assessable_score))))
 
     plan = candidate.get("risk_plan")
     plan = plan if isinstance(plan, dict) else {}
@@ -2435,7 +2445,8 @@ def score_opportunity(
     )
     btc_context_gate_passed = btc_strong_gate["eligible"]
     strong_qualified = bool(
-        total_score >= 80
+        not historical
+        and total_score >= 80
         and phase in ("B", "C")
         and fresh
         and eligible
@@ -2472,6 +2483,10 @@ def score_opportunity(
     if not technical_rr_valid:
         gate_reasons.append("En yakın teknik hedef için brüt teknik risk/getiri oranı ≥1,5 doğrulanmadı.")
     gate_reasons.extend(btc_strong_gate["reasons"])
+    if historical:
+        gate_reasons.append(
+            "Geçmiş emir defteri, alış-satış farkı ve derinlik serisi arşivlenmediği için güçlü fırsat/likidite kapısı değerlendirilemedi."
+        )
 
     near_resistance = any(row.get("near_resistance") is True for row in short_metrics)
     continuity_confirmed = any(
@@ -2532,8 +2547,16 @@ def score_opportunity(
         "final_decision": decision,
         "decision_class": decision,
         "decision_reason": decision_reason,
-        "strong_opportunity_qualified": strong_qualified,
+        "strong_opportunity_qualified": None if historical else strong_qualified,
         "strong_opportunity_gate_reasons": list(dict.fromkeys(gate_reasons)),
+        "opportunity_score_basis": (
+            "TARİHSEL — ölçülebilen 95 puanlık bileşen 100'e ölçeklendi; likidite geçmişi yok"
+            if historical else "CANLI — 100 puanlık mevcut değerlendirme"
+        ),
+        "strong_opportunity_qualification_status": (
+            "DEĞERLENDİRİLEMEDİ — geçmiş likidite/emir defteri verisi yok"
+            if historical else "MEVCUT CANLI KAPILARA GÖRE DEĞERLENDİRİLDİ"
+        ),
     }
 
 
