@@ -2582,6 +2582,14 @@ class BinanceRadar:
                         history_ready=history_ready,
                         bootstrap_in_progress=bootstrap_in_progress,
                     )
+                    narrative_snapshot = load_json(DATA_DIR / "naratif_state.json", {})
+                    if not isinstance(narrative_snapshot, dict):
+                        narrative_snapshot = {}
+                    narrative_generated_at = narrative_snapshot.get("generated_at_utc")
+                    narrative_age_seconds = _age_seconds_from_utc_timestamp(narrative_generated_at)
+                    narrative_fresh = (
+                        narrative_age_seconds is not None and narrative_age_seconds <= 1800
+                    )
                     state = {
                         "application_version": APP_VERSION,
                         "radar": "Tek Motor — Binance Spot" if self.single_engine else "Binance Erken Fırsat Radarı",
@@ -2643,22 +2651,10 @@ class BinanceRadar:
                             "comparable_coin_count": 0,
                         }),
                         "universe_generated_at_utc": self.universe.get("generated_at_utc"),
-                        "narrative_status": (
-                            "GÜNCEL" if _age_seconds_from_utc_timestamp(
-                                (load_json(DATA_DIR / "naratif_state.json", {}) or {}).get("generated_at_utc")
-                            ) is not None and _age_seconds_from_utc_timestamp(
-                                (load_json(DATA_DIR / "naratif_state.json", {}) or {}).get("generated_at_utc")
-                            ) <= 1800 else "VERİ YOK / ESKİ"
-                        ),
-                        "narrative_generated_at_utc": (
-                            load_json(DATA_DIR / "naratif_state.json", {}) or {}
-                        ).get("generated_at_utc"),
-                        "narrative_early_watch": (
-                            (load_json(DATA_DIR / "naratif_state.json", {}) or {}).get("early_watch", [])
-                        ),
-                        "narrative_source_statuses": (
-                            (load_json(DATA_DIR / "naratif_state.json", {}) or {}).get("source_statuses", {})
-                        ),
+                        "narrative_status": "GÜNCEL" if narrative_fresh else "VERİ YOK / ESKİ",
+                        "narrative_generated_at_utc": narrative_generated_at,
+                        "narrative_early_watch": narrative_snapshot.get("early_watch", []),
+                        "narrative_source_statuses": narrative_snapshot.get("source_statuses", {}),
                         "narrative_history_backfilled": False,
                         "btcturk_universe_generated_at_utc": self.universe.get("btcturk_universe_generated_at_utc"),
                         "btcturk_universe_age_seconds": (
