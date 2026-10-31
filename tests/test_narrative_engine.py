@@ -284,5 +284,91 @@ class NarrativeRuntimeTests(unittest.TestCase):
             self.assertEqual(event[0], "YENİ NARATİF")
 
 
+
+
+    def test_score_includes_velocity_freshness_price_and_volume_when_available(self):
+        engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+        events = [
+            {
+                "event_id": f"event-{source}",
+                "title": "Ethereum real world asset adoption",
+                "source_id": source,
+                "source_kind": "media",
+                "themes": ["Gerçek Dünya Varlıkları (RWA)"],
+                "symbols": [{"symbol": "ONDO", "confidence": "YÜKSEK"}],
+            }
+            for source in ("alpha", "beta", "gamma")
+        ]
+        previous = [{
+            "narrative_id": "gercek-dunya-varliklari-rwa",
+            "narrative_score": 20.0,
+        }]
+        market = {
+            "ONDO": {"percent_change_24h": 20.0, "volume_change_24h": 60.0},
+        }
+        sources = {
+            "rss_alpha": {"age_seconds": 120},
+            "rss_beta": {"age_seconds": 180},
+            "rss_gamma": {"age_seconds": 240},
+        }
+        rows, watch = engine._build_narratives(events, market, previous, source_statuses=sources)
+        row = rows[0]
+        components = row["score_components"]
+        self.assertEqual(components["data_freshness"], 100.0)
+        self.assertEqual(components["independent_source_families"], 90.0)
+        self.assertEqual(components["market_price_reaction_24h"], 70.0)
+        self.assertEqual(components["market_volume_reaction_24h"], 80.0)
+        self.assertIn("interest_velocity", components)
+        self.assertGreater(row["interest_change"], 0)
+        self.assertEqual(row["data_freshness_seconds"], 120.0)
+        self.assertEqual(watch[0]["symbol"], "ONDO")
+
+    def test_rising_evidence_backed_narratives_rank_before_overheated_themes(self):
+        engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+        events = []
+        for index, source in enumerate(("a", "b", "c", "d", "e")):
+            events.append({
+                "event_id": f"meme-{index}",
+                "title": f"Meme coin ecosystem update {index}",
+                "source_id": source,
+                "source_kind": "media",
+                "themes": ["Meme Coin Ekosistemi"],
+                "symbols": [
+                    {"symbol": symbol, "confidence": "YÜKSEK"}
+                    for symbol in ("DOGE", "SHIB", "PEPE", "FLOKI", "BONK",
+                                   "WIF", "BRETT", "MOG", "TURBO", "NEIRO")
+                ],
+            })
+        events.append({
+            "event_id": "rwa-one",
+            "title": "Ondo tokenized assets update",
+            "source_id": "alpha",
+            "source_kind": "media",
+            "themes": ["Gerçek Dünya Varlıkları (RWA)"],
+            "symbols": [{"symbol": "ONDO", "confidence": "YÜKSEK"}],
+        })
+        symbols = ("DOGE", "SHIB", "PEPE", "FLOKI", "BONK",
+                   "WIF", "BRETT", "MOG", "TURBO", "NEIRO")
+        market = {
+            symbol: {"percent_change_24h": 30.0, "volume_change_24h": 100.0}
+            for symbol in symbols
+        }
+        market["ONDO"] = {"percent_change_24h": 1.0, "volume_change_24h": 0.0}
+        sources = {
+            f"rss_{key}": {"age_seconds": 50}
+            for key in ("a", "b", "c", "d", "e", "alpha")
+        }
+        previous = [{
+            "narrative_id": "meme-coin-ekosistemi",
+            "narrative_score": 0.0,
+        }]
+        rows, _watch = engine._build_narratives(events, market, previous, source_statuses=sources)
+        self.assertEqual(rows[0]["name"], "Gerçek Dünya Varlıkları (RWA)")
+        meme = next(item for item in rows if item["name"] == "Meme Coin Ekosistemi")
+        self.assertEqual(meme["phase"], "AŞIRI ISINMA")
+        self.assertIn("data_freshness", meme["score_components"])
+        self.assertIn("market_volume_reaction_24h", meme["score_components"])
+
+
 if __name__ == "__main__":
     unittest.main()
