@@ -619,6 +619,24 @@ class NarrativeEngine:
             enabled=False,
             status="EK API ERİŞİMİ GEREKİR — KULLANILMIYOR" if not aixbt_key else "YETKİ DOĞRULANMADI — KULLANILMIYOR",
         )
+        statuses["x_api"] = _source_status(
+            "x_api",
+            role="X paylaşım akışı; bu sürümde API bağlantısı veya veri toplama yok.",
+            enabled=False,
+            status="BAĞLI DEĞİL — ENTEGRASYON YOK",
+        )
+        statuses["reddit"] = _source_status(
+            "reddit",
+            role="Reddit gönderi/topluluk akışı; bu sürümde API bağlantısı veya veri toplama yok.",
+            enabled=False,
+            status="BAĞLI DEĞİL — ENTEGRASYON YOK",
+        )
+        statuses["santiment"] = _source_status(
+            "santiment",
+            role="Santiment sosyal/on-chain veri akışı; bu sürümde API bağlantısı veya veri toplama yok.",
+            enabled=False,
+            status="BAĞLI DEĞİL — ENTEGRASYON YOK",
+        )
 
         return statuses, rss_events, {
             "topics": topics or [],
