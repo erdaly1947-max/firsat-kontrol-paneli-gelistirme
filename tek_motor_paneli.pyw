@@ -1002,20 +1002,20 @@ class ControlPanel(tk.Tk):
         ).pack(side="left", padx=(5, 0))
         tree_frame = ttk.Frame(self.left_pane)
         tree_frame.pack(fill="both", expand=True)
-        columns = ("symbol", "price", "btcturk_price", "score", "timeframe", "phase", "freshness", "btc_relative", "decision")
+        columns = ("symbol", "price", "btcturk_price", "score", "timeframe", "phase", "freshness", "btc_relative", "decision", "narrative")
         self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
         headers = {
             "symbol": "Coin", "price": "Binance USDT", "btcturk_price": "BtcTurk USDT",
             "score": "Puan", "timeframe": "Zaman", "phase": "A/B/C", "freshness": "Veri",
-            "btc_relative": "BTC'ye göre", "decision": "Son karar",
+            "btc_relative": "BTC'ye göre", "decision": "Son karar", "narrative": "Naratif",
         }
         widths = {"symbol": 88, "price": 94, "btcturk_price": 94, "score": 48,
-                  "timeframe": 55, "phase": 46, "freshness": 68, "btc_relative": 88, "decision": 112}
+                  "timeframe": 55, "phase": 46, "freshness": 68, "btc_relative": 88, "decision": 112, "narrative": 88}
         for col in columns:
             self.tree.heading(col, text=headers[col])
             self.tree.column(col, width=widths[col], minwidth=34,
                              anchor="center" if col != "symbol" else "w",
-                             stretch=col in ("symbol", "decision"))
+                             stretch=col in ("symbol", "decision", "narrative"))
         yscroll = ttk.Scrollbar(tree_frame, orient="vertical", style="Slim.Vertical.TScrollbar", command=self.tree.yview)
         xscroll = ttk.Scrollbar(tree_frame, orient="horizontal", style="Slim.Horizontal.TScrollbar", command=self.tree.xview)
         self.tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
@@ -3642,6 +3642,16 @@ class ControlPanel(tk.Tk):
         decision = str(candidate.get("final_decision") or candidate.get("decision_class") or "—")
         price = _format_price(candidate.get("latest_price", candidate.get("price")))
         freshness = "GÜNCEL" if candidate.get("data_freshness") == "CANLI AKIŞ GÜNCEL" else "UYARI"
+        narrative = candidate.get("narrative_support") if isinstance(candidate.get("narrative_support"), dict) else {}
+        narrative_lines = (
+            [
+                f"NARATİF DESTEĞİ: {', '.join(narrative.get('narratives', [])) or '—'}",
+                f"Naratif aşaması/puanı: {narrative.get('phase', '—')} / {narrative.get('narrative_score', '—')} · Güven: {narrative.get('confidence', '—')}",
+                "Bu bilgi teknik puana ve güçlü fırsat koşullarına eklenmez.",
+            ]
+            if narrative else
+            ["NARATİF DESTEĞİ: kayıt yok; teknik aday bundan etkilenmez."]
+        )
         missing = candidate.get("missing_checks")
         missing = [str(item) for item in missing if item] if isinstance(missing, list) else []
         gate_reasons = candidate.get("strong_opportunity_gate_reasons")
@@ -3680,6 +3690,8 @@ class ControlPanel(tk.Tk):
             f"Fiyat: {price} USDT   |   VERİ: {freshness}",
             f"Karar: {decision}   |   Puan: {score_text}",
             f"Neden öne çıkıyor: {reason}",
+            "", "--- AYRI NARATİF DESTEĞİ ---",
+            *narrative_lines,
             "", "--- BTC İLİŞKİSİ VE ANA ENGEL ---",
             _format_candidate_decision_summary(candidate),
             "", "--- GİRİŞ VE RİSK KONTROLÜ ---",
@@ -3912,7 +3924,7 @@ class ControlPanel(tk.Tk):
     def update_universe(self) -> None:
         if not self.update_list_button.instate(["!disabled"]):
             return
-        active = bool(self.engine and self.engine.poll() is None)
+        active = self._live_engines_running()
         if active and not messagebox.askyesno(
             "Motor çalışıyor",
             "Parite listesi yenilense bile çalışan motor belleğindeki evreni hemen değiştirmeyebilir.\n"
@@ -4236,6 +4248,10 @@ class ControlPanel(tk.Tk):
                 row.get("opportunity_score", row.get("score_0_100", "—")),
                 _display_timeframe(row.get("phase_timeframe") or row.get("timeframe")),
                 phase, freshness_label, _format_btc_relative(row), decision_label,
+                (
+                    f"{row.get('narrative_support', {}).get('phase', 'DESTEK')} · {row.get('narrative_support', {}).get('narrative_score', '—')}"
+                    if isinstance(row.get("narrative_support"), dict) else "—"
+                ),
             ), tags=tags)
         self._apply_radar_filters()
         if selected and selected in normalized:
