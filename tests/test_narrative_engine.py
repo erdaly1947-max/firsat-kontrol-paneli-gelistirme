@@ -392,6 +392,7 @@ class NarrativeRuntimeTests(unittest.TestCase):
         previous = [{
             "narrative_id": "gercek-dunya-varliklari-rwa",
             "narrative_score": 20.0,
+            "score_version": 2,
         }]
         market = {
             "ONDO": {"percent_change_24h": 20.0, "volume_change_24h": 60.0},
@@ -631,3 +632,126 @@ class NewFreeNarrativeSourcesTests(unittest.TestCase):
         self.assertGreaterEqual(narrative.SOURCE_INTERVALS["cmc_global_metrics"], 3600)
         self.assertGreaterEqual(narrative.SOURCE_INTERVALS["cmc_id_map"], 3600)
         self.assertGreaterEqual(narrative.SOURCE_INTERVALS["trendkia_news"], 1800)
+
+
+class CmcNarrativeCategoryTests(unittest.TestCase):
+    def test_category_list_keeps_only_known_narrative_themes(self):
+        rows = narrative.parse_cmc_categories({"data": [
+            {"id": "ai-cat", "name": "AI & Big Data", "title": "Artificial Intelligence & Big Data",
+             "description": "AI agent infrastructure", "num_tokens": 18,
+             "avg_price_change": 4.0, "market_cap_change": 3.0, "volume_change": 20.0},
+            {"id": "other-cat", "name": "Generic Portfolio", "title": "Investment Holdings",
+             "description": "Unrelated venture portfolio", "num_tokens": 14,
+             "avg_price_change": 20.0, "market_cap_change": 30.0, "volume_change": 80.0},
+        ]})
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], "ai-cat")
+        self.assertIn("Yapay Zekâ (AI)", rows[0]["themes"])
+        self.assertGreater(rows[0]["momentum_score"], 50)
+
+    def test_category_members_require_exact_unique_cmc_id(self):
+        summary = {"id": "ai-cat", "name": "AI & Big Data", "title": "AI & Big Data",
+                   "description": "AI category", "momentum_score": 77.0}
+        payload = {"data": {"1": {
+            "id": "ai-cat", "name": "AI & Big Data",
+            "coins": [
+                {"id": 1027, "symbol": "ETH", "name": "Ethereum",
+                 "quote": {"USD": {"price": 3000, "volume_24h": 1000,
+                                   "percent_change_24h": 2, "volume_change_24h": 4}}},
+                {"id": 777, "symbol": "ABC", "name": "Wrong CMC ID"},
+                {"id": 9999, "symbol": "ETH", "name": "Same ticker, different project"},
+            ],
+        }}}
+        result = narrative.parse_cmc_category_detail(payload, summary, {"ETH": 1027, "ABC": 1234})
+        self.assertEqual(result["id"], "ai-cat")
+        self.assertEqual([coin["symbol"] for coin in result["coins"]], ["ETH"])
+        self.assertEqual(result["coins"][0]["price"], 3000)
+
+    def test_category_is_discovery_not_independent_news(self):
+        event = narrative.build_cmc_category_event({
+            "id": "ai-cat", "name": "AI & Big Data",
+            "description": "AI agents and artificial intelligence",
+            "momentum_score": 82, "coins": [{"symbol": "FET"}, {"symbol": "RENDER"}],
+        })
+        self.assertIsNotNone(event)
+        self.assertEqual(event["source_kind"], "topic_discovery")
+        self.assertEqual(event["source_id"], "cmc_narrative_categories")
+
+    def test_category_rank_is_limited_and_sorted_by_momentum(self):
+        categories = [
+            {"id": str(i), "themes": ["Yapay Zekâ (AI)"],
+             "momentum_score": float(i), "num_tokens": 10}
+            for i in range(1, 7)
+        ]
+        ranked = narrative.rank_cmc_narrative_categories(categories, limit=3)
+        self.assertEqual(len(ranked), 3)
+        self.assertEqual(ranked[0]["id"], "6")
+
+    def test_aixbt_post_and_author_counts_add_community_activity_component(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine = narrative.NarrativeEngine(root=Path(temp), clock=lambda: 1793448000.0)
+            event = {
+                "event_id": "aixbt:t1", "source_id": "aixbt_topics",
+                "source_kind": "topic_discovery", "rank": 2,
+                "post_count": 100, "author_count": 25,
+                "themes": ["Yapay Zekâ (AI)"],
+                "symbols": [{"symbol": "FET", "confidence": "YÜKSEK"}],
+            }
+            rows, watch = engine._build_narratives([event], {}, [])
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["score_version"], 2)
+            self.assertIn("aixbt_community_activity", rows[0]["score_components"])
+            self.assertEqual(watch[0]["symbol"], "FET")
+
+    def test_dex_and_coingecko_flags_support_discovery_not_news_count(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine = narrative.NarrativeEngine(root=Path(temp), clock=lambda: 1793448000.0)
+            event = {
+                "event_id": "aixbt:t2", "source_id": "aixbt_topics",
+                "source_kind": "topic_discovery", "rank": 3,
+                "themes": ["Yapay Zekâ (AI)"],
+                "symbols": [{"symbol": "FET", "confidence": "YÜKSEK"}],
+            }
+            rows, _watch = engine._build_narratives(
+                [event], {"FET": {"dex_activity": True, "coingecko_trending": True}}, []
+            )
+            self.assertIn("market_discovery_activity", rows[0]["score_components"])
+            self.assertEqual(rows[0]["coverage"]["independent_news_sources"], 0)
+
+    def test_new_score_schema_does_not_create_false_interest_velocity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine = narrative.NarrativeEngine(root=Path(temp), clock=lambda: 1793448000.0)
+            previous = [{
+                "narrative_id": "yapay-zeka-ai", "narrative_score": 15.0,
+                "score_components": {"old_component": 15.0}, "score_version": 1,
+            }]
+            event = {
+                "event_id": "aixbt:t3", "source_id": "aixbt_topics",
+                "source_kind": "topic_discovery", "rank": 1,
+                "post_count": 10, "author_count": 5,
+                "themes": ["Yapay Zekâ (AI)"],
+                "symbols": [{"symbol": "FET", "confidence": "YÜKSEK"}],
+            }
+            rows, _watch = engine._build_narratives([event], {}, previous)
+            self.assertEqual(rows[0]["interest_direction"], "İLK GÖZLEM")
+            self.assertIsNone(rows[0]["interest_change"])
+
+    def test_aixbt_and_cmc_category_are_discovery_not_media_confirmation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine = narrative.NarrativeEngine(root=Path(temp), clock=lambda: 1793448000.0)
+            aixbt = {
+                "event_id": "aixbt:t4", "source_id": "aixbt_topics",
+                "source_kind": "topic_discovery", "rank": 2,
+                "post_count": 30, "author_count": 10,
+                "themes": ["Yapay Zekâ (AI)"],
+                "symbols": [{"symbol": "FET", "confidence": "YÜKSEK"}],
+            }
+            category = narrative.build_cmc_category_event({
+                "id": "ai-cat", "name": "AI & Big Data",
+                "description": "Artificial intelligence and AI agents",
+                "momentum_score": 80, "coins": [{"symbol": "FET"}],
+            })
+            rows, _watch = engine._build_narratives([aixbt, category], {}, [])
+            self.assertEqual(rows[0]["coverage"]["independent_news_sources"], 0)
+            self.assertEqual(rows[0]["confidence"], "ORTA")
+            self.assertIn("category_market_momentum", rows[0]["score_components"])

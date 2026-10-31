@@ -45,6 +45,8 @@ CMC_FEAR_GREED_URL = f"{CMC_KEYLESS_BASE_URL}/v3/fear-and-greed/latest"
 CMC_ALTCOIN_SEASON_URL = f"{CMC_KEYLESS_BASE_URL}/v1/altcoin-season-index/latest"
 CMC100_INDEX_URL = f"{CMC_KEYLESS_BASE_URL}/v3/index/cmc100-latest"
 CMC20_INDEX_URL = f"{CMC_KEYLESS_BASE_URL}/v3/index/cmc20-latest"
+CMC_CATEGORIES_URL = f"{CMC_KEYLESS_BASE_URL}/v1/cryptocurrency/categories"
+CMC_CATEGORY_URL = f"{CMC_KEYLESS_BASE_URL}/v1/cryptocurrency/category"
 TRENDKIA_MCP_URL = "https://trendkia.com/mcp"
 MCP_PROTOCOL_VERSION = "2025-03-26"
 DEX_PROFILES_URL = "https://api.dexscreener.com/token-profiles/latest/v1"
@@ -68,6 +70,9 @@ SOURCE_INTERVALS = {
     "cmc_altcoin_season": 4 * 3600,
     "cmc100_index": 6 * 3600,
     "cmc20_index": 6 * 3600,
+    "cmc_narrative_categories": 6 * 3600,
+    "cmc_category_detail": 12 * 3600,
+    "cmc_category_details_batch": 6 * 3600,
     "trendkia_news": 1800,
     "dex_profiles": 600,
     "dex_community": 900,
@@ -82,10 +87,11 @@ MAX_SANTIMENT_SYMBOLS = 30
 USER_AGENT = "FirsatKontrolPaneli-NarrativeResearch/1.0 (+local desktop research client)"
 
 THEME_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Yapay Zekâ (AI)", ("artificial intelligence", "ai agent", "ai agents", "agentic", "machine learning", "yapay zeka")),
+    ("Yapay Zekâ (AI)", ("artificial intelligence", "ai & big data", "ai agent", "ai agents", "agentic", "machine learning", "yapay zeka")),
     ("Gerçek Dünya Varlıkları (RWA)", ("real world asset", "real-world asset", "tokenized asset", "tokenisation", "tokenization", "rwa")),
     ("Merkeziyetsiz Fiziksel Altyapı (DePIN)", ("depin", "decentralized physical infrastructure", "decentralised physical infrastructure")),
     ("Merkeziyetsiz Finans (DeFi)", ("defi", "decentralized finance", "decentralised finance", "yield farming", "liquidity protocol")),
+    ("Katman-1 (Layer 1)", ("layer 1", "layer-1", "layer one", "layer1", "l1 network")),
     ("Katman-2 (Layer 2)", ("layer 2", "layer-2", "rollup", "optimistic rollup", "zk rollup", "l2 network")),
     ("Yeniden Stake Etme (Restaking)", ("restaking", "re-staking", "liquid restaking")),
     ("Gerçek Getiri (Real Yield)", ("real yield", "fee-sharing", "revenue sharing")),
@@ -95,7 +101,10 @@ THEME_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Borsa Yatırım Fonu (ETF)", ("spot etf", "etf approval", "etf inflow", "exchange traded fund")),
     ("Gizlilik (Privacy)", ("privacy protocol", "zero knowledge", "zero-knowledge", "zk proof")),
     ("Stablecoin Ekosistemi", ("stablecoin", "payment settlement", "stable asset")),
-    ("Gerçek Zamanlı Veri ve Oracle", ("oracle network", "real-time data", "oracle integration")),
+    ("Gerçek Zamanlı Veri ve Oracle", ("oracle network", "real-time data", "oracle integration", "oracles")),
+    ("Modüler Blokzincir", ("modular blockchain", "modular network", "modular chain")),
+    ("Zincirler Arası Bağlantı", ("cross-chain", "cross chain", "interoperability", "bridge protocol")),
+    ("Merkeziyetsiz Bilim (DeSci)", ("desci", "decentralized science", "decentralised science")),
     ("Merkeziyetsiz Sosyal (SocialFi)", ("socialfi", "decentralized social", "decentralised social")),
 )
 
@@ -304,6 +313,158 @@ def parse_cmc_quotes(payload: Any) -> list[dict[str, Any]]:
             "last_updated": str(usd.get("last_updated") or item.get("last_updated") or ""),
         })
     return rows[:250]
+
+
+def cmc_category_momentum_score(item: dict[str, Any]) -> float | None:
+    """Bound category price/cap/volume changes to a transparent 0..100 score component."""
+    changes = (
+        _safe_float(item.get("avg_price_change")),
+        _safe_float(item.get("market_cap_change")),
+        _safe_float(item.get("volume_change")),
+    )
+    if not any(value is not None for value in changes):
+        return None
+    price_change, cap_change, volume_change = changes
+    score = 50.0 + (price_change or 0.0) * 0.7 + (cap_change or 0.0) * 0.25 + (volume_change or 0.0) * 0.25
+    return round(max(0.0, min(100.0, score)), 1)
+
+
+def parse_cmc_categories(payload: Any) -> list[dict[str, Any]]:
+    """Normalize only CMC categories matching the accepted crypto narrative themes."""
+    rows = []
+    for item in _cmc_data_records(payload):
+        category_id = str(item.get("id") or "").strip()
+        name = str(item.get("name") or item.get("title") or "").strip()
+        title = str(item.get("title") or name).strip()
+        description = str(item.get("description") or "").strip()
+        if not category_id or not name:
+            continue
+        themes = infer_themes(" ".join((name, title, description)))
+        if not themes:
+            continue
+        row = {
+            "id": category_id, "name": name[:180], "title": title[:180],
+            "description": description[:1200],
+            "num_tokens": _safe_int(item.get("num_tokens")),
+            "avg_price_change": _safe_float(item.get("avg_price_change")),
+            "market_cap": _safe_float(item.get("market_cap")),
+            "market_cap_change": _safe_float(item.get("market_cap_change")),
+            "volume": _safe_float(item.get("volume")),
+            "volume_change": _safe_float(item.get("volume_change")),
+            "last_updated": str(item.get("last_updated") or ""),
+            "themes": themes,
+        }
+        row["momentum_score"] = cmc_category_momentum_score(row)
+        rows.append(row)
+    rows.sort(
+        key=lambda item: (
+            item.get("momentum_score") is not None,
+            item.get("momentum_score") if item.get("momentum_score") is not None else -1,
+            item.get("num_tokens") or 0,
+        ),
+        reverse=True,
+    )
+    return rows[:MAX_SOURCE_ITEMS]
+
+
+def rank_cmc_narrative_categories(categories: list[dict[str, Any]], limit: int = 18) -> list[dict[str, Any]]:
+    rows = [item for item in categories if isinstance(item, dict) and item.get("themes")]
+    rows.sort(
+        key=lambda item: (
+            item.get("momentum_score") is not None,
+            item.get("momentum_score") if item.get("momentum_score") is not None else -1,
+            item.get("num_tokens") or 0,
+        ),
+        reverse=True,
+    )
+    return rows[:max(1, int(limit))]
+
+
+def parse_cmc_category_detail(
+    payload: Any,
+    category_summary: dict[str, Any],
+    allowed_cmc_ids_by_symbol: dict[str, int],
+) -> dict[str, Any]:
+    """Keep category members only when their CMC IDs match unique IDs in the shared USDT universe."""
+    records = _cmc_data_records(payload)
+    wanted_id = str(category_summary.get("id") or "")
+    category = next(
+        (item for item in records
+         if str(item.get("id") or "") == wanted_id and isinstance(item.get("coins"), list)),
+        None,
+    )
+    if category is None:
+        category = next((item for item in records if isinstance(item.get("coins"), list)), None)
+    if category is None:
+        return {}
+    coins = []
+    for item in category.get("coins", []):
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("symbol") or "").strip().upper()
+        cmc_id = _safe_int(item.get("id"))
+        if not symbol or cmc_id is None or allowed_cmc_ids_by_symbol.get(symbol) != cmc_id:
+            continue
+        usd = _cmc_usd_quote(item)
+        coins.append({
+            "id": cmc_id, "symbol": symbol, "name": str(item.get("name") or ""),
+            "slug": str(item.get("slug") or ""), "rank": _safe_int(item.get("cmc_rank")),
+            "price": _safe_float(usd.get("price")),
+            "volume_24h": _safe_float(usd.get("volume_24h")),
+            "volume_change_24h": _safe_float(usd.get("volume_change_24h")),
+            "percent_change_24h": _safe_float(usd.get("percent_change_24h")),
+            "market_cap": _safe_float(usd.get("market_cap")),
+            "last_updated": str(usd.get("last_updated") or item.get("last_updated") or ""),
+        })
+    return {
+        "id": wanted_id,
+        "name": str(category_summary.get("name") or category.get("name") or ""),
+        "title": str(category_summary.get("title") or category.get("title") or ""),
+        "description": str(category_summary.get("description") or category.get("description") or "")[:1200],
+        "num_tokens": _safe_int(category_summary.get("num_tokens") or category.get("num_tokens")),
+        "avg_price_change": _safe_float(category_summary.get("avg_price_change")),
+        "market_cap": _safe_float(category_summary.get("market_cap")),
+        "market_cap_change": _safe_float(category_summary.get("market_cap_change")),
+        "volume": _safe_float(category_summary.get("volume")),
+        "volume_change": _safe_float(category_summary.get("volume_change")),
+        "momentum_score": _safe_float(category_summary.get("momentum_score")),
+        "last_updated": str(category_summary.get("last_updated") or category.get("last_updated") or ""),
+        "coins": coins[:1000],
+    }
+
+
+def build_cmc_category_event(category: dict[str, Any]) -> dict[str, Any] | None:
+    """Create narrative discovery evidence from a CMC theme and its verified shared-universe coins."""
+    coins = category.get("coins") if isinstance(category.get("coins"), list) else []
+    symbols = sorted({
+        str(item.get("symbol") or "").strip().upper()
+        for item in coins if isinstance(item, dict) and item.get("symbol")
+    })
+    name = str(category.get("name") or category.get("title") or "").strip()
+    if not name or not symbols:
+        return None
+    category_id = str(category.get("id") or "")
+    searchable = " ".join((name, str(category.get("title") or ""), str(category.get("description") or "")))
+    themes = infer_themes(searchable) or [name[:90]]
+    return {
+        "event_id": "cmc_category:" + category_id,
+        "title": name[:300],
+        "summary": str(category.get("description") or "")[:1200],
+        "url": "https://coinmarketcap.com/cryptocurrency-category/",
+        "source_id": "cmc_narrative_categories",
+        "source_name": "CoinMarketCap Tematik Kategorileri",
+        "source_kind": "topic_discovery",
+        "published_at": str(category.get("last_updated") or ""),
+        "symbols": [{"symbol": symbol, "confidence": "YÜKSEK"} for symbol in symbols],
+        "themes": themes,
+        "category_id": category_id,
+        "category_momentum_score": _safe_float(category.get("momentum_score")),
+        "category_avg_price_change": _safe_float(category.get("avg_price_change")),
+        "category_market_cap_change": _safe_float(category.get("market_cap_change")),
+        "category_volume_change": _safe_float(category.get("volume_change")),
+        "category_num_tokens": _safe_int(category.get("num_tokens")),
+        "evidence_class": "TEMATİK KATEGORİ KEŞFİ",
+    }
 
 
 def parse_cmc_global_metrics(payload: Any) -> dict[str, Any]:
@@ -1228,6 +1389,157 @@ class NarrativeEngine:
             cmc_quotes_status, count_fn=lambda value: len(value or []),
         ) if cmc_ids else []
         statuses["cmc_quotes"] = cmc_quotes_status
+        cmc_id_by_symbol = {
+            symbol: int(row["id"])
+            for symbol, row in build_cmc_id_lookup(cmc_map or []).items()
+            if _safe_int(row.get("id")) is not None
+        }
+        category_list_status = _source_status(
+            "cmc_narrative_categories",
+            role="CMC ücretsiz Keyless tema kategorileri; kabul edilmiş kripto temalarına uyan kategorileri keşfeder.",
+        )
+        cmc_categories = self._fetch_source(
+            "cmc_narrative_categories",
+            SOURCE_INTERVALS["cmc_narrative_categories"],
+            lambda: parse_cmc_categories(self._get_json(
+                CMC_CATEGORIES_URL, params={"start": 1, "limit": 5000}
+            )),
+            category_list_status,
+            count_fn=lambda value: len(value or []),
+        )
+        statuses["cmc_narrative_categories"] = category_list_status
+        ranked_categories = rank_cmc_narrative_categories(cmc_categories or [], limit=18)
+
+        batch_key = "cmc_category_details_batch"
+        batch_entry = self.cache.get(batch_key)
+        batch_entry = batch_entry if isinstance(batch_entry, dict) else {}
+        selected_category_ids: set[str] = set()
+        if ranked_categories and self._due(batch_key, SOURCE_INTERVALS[batch_key]):
+            def category_refresh_age(row: dict[str, Any]) -> float:
+                entry = self.cache.get("cmc_category_" + str(row.get("id") or ""))
+                entry = entry if isinstance(entry, dict) else {}
+                return _safe_float(entry.get("last_success_epoch")) or 0.0
+
+            rotation = sorted(
+                ranked_categories,
+                key=lambda row: (
+                    category_refresh_age(row),
+                    -(_safe_float(row.get("momentum_score")) or 0.0),
+                ),
+            )
+            batch_success = 0
+            batch_errors = []
+            for category in rotation[:3]:
+                category_id = str(category.get("id") or "")
+                if not category_id:
+                    continue
+                cache_key = "cmc_category_" + category_id
+                category_status = _source_status(
+                    cache_key,
+                    role=f"CMC kategori coin eşleştirmesi: {category.get('name')}; ortak USDT evreniyle CMC ID doğrulaması.",
+                )
+                detail = self._fetch_source(
+                    cache_key,
+                    SOURCE_INTERVALS["cmc_category_detail"],
+                    lambda item=category: parse_cmc_category_detail(
+                        self._get_json(
+                            CMC_CATEGORY_URL,
+                            params={"id": str(item.get("id")), "start": 1, "limit": 1000, "convert": "USD"},
+                        ),
+                        item,
+                        cmc_id_by_symbol,
+                    ),
+                    category_status,
+                    count_fn=lambda value: len(value.get("coins", [])) if isinstance(value, dict) else 0,
+                )
+                category_status["name"] = f"CMC Kategori: {category.get('name') or category_id}"
+                statuses[cache_key] = category_status
+                selected_category_ids.add(category_id)
+                if isinstance(detail, dict) and detail.get("coins") and category_status.get("status") in ("BAĞLI", "ÖNBELLEK"):
+                    batch_success += 1
+                elif category_status.get("error"):
+                    batch_errors.append(str(category_status["error"]))
+
+            previous_success = _safe_float(batch_entry.get("last_success_epoch"))
+            batch_attempt = self.clock()
+            self.cache[batch_key] = {
+                "data": {"last_category_ids": sorted(selected_category_ids)},
+                "last_attempt_epoch": batch_attempt,
+                "last_success_epoch": batch_attempt if batch_success else previous_success,
+                "last_error": "; ".join(batch_errors)[:500] if batch_errors else None,
+            }
+
+        category_details: list[dict[str, Any]] = []
+        for category in ranked_categories:
+            category_id = str(category.get("id") or "")
+            if not category_id:
+                continue
+            cache_key = "cmc_category_" + category_id
+            cached_entry = self.cache.get(cache_key)
+            cached_entry = cached_entry if isinstance(cached_entry, dict) else {}
+            cached_detail = cached_entry.get("data")
+            if isinstance(cached_detail, dict):
+                category_details.append({
+                    **cached_detail,
+                    "name": category.get("name") or cached_detail.get("name"),
+                    "title": category.get("title") or cached_detail.get("title"),
+                    "description": category.get("description") or cached_detail.get("description"),
+                    "num_tokens": category.get("num_tokens") or cached_detail.get("num_tokens"),
+                    "avg_price_change": category.get("avg_price_change"),
+                    "market_cap_change": category.get("market_cap_change"),
+                    "volume_change": category.get("volume_change"),
+                    "momentum_score": category.get("momentum_score"),
+                    "last_updated": category.get("last_updated") or cached_detail.get("last_updated"),
+                })
+            if cache_key not in statuses:
+                last_success = _safe_float(cached_entry.get("last_success_epoch"))
+                cached_error = str(cached_entry.get("last_error") or "")
+                source_status = (
+                    "ÖNBELLEK" if isinstance(cached_detail, dict)
+                    else ("ERİŞİLEMEDİ" if cached_error else "SIRADA — KOTA KORUNUYOR")
+                )
+                category_status = _source_status(
+                    cache_key,
+                    role=f"CMC kategori coin eşleştirmesi: {category.get('name')}; CMC ID doğrulamalı.",
+                    status=source_status,
+                )
+                category_status["name"] = f"CMC Kategori: {category.get('name')}"
+                category_status["item_count"] = len(cached_detail.get("coins", [])) if isinstance(cached_detail, dict) else 0
+                if last_success:
+                    category_status["last_success_utc"] = datetime.fromtimestamp(
+                        last_success, timezone.utc
+                    ).isoformat(timespec="seconds")
+                    category_status["age_seconds"] = round(max(0.0, self.clock() - last_success), 1)
+                if cached_error:
+                    category_status["error"] = cached_error
+                statuses[cache_key] = category_status
+
+        category_events = [
+            event for detail in category_details
+            if (event := build_cmc_category_event(detail)) is not None
+        ]
+        category_coin_rows = [
+            coin
+            for detail in category_details
+            for coin in (detail.get("coins", []) if isinstance(detail.get("coins"), list) else [])
+            if isinstance(coin, dict)
+        ]
+        batch_cache_now = self.cache.get(batch_key)
+        batch_cache_now = batch_cache_now if isinstance(batch_cache_now, dict) else {}
+        batch_status = _source_status(
+            batch_key,
+            role="CMC kategori ayrıntı kotası: altı saatte en fazla üç kategori isteği.",
+            status="BAĞLI" if category_details else ("BEKLİYOR" if ranked_categories else "UYGUN TEMA KATEGORİSİ BULUNAMADI"),
+        )
+        batch_status["item_count"] = len(category_details)
+        attempt_epoch = _safe_float(batch_cache_now.get("last_attempt_epoch")) or 0.0
+        success_epoch = _safe_float(batch_cache_now.get("last_success_epoch")) or 0.0
+        if attempt_epoch:
+            batch_status["last_attempt_utc"] = datetime.fromtimestamp(attempt_epoch, timezone.utc).isoformat(timespec="seconds")
+        if success_epoch:
+            batch_status["last_success_utc"] = datetime.fromtimestamp(success_epoch, timezone.utc).isoformat(timespec="seconds")
+            batch_status["age_seconds"] = round(max(0.0, self.clock() - success_epoch), 1)
+        statuses[batch_key] = batch_status
 
         market_context: dict[str, Any] = {}
         cmc_context_sources = (
@@ -1302,7 +1614,6 @@ class NarrativeEngine:
             cg_status["item_count"] = 0
         statuses["coingecko_trending"] = cg_status
 
-        rss_events: list[dict[str, Any]] = []
         for feed in self._feed_list():
             key = f"rss_{feed['id']}"
             interval = int(self.settings.get("narrative_rss_interval_seconds", 900) or 900)
@@ -1359,6 +1670,9 @@ class NarrativeEngine:
             "cmc": cmc or [],
             "cmc_id_map": cmc_map or [],
             "cmc_quotes": cmc_quotes or [],
+            "cmc_category_details": category_details,
+            "cmc_category_events": category_events,
+            "cmc_category_coins": category_coin_rows,
             "market_context": market_context,
             "dex_profiles": dex_profiles or [],
             "dex_community": dex_community or [],
@@ -1481,6 +1795,7 @@ class NarrativeEngine:
         rss_events: list[dict[str, Any]],
         symbols: list[str],
         aliases: dict[str, list[str]],
+        category_events: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         events: dict[str, dict[str, Any]] = {}
         for topic in topics:
@@ -1538,6 +1853,11 @@ class NarrativeEngine:
                 "themes": themes or ["Piyasa Gelişmeleri"],
                 "evidence_class": "HABER/KATALİZÖR",
             }
+        for category_event in category_events or []:
+            if isinstance(category_event, dict):
+                event_id = str(category_event.get("event_id") or "")
+                if event_id:
+                    events[event_id] = dict(category_event)
         return list(events.values())
 
     def _market_map(
@@ -1597,18 +1917,31 @@ class NarrativeEngine:
                 group = grouped.setdefault(key, {
                     "narrative_id": key, "name": str(theme), "events": [],
                     "coins": {}, "news_sources": set(), "discovery_sources": set(),
-                    "aixbt_rank": None,
+                    "aixbt_rank": None, "aixbt_post_count": 0, "aixbt_author_count": 0,
+                    "category_momentum_scores": [],
                 })
                 group["events"].append(event)
                 source_id = str(event.get("source_id") or "")
                 if event.get("source_kind") in ("official", "media"):
                     group["news_sources"].add(source_id)
                 elif event.get("source_kind") == "topic_discovery":
-                    # AIXBT is narrative discovery intelligence, not an editorial publisher.
+                    # AIXBT and CMC categories are discovery sources, not editorial publishers.
                     group["discovery_sources"].add(source_id)
                     rank = _safe_int(event.get("rank"))
-                    if rank and (group["aixbt_rank"] is None or rank < group["aixbt_rank"]):
+                    if source_id == "aixbt_topics" and rank and (
+                        group["aixbt_rank"] is None or rank < group["aixbt_rank"]
+                    ):
                         group["aixbt_rank"] = rank
+                    if source_id == "aixbt_topics":
+                        group["aixbt_post_count"] = max(
+                            group["aixbt_post_count"], _safe_int(event.get("post_count")) or 0
+                        )
+                        group["aixbt_author_count"] = max(
+                            group["aixbt_author_count"], _safe_int(event.get("author_count")) or 0
+                        )
+                    category_score = _safe_float(event.get("category_momentum_score"))
+                    if category_score is not None:
+                        group["category_momentum_scores"].append(category_score)
                 for match in event.get("symbols", []):
                     base = str(match.get("symbol") or "").upper()
                     if base:
@@ -1639,11 +1972,26 @@ class NarrativeEngine:
             old_base_score = (
                 round(sum(previous_static_components) / len(previous_static_components), 1)
                 if previous_static_components else old_score
-            )
+            ) if previous_row.get("score_version") == 2 else None
             components: dict[str, float] = {}
 
             if topic_rank is not None:
                 components["aixbt_topic_rank"] = round(max(0.0, 100.0 - (topic_rank - 1) * 4.0), 1)
+            activity_scores = []
+            if group["aixbt_post_count"]:
+                posts = group["aixbt_post_count"]
+                activity_scores.append(100.0 * posts / (posts + 100.0))
+            if group["aixbt_author_count"]:
+                authors = group["aixbt_author_count"]
+                activity_scores.append(100.0 * authors / (authors + 25.0))
+            if activity_scores:
+                components["aixbt_community_activity"] = round(
+                    sum(activity_scores) / len(activity_scores), 1
+                )
+            if group["category_momentum_scores"]:
+                components["category_market_momentum"] = round(
+                    sum(group["category_momentum_scores"]) / len(group["category_momentum_scores"]), 1
+                )
             if group_events:
                 components["distinct_evidence_events"] = round(
                     min(100.0, len({e["event_id"] for e in group_events}) * 25.0), 1
@@ -1699,6 +2047,16 @@ class NarrativeEngine:
                     max(0.0, min(100.0, 50.0 + average_volume_change * 0.5)), 1
                 )
 
+            discovery_coin_count = sum(
+                bool(market_map.get(symbol, {}).get("dex_activity"))
+                or bool(market_map.get(symbol, {}).get("coingecko_trending"))
+                for symbol in symbols
+            )
+            if symbols and discovery_coin_count:
+                components["market_discovery_activity"] = round(
+                    min(100.0, 100.0 * discovery_coin_count / len(symbols)), 1
+                )
+
             # Measure acceleration from the preceding static evidence score.
             # Velocity is a bounded adjustment around the neutral 50 point, not an
             # averaged component that would lower a stable theme by itself.
@@ -1721,9 +2079,10 @@ class NarrativeEngine:
                 "YÜKSELİYOR" if change >= 5 else
                 "DÜŞÜYOR" if change <= -5 else "YATAY"
             )
+            diverse_discovery = len(discovery_sources) >= 2 or (bool(sources) and bool(discovery_sources))
             confidence = (
                 "YÜKSEK" if len(sources) >= 3 and len(group_events) >= 3 else
-                "ORTA" if len(sources) >= 2 else "DÜŞÜK"
+                "ORTA" if len(sources) >= 2 or diverse_discovery else "DÜŞÜK"
             )
 
             if not components or not group_events:
@@ -1756,6 +2115,7 @@ class NarrativeEngine:
                 ) if not available
             ]
             narrative = {
+                "score_version": 2,
                 "narrative_id": key,
                 "name": group["name"],
                 "phase": phase,
@@ -1999,10 +2359,14 @@ class NarrativeEngine:
     def run_cycle(self) -> dict[str, Any]:
         statuses, rss_events, source_data = self._collect_sources()
         symbols, universe = _load_common_symbols(self.root)
-        aliases = self._aliases(source_data["cmc"])
-        events = self._normalise_events(source_data["topics"], rss_events, symbols, aliases)
+        unique_cmc_rows = list(build_cmc_id_lookup(source_data["cmc_id_map"]).values())
+        aliases = self._aliases(unique_cmc_rows or source_data["cmc"])
+        events = self._normalise_events(
+            source_data["topics"], rss_events, symbols, aliases,
+            source_data.get("cmc_category_events", []),
+        )
         market_map = self._market_map(
-            source_data["cmc"] + source_data["cmc_quotes"],
+            source_data["cmc"] + source_data["cmc_quotes"] + source_data["cmc_category_coins"],
             source_data["dex_profiles"] + source_data["dex_community"],
             source_data["coingecko"],
             symbols,
@@ -2036,6 +2400,12 @@ class NarrativeEngine:
             and topic_status.get("status") in ("BAĞLI", "ÖNBELLEK")
             and topic_status.get("item_count", 0) > 0
         )
+        category_status = statuses.get("cmc_narrative_categories", {})
+        category_connected = bool(
+            isinstance(category_status, dict)
+            and category_status.get("status") in ("BAĞLI", "ÖNBELLEK")
+            and category_status.get("item_count", 0) > 0
+        )
         santiment_status = statuses.get("santiment", {})
         santiment_connected = bool(
             isinstance(santiment_status, dict)
@@ -2049,7 +2419,7 @@ class NarrativeEngine:
         state = {
             "schema_version": 1,
             "engine": "Naratif Avcısı",
-            "status": "ÇALIŞIYOR" if (connected_news or topic_connected or santiment_connected) else "KAYNAK VERİSİ BEKLENİYOR",
+            "status": "ÇALIŞIYOR" if (connected_news or topic_connected or category_connected or santiment_connected) else "KAYNAK VERİSİ BEKLENİYOR",
             "generated_at_utc": utc_now(),
             "first_observed_only": True,
             "historical_narrative_backfill": False,
@@ -2058,8 +2428,9 @@ class NarrativeEngine:
                 "news_feeds_connected": connected_news,
                 "news_feeds_enabled": enabled_news,
                 "aixbt_topic_source_connected": topic_connected,
-                "topic_sources_connected": int(topic_connected),
-                "evidence_sources_connected": connected_news + int(topic_connected),
+                "cmc_category_source_connected": category_connected,
+                "topic_sources_connected": int(topic_connected) + int(category_connected),
+                "evidence_sources_connected": connected_news + int(topic_connected) + int(category_connected),
                 "event_count": len(events),
                 "narrative_count": len(narratives),
                 "early_watch_count": len(early_watch),
@@ -2075,6 +2446,8 @@ class NarrativeEngine:
                 "cmc_coin_count": len(source_data["cmc"]),
                 "cmc_universe_quotes_count": len(source_data["cmc_quotes"]),
                 "cmc_unique_id_count": len(build_cmc_id_lookup(source_data["cmc_id_map"])),
+                "cmc_theme_category_count": len(source_data["cmc_category_details"]),
+                "cmc_theme_coin_matches": len(source_data["cmc_category_coins"]),
                 "dex_profiles_count": len(source_data["dex_profiles"]),
                 "dex_community_count": len(source_data["dex_community"]),
                 "santiment_coin_count": len(santiment_map),
@@ -2087,6 +2460,10 @@ class NarrativeEngine:
                 "CMC ID Map sembol çakışmalarını tahmin etmez; tekil CMC ID eşleşmesi bulunmayan coinlerin quote verisi atlanır.",
                 "CMC Global Metrics, Fear and Greed, Altcoin Season, CMC100 ve CMC20 piyasa bağlamıdır; teknik puan, güçlü fırsat kapısı ve teknik alarmı değiştirmez.",
                 "CMC fiyat/hacim verisi yalnızca mevcut naratif piyasa tepkisi alanını tamamlar; teknik radar puanına aktarılmaz.",
+                "CMC Categories/Category Keyless uçları tema→coin keşfi sağlar; tema listesi altı saatte bir, coin ayrıntıları en fazla üç kategori olacak şekilde altı saatte bir yenilenir.",
+                "Kategori coinleri yalnızca ortak Binance–BtcTurk USDT evrenindeki benzersiz CMC ID eşleşmesiyle erken izlemeye alınır; sembol benzerliği tek başına yeterli değildir.",
+                "AIXBT gönderi/katılımcı sayısı topluluk etkinliği bileşenidir; bağımsız haber teyidi veya teknik puan sayılmaz.",
+                "DEX Screener ve CoinGecko trend işaretleri eşleşen coinlerde piyasa keşif etkinliğini destekler; bağımsız haber teyidi değildir.",
                 "TrendKia herkese açık MCP üzerinden API anahtarı veya kart olmadan okunur; 30 yazılık akış 30 dakikada bir alınır ve 72 saat filtresinden geçirilir.",
                 "TrendKia yalnızca naratif haber kanıtıdır; teknik puanı ve güçlü fırsat koşullarını değiştirmez.",
                 "Investing.com ekonomik takvimi yalnızca resmi Türkçe sayfaya harici bağlantı olarak açılır; API bulunmadığı için veri otomatik çekilmez veya saklanmaz.",

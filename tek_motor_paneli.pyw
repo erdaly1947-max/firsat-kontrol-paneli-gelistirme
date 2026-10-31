@@ -1820,19 +1820,6 @@ class ControlPanel(tk.Tk):
                 f"Naratif sayısı: {coverage.get('narrative_count', len(narratives))}",
                 f"Erken izlenen coin: {coverage.get('early_watch_count', len(watch))}",
             ]
-            market_context = state.get("market_context") if isinstance(state.get("market_context"), dict) else {}
-            global_metrics = market_context.get("cmc_global_metrics") if isinstance(market_context.get("cmc_global_metrics"), dict) else {}
-            fear_greed = market_context.get("cmc_fear_greed") if isinstance(market_context.get("cmc_fear_greed"), dict) else {}
-            altcoin_season = market_context.get("cmc_altcoin_season") if isinstance(market_context.get("cmc_altcoin_season"), dict) else {}
-            if global_metrics or fear_greed or altcoin_season:
-                lines.extend([
-                    "",
-                    "CoinMarketCap piyasa bağlamı (teknik puandan bağımsız):",
-                    f"BTC hâkimiyeti: {global_metrics.get('bitcoin_dominance_pct', '—')}% · ETH hâkimiyeti: {global_metrics.get('ethereum_dominance_pct', '—')}%",
-                    f"Toplam piyasa değeri: {global_metrics.get('total_market_cap_usd', '—')} USD · 24s hacim: {global_metrics.get('total_volume_24h_usd', '—')} USD",
-                    f"Korku/Açgözlülük: {fear_greed.get('value', '—')} · {fear_greed.get('classification', '—')}",
-                    f"Altcoin Sezon Endeksi: {altcoin_season.get('index', '—')} / 100",
-                ])
             lines.extend(["", "Son naratif bildirimleri:"])
             lines.extend(str(item.get("message") or "") for item in alerts[-5:] if isinstance(item, dict))
             lines.extend([
@@ -1952,6 +1939,20 @@ class ControlPanel(tk.Tk):
                 "GEREKSİNİM: Ek API anahtarı olmadan herkese açık AIXBT v3 Topics uç noktası.",
                 "Bu uç nokta ilk 25 konuyu verir; kapsam tüm konu arşivi değildir.",
                 "Konu keşfi bağımsız haber yayıncısı teyidi sayılmaz.",
+            ])
+        elif source_id == "cmc_market_activity":
+            lines.extend([
+                "",
+                "GEREKSİNİM: CoinMarketCap Keyless anahtarsız ilk 100 coin listelemesi.",
+                "Bu veri piyasa aktivitesidir; haber veya bağımsız haber teyidi değildir.",
+            ])
+        elif source_id == "cmc_narrative_categories" or source_id == "cmc_category_details_batch" or source_id.startswith("cmc_category_"):
+            lines.extend([
+                "",
+                "ERİŞİM: CoinMarketCap ücretsiz Keyless kategori uçları; hesap, e-posta, API anahtarı veya kart gerektirmez.",
+                "Kategori listesi altı saatte bir taranır. Aynı taramada en fazla üç kategori coin listesi istenir; sonraki grup altı saat sonra yenilenir.",
+                "Coinler yalnızca ortak Binance–BtcTurk USDT evrenindeki benzersiz CMC ID eşleşmesiyle ilişkilendirilir.",
+                "Bu kaynak tema/proje keşfidir; bağımsız haber teyidi veya güçlü fırsat/alım alarmı değildir.",
             ])
         elif source_id.startswith("cmc_") or source_id in ("cmc100_index", "cmc20_index"):
             lines.extend([
@@ -2725,13 +2726,32 @@ class ControlPanel(tk.Tk):
         )
 
     def _refresh_market_page(self) -> None:
-        if hasattr(self, "market_context_text"):
-            self._set_text(
-                self.market_context_text,
-                _format_btc_context_details(self.current_state)
-                if isinstance(self.current_state, dict) and self.current_state
-                else "BTC piyasa bağlamı için motor verisi bekleniyor.",
-            )
+        if not hasattr(self, "market_context_text"):
+            return
+        lines = [
+            _format_btc_context_details(self.current_state)
+            if isinstance(self.current_state, dict) and self.current_state
+            else "BTC piyasa bağlamı için motor verisi bekleniyor."
+        ]
+        narrative_state = _read_json(NARRATIVE_STATE_PATH, {})
+        market_context = (
+            narrative_state.get("market_context")
+            if isinstance(narrative_state, dict) and isinstance(narrative_state.get("market_context"), dict)
+            else {}
+        )
+        global_metrics = market_context.get("cmc_global_metrics") if isinstance(market_context.get("cmc_global_metrics"), dict) else {}
+        fear_greed = market_context.get("cmc_fear_greed") if isinstance(market_context.get("cmc_fear_greed"), dict) else {}
+        altcoin_season = market_context.get("cmc_altcoin_season") if isinstance(market_context.get("cmc_altcoin_season"), dict) else {}
+        if global_metrics or fear_greed or altcoin_season:
+            lines.extend([
+                "",
+                "GENEL PİYASA BAĞLAMI — CMC (teknik puandan bağımsız)",
+                f"BTC hâkimiyeti: {global_metrics.get('bitcoin_dominance_pct', '—')}% · ETH hâkimiyeti: {global_metrics.get('ethereum_dominance_pct', '—')}%",
+                f"Toplam piyasa değeri: {global_metrics.get('total_market_cap_usd', '—')} USD · 24s hacim: {global_metrics.get('total_volume_24h_usd', '—')} USD",
+                f"Korku/Açgözlülük: {fear_greed.get('value', '—')} · {fear_greed.get('classification', '—')}",
+                f"Altcoin Sezon Endeksi: {altcoin_season.get('index', '—')} / 100",
+            ])
+        self._set_text(self.market_context_text, "\n".join(lines))
 
     def _refresh_settings_page(self) -> None:
         if not hasattr(self, "settings_diagnostics_text"):

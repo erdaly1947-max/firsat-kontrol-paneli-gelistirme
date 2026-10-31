@@ -971,3 +971,20 @@ Resmî kaynaklar:
 ### Test kapsamı
 
 Yeni testler CMC Keyless yanıt yapıları, USD quote dizisi, ID çakışması, toplu fiyat yanıtı, piyasa/sentiment göstergeleri, TrendKia MCP metin ayıklama/tarih filtresi, SSE aktarımı ve 429 bekleme süresini kapsar. Canlı MCP/CMC erişimi ve genel Actions sonucu, GitHub Actions tamamlandığında ayrıca raporlanır. ZIP veya Release bu test sonucuyla otomatik olarak onaylanmış sayılmaz.
+
+
+### Naratif Avcısı — tema→coin keşif katmanının genişletilmesi (31 Ekim 2026)
+
+CoinMarketCap'in **Categories** (`/v1/cryptocurrency/categories`) ve **Category** (`/v1/cryptocurrency/category`) uçları Free/Basic planda API anahtarı ve kayıt gerektirmeden kullanılabilir. Kategori listesi altı saatte bir taranır; kabul edilmiş kripto tema sözlüğüyle eşleşen kategoriler piyasa ivmesine göre sıralanır. Coin ayrıntıları ortak USDT evrenindeki benzersiz CMC ID'leriyle eşleştirilir. Aynı çalıştırmada en fazla üç kategori ayrıntı isteği yapılır; sonraki grup altı saat sonra yenilenir.
+
+Kategori piyasa ivmesi; CMC'nin ortalama fiyat, piyasa değeri ve hacim değişimi alanlarından 0–100 aralığında ayrı bir naratif bileşen üretir. Bu piyasa keşif bileşeni haber veya bağımsız teyit değildir. Kategori olayları `topic_discovery` (konu keşfi) sınıfındadır; editoryal haber kaynağı sayısına eklenmez.
+
+AIXBT'nin ücretsiz Topics akışındaki gönderi/katılımcı sayıları topluluk ilgi yoğunluğunu destekleyen ayrı bir bileşen oluşturur. DEX Screener profilleri ve CoinGecko Trending işaretleri, eşleşen coinlerde piyasa keşif etkinliğini destekler; bunlar da haber teyidi sayılmaz.
+
+Skor bileşenleri değiştiği için önceki puan sürümüyle karşılaştırma yapılarak sahte ilgi ivmesi üretilmez. Yeni puan şeması ilk kez görüldüğünde ilgi yönü “İLK GÖZLEM” olur; sonraki ivme yalnızca aynı skor sürümündeki gözlemler arasında hesaplanır.
+
+TrendKia haber akışı ile yapılandırılmış RSS/Atom yayınları aynı olay listesinde birlikte korunur. CMC genel piyasa göstergeleri Naratif Avcı özetinden çıkarılıp **BTC ve Piyasa** sayfasına taşınır; Naratif Avcı odağı tema ve coin keşfi olarak kalır.
+
+Resmî CMC dokümanları:
+- https://coinmarketcap.com/api/documentation/pro-api-reference/cryptocurrency
+- https://coinmarketcap.com/api/documentation/pro-api-reference/keyless-public-api
