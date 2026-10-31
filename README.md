@@ -75,6 +75,18 @@ Mevcut kaynakta şu işlev aileleri bulunur:
 
 Kodda işlevin bulunması, o işlevin tarihsel piyasa koşullarında kârlı çalıştığının kanıtı değildir. Gerçek piyasa verileri üzerinde sistematik backtest, kaçırılmış yükseliş/yanlış pozitif ölçümü ve maliyet sonrası net risk/getiri henüz bu README'de doğrulanmış tamamlanmış özellikler olarak gösterilemiyor.
 
+## Tarihsel geri test — tamamlanan ilk geliştirme aşaması
+
+- Modül: `tarihsel_geri_test.py`; mevcut `binance_mum_arsivi.py`, `radar_core.py` ve `build_trade_plan` işlevlerini kullanır. Canlı radardan ayrı bir teknik sinyal hesabı oluşturmaz.
+- Çalıştırma yeri: masaüstü panelinin **Raporlar** sayfası. Parite alanı boş bırakılırsa 5m arşivinde bulunan tüm USDT pariteleri kullanılır. İsteğe bağlı parite listesi virgül veya boşlukla ayrılır. Başlangıç/bitiş takvimi UTC tarihidir; bitiş günü dahildir. Geri test ayrı bir arka plan iş parçacığında çalışır ve güvenli durdurma kontrolü sunar.
+- Yeniden oynatma: her 5 dakikalık mumun kapanış anında değerlendirme yapılır. O anda tam kapanmamış mumlar dışarıda tutulur. Her zaman diliminde beklenen son mum yoksa o anki değerlendirme eksik işaretlenir; mum boşluğundan önceki veriler gösterge ısınmasına dahil edilmez.
+- Raporlar: her sinyal döneminin ilk tespit anı, A/B/C gelişimi ve karar değişimleri; 1h/4h/24h ileri kapanış getirileri; 24h MFE/MAE; teknik giriş/stop/ilk hedef olayları; JSON özet ve sıkıştırılmış aday-gözlem CSV dosyası.
+- Teknik plan geri testi: giriş bölgesi, stop ve ilk hedef yalnızca sonraki 5m mumlarının OHLC aralığından izlenir. Giriş ve hedef/stop aynı mumda görülürse olay sırası bilinmediği için sonuç belirsiz bırakılır. Seviye görülmesi gerçek emir dolumu sayılmaz. Tahmini komisyon varsayımı uygulanır; fiyat kayması (slippage) ve emir defteri etkisi hesaplanmaz.
+- Puan karşılaştırması: arşivde geçmiş emir defteri/spread/derinlik saklanmadığı için likidite bileşeni ölçülemez. Tarihsel puan bu 5 puanı toplamdan çıkarıp ölçülebilir bileşenleri 100'e ölçekler; güçlü fırsat uygunluğu ise `DEĞERLENDİRİLEMEDİ` kalır. Bu sonuç başarısız likidite kapısı veya güçlü fırsat teyidi gibi yorumlanmaz.
+- Naratif Avcı henüz bu aşamanın parçası değildir. Geçmiş tarihli naratif kayıtları mevcut olmadığından tarihsel naratif katkısı raporda açıkça değerlendirilemedi olarak gösterilir.
+- Kaçırılmış yükseliş sayısı, sayısal yükseliş eşiği mevcut tasarımda tanımlanmadığı için tahmin edilmez. Bu eşik ayrıca netleşmeden başarı/kaçırma oranı uydurulmaz.
+- Testler: `tests/test_historical_backtest.py` zaman sınırı, mum boşluğu, ileri fiyat ufukları, aynı mumdaki belirsiz olay sırası, arşiv parite listesi ve uçtan uca rapor yazımını sınar. `tests/windows_ui_smoke.py` Raporlar ekranında geri test başlat/durdur kontrollerini gerçek Windows Tkinter penceresinde doğrular.
+
 ## Önemli kaynak dosyaları
 
 - binance_erken_firsat_radari.py — ana analiz motoru ve canlı tarama.
