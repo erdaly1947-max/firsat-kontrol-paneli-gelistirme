@@ -1138,3 +1138,9 @@ GitHub'ın herkese açık REST API'si kimlik doğrulama olmadan kullanılabilir;
 Seçilen depo adayı için en fazla beş son commit örneği alınır. GitHub araması ve commit ayrıntısı birlikte en fazla iki HTTP isteği/altı saat, yani normal durumda en fazla sekiz istek/gün bütçesinde kalır. GitHub'ın resmî dokümanındaki kimlik doğrulamasız REST ana sınırı saat başına 60 istektir; 403/429 ve reset/Retry-After yanıtları geri çekilme süresine uydurulur. GitHub'da depo araması tek başına resmî sahiplik kanıtı değildir; arayüzde her eşleşme "resmî sahiplik teyitsiz depo adayı" olarak gösterilir.
 
 GitHub commit/push bilgisi geliştirme etkinliği bağlamıdır; kod kalitesi, proje güvenliği, token fiyatı veya yatırım değeri kanıtı değildir. NewsData ve GitHub sonuçları haber/teknik/naratif puanlarına, A/B/C eşiklerine, güçlü fırsat koşullarına veya alarm kararlarına eklenmez. İki kaynak da teknik aday araştırma kartında diğer kanıtlardan ayrı gösterilir.
+
+### Coin ayrıntı paneli ve doğrulama durumu
+
+Teknik adayın coin ayrıntısında GitHub depo adayının bağlantısı, eşleşme güveni, yıldız/fork sayısı, depo dili/konuları, son push zamanı ve en fazla üç son commit örneği gösterilir. Resmî sahiplik teyit edilmediği uyarısı her durumda korunur. NewsData haberleri ortak RSS/TrendKia tekilleştirme zincirinde görünür; tekrar yayıncılar bağımsız teyit sayısını artırmaz.
+
+Bu kodlama aşamasında test komutları çalıştırılmadı. NewsData, GitHub, RSS, Santiment, DEX ve DeFiLlama dâhil bütünleşik kontroller, kullanıcının belirlediği son toplu test grubunda birlikte çalıştırılacaktır. Bu nedenle entegrasyonlar kodlandı olarak kaydedilir; test edilmiş veya canlı erişimi doğrulanmış sayılmaz.
