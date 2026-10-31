@@ -1943,6 +1943,13 @@ class ControlPanel(tk.Tk):
                 "GEREKSİNİM: DEX Screener herkese açık profil/topluluk uç noktası; API anahtarı kullanılmaz.",
                 "Profil veya topluluk görünürlüğü tek başına organik talep ya da bağımsız haber teyidi değildir.",
             ])
+        elif source_id in ("x_api", "reddit", "santiment"):
+            lines.extend([
+                "",
+                "DURUM: Bu kaynak için veri toplama entegrasyonu bu sürümde bulunmuyor.",
+                "Bu kaynaktan veri alınmıyor; naratif puanı, güven veya kaynak çeşitliliğine katkı vermiyor.",
+                "İleride yalnızca erişim koşulları ve izinleri doğrulanırsa ayrıca bağlanabilir.",
+            ])
         if source.get("error"):
             lines.extend(["", "SON HATA:", str(source.get("error"))])
         else:
