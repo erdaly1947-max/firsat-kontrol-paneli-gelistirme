@@ -124,7 +124,7 @@ class MarketDataRelayTests(unittest.TestCase):
         self.assertEqual(mocked.call_count, len(direct_urls) + 1)
         self.assertEqual(
             [call.args[0] for call in mocked.call_args_list],
-            direct_urls + [relay_url],
+            [*direct_urls, relay_url],
         )
         status = ortak_piyasa.get_market_route_status()["binance_rest"]
         self.assertEqual(status["mode"], "render")
@@ -247,9 +247,9 @@ class MarketDataRelayTests(unittest.TestCase):
 
     def test_render_and_direct_failure_during_cooldown_retries_both_routes(self):
         relay_url = "https://firsat.example.workers.dev/binance/api/v3/klines"
-        direct_urls = [
-            base + "/api/v3/klines" for base in ortak_piyasa.BINANCE_REST_BASES
-        ]
+        direct_urls = ortak_piyasa._market_direct_urls(
+            "https://api.binance.com/api/v3/klines", "binance_rest"
+        )
         ortak_piyasa._market_route_states["binance_rest"] = {
             "mode": "render", "direct_failures": 1,
             "retry_direct_at": time.monotonic() + 120,
