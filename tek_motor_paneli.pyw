@@ -1943,8 +1943,10 @@ class ControlPanel(tk.Tk):
                 "GEREKSİNİM: HTTPS RSS/Atom adresi.",
                 "Kaynak listesi ayarlar.json içindeki narrative_rss_feeds alanından değiştirilebilir.",
                 "Yenileme aralığı narrative_rss_interval_seconds alanından ayarlanabilir.",
-                "Varsayılan yayınlar: Ethereum Foundation, CoinDesk, Cointelegraph ve The Block.",
-                "Bu yayın akışlarının erişilebilirliği her çalıştırmada ayrı test edilir.",
+                "Varsayılan yayınlar: Ethereum Foundation, CoinDesk, Cointelegraph, The Block, Decrypt, Bitcoin Magazine ve The Defiant.",
+                "Aynı haber URL, başlık ve sınırlı zaman penceresindeki benzer başlıkla tek olaya birleştirilir.",
+                "Tekrar yayıncıları gösterilir ancak bağımsız haber teyidi veya naratif puanı yapay olarak artırılmaz.",
+                "Varsayılan yenileme aralığı 30 dakikadır; narrative_rss_interval_seconds ile 15 dakika–24 saat arasında ayarlanabilir.",
             ])
         elif source_id == "aixbt_topics":
             lines.extend([

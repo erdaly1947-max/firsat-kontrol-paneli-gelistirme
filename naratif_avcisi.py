@@ -7,18 +7,21 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import logging
 import os
 import re
+import unicodedata
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import requests
 
@@ -62,6 +65,9 @@ DEFAULT_FEEDS = [
     {"id": "coindesk", "name": "CoinDesk", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml", "kind": "media"},
     {"id": "cointelegraph", "name": "Cointelegraph", "url": "https://cointelegraph.com/rss", "kind": "media"},
     {"id": "the_block", "name": "The Block", "url": "https://www.theblock.co/rss.xml", "kind": "media"},
+    {"id": "decrypt", "name": "Decrypt", "url": "https://decrypt.co/feed", "kind": "media"},
+    {"id": "bitcoin_magazine", "name": "Bitcoin Magazine", "url": "https://bitcoinmagazine.com/feed", "kind": "media"},
+    {"id": "the_defiant", "name": "The Defiant", "url": "https://thedefiant.io/feed/", "kind": "media"},
 ]
 SOURCE_INTERVALS = {
     "aixbt_topics": 300,
@@ -97,6 +103,9 @@ CMC_CATEGORY_RECENT_DETAIL_SECONDS = 48 * 3600
 CMC_CATEGORY_EXPLORATION_MIN_TOKENS = 2
 CMC_CATEGORY_EXPLORATION_MIN_MOMENTUM = 60.0
 MAX_RSS_ITEMS_PER_FEED = 100
+RSS_DEFAULT_INTERVAL_SECONDS = 1800
+RSS_MIN_INTERVAL_SECONDS = 900
+RSS_DEDUP_WINDOW_SECONDS = 72 * 3600
 MAX_SANTIMENT_SYMBOLS = 30
 MAX_AIXBT_TOPICS_PER_REFRESH = 5
 MAX_AIXBT_PROJECTS_PER_TOPIC = 50
@@ -838,8 +847,113 @@ def parse_dex_records(payload: Any) -> list[dict[str, Any]]:
     return result[:MAX_SOURCE_ITEMS]
 
 
+def canonicalize_news_url(value: str) -> str:
+    """Normalize article URLs and discard tracking-only query parameters."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return ""
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        return ""
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return ""
+    if host.startswith("www."):
+        host = host[4:]
+    port = parsed.port
+    netloc = host
+    if port and not ((parsed.scheme.lower() == "https" and port == 443)
+                     or (parsed.scheme.lower() == "http" and port == 80)):
+        netloc = f"{host}:{port}"
+    path = re.sub(r"/{2,}", "/", parsed.path or "/")
+    if path != "/":
+        path = path.rstrip("/")
+    ignored = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "ref_src", "source"}
+    query = [
+        (key, item) for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.lower().startswith("utm_") and key.lower() not in ignored
+    ]
+    query.sort(key=lambda row: (row[0].casefold(), row[1]))
+    return urlunparse(("https", netloc, path, "", urlencode(query, doseq=True), ""))
+
+
+def normalize_news_title(value: str) -> str:
+    """Normalize editorial punctuation and whitespace without discarding meaningful words."""
+    text = html.unescape(str(value or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = unicodedata.normalize("NFKC", text).casefold()
+    text = text.replace("&", " and ")
+    text = re.sub(r"[^0-9a-zçğıöşü]+", " ", text)
+    return " ".join(text.split())
+
+
+def _news_timestamp_epoch(value: str) -> float | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    parsed = None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        try:
+            parsed = parsedate_to_datetime(raw)
+        except (TypeError, ValueError, OverflowError):
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    try:
+        return parsed.timestamp()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _news_headlines_are_near_duplicates(
+    left_title: str,
+    right_title: str,
+    left_date: str,
+    right_date: str,
+    left_symbols: set[str] | None = None,
+    right_symbols: set[str] | None = None,
+) -> bool:
+    """Merge only very similar headlines published close together, avoiding broad topic matches."""
+    left = normalize_news_title(left_title)
+    right = normalize_news_title(right_title)
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if min(len(left), len(right)) < 32:
+        return False
+    left_epoch = _news_timestamp_epoch(left_date)
+    right_epoch = _news_timestamp_epoch(right_date)
+    if left_epoch is None or right_epoch is None:
+        return False
+    if abs(left_epoch - right_epoch) > RSS_DEDUP_WINDOW_SECONDS:
+        return False
+    left_symbol_set = left_symbols or set()
+    right_symbol_set = right_symbols or set()
+    if left_symbol_set and right_symbol_set and not (left_symbol_set & right_symbol_set):
+        return False
+    left_tokens = {token for token in left.split() if len(token) > 2}
+    right_tokens = {token for token in right.split() if len(token) > 2}
+    if min(len(left_tokens), len(right_tokens)) < 4:
+        return False
+    shared = left_tokens & right_tokens
+    shorter_coverage = len(shared) / min(len(left_tokens), len(right_tokens))
+    union = left_tokens | right_tokens
+    jaccard = len(shared) / len(union) if union else 0.0
+    sequence_ratio = SequenceMatcher(None, left, right, autojunk=False).ratio()
+    return (
+        sequence_ratio >= 0.93
+        or (sequence_ratio >= 0.87 and shorter_coverage >= 0.90 and jaccard >= 0.76)
+    )
+
+
 def parse_rss_items(xml_text: str, *, source_id: str, source_name: str, source_kind: str) -> list[dict[str, Any]]:
-    """Parse both RSS 2.0 and Atom without adding an XML dependency."""
+    """Parse RSS 2.0 and Atom, preferring article links over feed/self/hub links."""
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as exc:
@@ -850,26 +964,49 @@ def parse_rss_items(xml_text: str, *, source_id: str, source_name: str, source_k
         if local not in ("item", "entry"):
             continue
         fields: dict[str, str] = {}
+        article_links: list[str] = []
+        fallback_links: list[str] = []
         for child in list(node):
             child_name = child.tag.rsplit("}", 1)[-1].lower()
+            text = "".join(child.itertext()).strip()
             if child_name == "link":
-                link = child.attrib.get("href") or (child.text or "")
-            else:
-                link = ""
-            text = (child.text or "").strip()
-            if child_name in ("title", "description", "summary", "content", "published", "updated", "pubdate", "guid"):
-                fields[child_name] = re.sub(r"<[^>]+>", " ", text)
-            if link:
-                fields["link"] = link.strip()
+                candidate = str(child.attrib.get("href") or text).strip()
+                rel = str(child.attrib.get("rel") or "alternate").strip().lower()
+                if candidate:
+                    if rel in ("", "alternate"):
+                        article_links.append(candidate)
+                    else:
+                        fallback_links.append(candidate)
+                continue
+            if child_name in (
+                "title", "description", "summary", "content", "published",
+                "updated", "pubdate", "guid", "date",
+            ):
+                clean = html.unescape(re.sub(r"<[^>]+>", " ", text))
+                fields[child_name] = " ".join(clean.split())
         title = fields.get("title", "").strip()
         if not title:
             continue
+        url = next(iter(article_links or fallback_links), "")
+        guid = fields.get("guid", "").strip()
+        if not url and guid.startswith(("https://", "http://")):
+            url = guid
+        canonical_url = canonicalize_news_url(url)
+        normalized_title = normalize_news_title(title)
+        published_at = (
+            fields.get("published") or fields.get("updated")
+            or fields.get("pubdate") or fields.get("date") or ""
+        )
+        fingerprint = _event_id("url:" + canonical_url) if canonical_url else _event_id("title:" + normalized_title)
         result.append({
-            "id": _event_id(title),
+            "id": fingerprint,
             "title": title[:300],
+            "title_fingerprint": _event_id(normalized_title),
             "summary": (fields.get("summary") or fields.get("description") or fields.get("content") or "")[:1800],
-            "url": fields.get("link", "")[:1000],
-            "published_at": fields.get("published") or fields.get("updated") or fields.get("pubdate") or "",
+            "url": url[:1000],
+            "canonical_url": canonical_url,
+            "guid": guid[:1000],
+            "published_at": published_at[:120],
             "source_id": source_id,
             "source_name": source_name,
             "source_kind": source_kind,
@@ -1569,17 +1706,27 @@ class NarrativeEngine:
         custom = self.settings.get("narrative_rss_feeds")
         feeds = custom if isinstance(custom, list) and custom else DEFAULT_FEEDS
         result = []
+        seen_urls: set[str] = set()
+        seen_ids: set[str] = set()
         for index, item in enumerate(feeds):
             if not isinstance(item, dict):
                 continue
             url = str(item.get("url") or "").strip()
+            canonical_url = canonicalize_news_url(url)
             name = str(item.get("name") or f"RSS {index + 1}").strip()
-            feed_id = str(item.get("id") or f"rss_{index + 1}").strip()
+            raw_id = str(item.get("id") or f"rss_{index + 1}").strip().lower()
+            feed_id = re.sub(r"[^a-z0-9_-]+", "_", raw_id).strip("_")[:64]
             kind = str(item.get("kind") or "media").strip().lower()
             parsed = urlparse(url)
-            if parsed.scheme != "https" or not parsed.netloc:
+            if parsed.scheme.lower() != "https" or not parsed.netloc or not canonical_url:
                 continue
-            result.append({"id": feed_id, "name": name, "url": url, "kind": kind})
+            if kind not in ("official", "media"):
+                kind = "media"
+            if not feed_id or feed_id in seen_ids or canonical_url in seen_urls:
+                continue
+            seen_ids.add(feed_id)
+            seen_urls.add(canonical_url)
+            result.append({"id": feed_id, "name": name[:100], "url": url, "kind": kind})
         return result[:20]
 
     def _collect_sources(self) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
@@ -1895,8 +2042,11 @@ class NarrativeEngine:
 
         for feed in self._feed_list():
             key = f"rss_{feed['id']}"
-            interval = int(self.settings.get("narrative_rss_interval_seconds", 900) or 900)
-            interval = max(300, min(interval, 86400))
+            interval = int(
+                self.settings.get("narrative_rss_interval_seconds", RSS_DEFAULT_INTERVAL_SECONDS)
+                or RSS_DEFAULT_INTERVAL_SECONDS
+            )
+            interval = max(RSS_MIN_INTERVAL_SECONDS, min(interval, 86400))
             status = _source_status(key, role=f"{feed['kind']} RSS/Atom yayın akışı.")
             data = self._fetch_source(
                 key, interval,
@@ -2339,37 +2489,116 @@ class NarrativeEngine:
                 "evidence_class": "NARATİF KEŞFİ",
             }
 
+        news_event_keys: list[str] = []
         for raw in rss_events:
             title = str(raw.get("title") or "").strip()
-            summary = str(raw.get("summary") or "")
-            text = f"{title} {summary}"
-            fingerprint = _event_id(title)
-            key = "news:" + fingerprint
-            matches = match_symbols(text, symbols, aliases)
-            if key in events:
-                # Exact/syndicated headline is one event. Republishing never multiplies
-                # independent confirmations or the narrative source-diversity score.
-                publishers = events[key].setdefault("republishers", [])
-                source_name = str(raw.get("source_name") or raw.get("source_id") or "")
-                if source_name and source_name not in publishers:
-                    publishers.append(source_name)
+            if not title:
                 continue
+            summary = str(raw.get("summary") or "")
+            published_at = str(raw.get("published_at") or "")
+            text = f"{title} {summary}"
+            matches = match_symbols(text, symbols, aliases)
+            match_symbols_set = {
+                str(match.get("symbol") or "").upper()
+                for match in matches if isinstance(match, dict) and match.get("symbol")
+            }
+            canonical_url = canonicalize_news_url(
+                str(raw.get("canonical_url") or raw.get("url") or "")
+            )
+            normalized_title = normalize_news_title(title)
+            fingerprint = _event_id("url:" + canonical_url) if canonical_url else _event_id("title:" + normalized_title)
+            proposed_key = "news:" + fingerprint
+
+            duplicate_key = proposed_key if proposed_key in events else None
+            duplicate_reason = "URL" if duplicate_key and canonical_url else (
+                "BAŞLIK" if duplicate_key else ""
+            )
+            if duplicate_key is None:
+                for existing_key in news_event_keys:
+                    existing = events.get(existing_key, {})
+                    existing_url = canonicalize_news_url(
+                        str(existing.get("canonical_url") or existing.get("url") or "")
+                    )
+                    if canonical_url and existing_url and canonical_url == existing_url:
+                        duplicate_key = existing_key
+                        duplicate_reason = "URL"
+                        break
+                    if normalize_news_title(str(existing.get("title") or "")) == normalized_title:
+                        duplicate_key = existing_key
+                        duplicate_reason = "BAŞLIK"
+                        break
+                    existing_symbols = {
+                        str(match.get("symbol") or "").upper()
+                        for match in existing.get("symbols", [])
+                        if isinstance(match, dict) and match.get("symbol")
+                    }
+                    if _news_headlines_are_near_duplicates(
+                        title,
+                        str(existing.get("title") or ""),
+                        published_at,
+                        str(existing.get("published_at") or ""),
+                        match_symbols_set,
+                        existing_symbols,
+                    ):
+                        duplicate_key = existing_key
+                        duplicate_reason = "BENZER BAŞLIK"
+                        break
+
+            if duplicate_key is not None:
+                # Republished copies remain visible as publisher metadata, not separate
+                # independent news evidence or additional narrative score components.
+                existing = events[duplicate_key]
+                source_id = str(raw.get("source_id") or "rss")
+                source_name = str(raw.get("source_name") or source_id)
+                publisher_ids = existing.setdefault(
+                    "publisher_ids",
+                    [str(existing.get("source_id") or "")],
+                )
+                if source_id and source_id not in publisher_ids:
+                    publisher_ids.append(source_id)
+                republishers = existing.setdefault("republishers", [])
+                if source_name and source_name != existing.get("source_name") and source_name not in republishers:
+                    republishers.append(source_name)
+                alternate_urls = existing.setdefault("alternate_urls", [])
+                raw_url = str(raw.get("url") or "")
+                if raw_url and raw_url != existing.get("url") and raw_url not in alternate_urls:
+                    alternate_urls.append(raw_url[:1000])
+                existing["duplicate_match"] = duplicate_reason
+                existing["duplicate_publisher_count"] = max(0, len(publisher_ids) - 1)
+                if len(summary) > len(str(existing.get("summary") or "")):
+                    existing["summary"] = summary[:1800]
+                if not existing.get("published_at") and published_at:
+                    existing["published_at"] = published_at
+                continue
+
             themes = infer_themes(text)
             if not themes:
                 themes = [f"{match['symbol']} Proje Gelişmeleri" for match in matches[:3]]
-            events[key] = {
+            key = proposed_key
+            # Hash collisions or a previous discovery event with the same identifier
+            # must not overwrite a different event.
+            if key in events:
+                key = "news:" + _event_id(key + "|" + normalized_title + "|" + str(raw.get("source_id") or ""))
+            event = {
                 "event_id": key,
                 "title": title,
-                "summary": summary,
-                "url": str(raw.get("url") or ""),
+                "summary": summary[:1800],
+                "url": str(raw.get("url") or "")[:1000],
+                "canonical_url": canonical_url,
                 "source_id": str(raw.get("source_id") or "rss"),
                 "source_name": str(raw.get("source_name") or "RSS"),
                 "source_kind": str(raw.get("source_kind") or "media"),
-                "published_at": str(raw.get("published_at") or ""),
+                "published_at": published_at[:120],
                 "symbols": matches,
                 "themes": themes or ["Piyasa Gelişmeleri"],
+                "publisher_ids": [str(raw.get("source_id") or "rss")],
+                "republishers": [],
+                "alternate_urls": [],
+                "duplicate_publisher_count": 0,
                 "evidence_class": "HABER/KATALİZÖR",
             }
+            events[key] = event
+            news_event_keys.append(key)
         for category_event in category_events or []:
             if isinstance(category_event, dict):
                 event_id = str(category_event.get("event_id") or "")

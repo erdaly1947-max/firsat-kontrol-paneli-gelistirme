@@ -39,14 +39,14 @@ Kaynak kodda bir adresin bulunması, canlı bağlantının başarılı olduğu a
 | DEX Screener token profiles | Anahtarsız proje/token görünürlüğü. Tek başına organik talep veya haber teyidi değildir. |
 | DEX Screener community takeovers | Anahtarsız topluluk görünürlüğü. Tek başına bağımsız haber teyidi değildir. |
 | CoinGecko Trending | Ücretsiz Demo erişimi için COINGECKO_DEMO_API_KEY ortam değişkeni gerekir. Anahtar yoksa devre dışıdır; gizli anahtar ayarlar dosyasına yazılmaz. |
-| RSS/Atom | Varsayılan akışlar Ethereum Foundation, CoinDesk, Cointelegraph ve The Block. HTTPS adresleri ayarlar.json içindeki narrative_rss_feeds ile, aralık narrative_rss_interval_seconds ile düzenlenebilir. Her yayın akışının erişimi ayrı izlenir. |
+| RSS/Atom | Varsayılan akışlar Ethereum Foundation, CoinDesk, Cointelegraph, The Block, Decrypt, Bitcoin Magazine ve The Defiant. HTTPS adresleri ayarlar.json içindeki narrative_rss_feeds ile, aralık narrative_rss_interval_seconds ile düzenlenebilir. Her yayın akışı ayrı izlenir; URL/başlık/benzer başlık tekilleştirmesi tekrar yayıncıları puan artırmadan saklar. |
 | AIXBT konu→proje eşlemesi | Ek API erişimi/hesap yetkisi gerekebileceği için kullanılmıyor; bağlı gibi gösterilmez. |
 | Santiment Individuals Free | Yalnızca ücretsiz ve güncel erişimli `active_addresses_24h` ile `dev_activity` (modern:v1) sorgulanır. Proje kataloğu sembol/ad tam eşleşmesiyle bağlanır. API anahtarı `SANTIMENT_API_KEY` ortam değişkeninden okunur. |
 | Santiment kısıtlı ölçümleri | Social Volume/Dominance, Community Social Volume, transaction volume ve exchange inflow/outflow kullanılmaz: Free API erişiminde kısıtlı ölçümlerin son 30 günü kapalıdır; güncel naratif takibi için uygun değildir. |
 | X | Kullanıcı kararıyla entegrasyondan vazgeçildi; hiçbir X API çağrısı yapılmaz. |
 | Reddit | Data API başvurusu gönderildi; onay ve OAuth bilgileri bekleniyor. Bu aşamada veri çağrısı yapılmaz. |
 
-Naratif motoru kaynak hatasında diğer kaynaklara devam eder. HTTP isteklerinin zaman aşımı 10 saniyedir. Kaynak aralıkları AIXBT 5 dakika, CMC/DEX profilleri/CoinGecko 10 dakika, DEX topluluk akışı 15 dakika, RSS varsayılan 15 dakikadır. Santiment proje kataloğu 30 günde bir; ücretsiz aktif adres ve geliştirici etkinliği ölçümleri 6 saatte bir sorgulanır. En fazla 30 eşleşen coin tek metrik sorgusunda toplu alınır. Free API aylık 1.000 çağrı sınırı içinde yaklaşık 241 çağrı/30 gün hedeflenir. API anahtarı yalnızca `SANTIMENT_API_KEY` ortam değişkeninden okunur. Herhangi bir kaynağın canlı erişimi yalnızca programın çalışma anında BAĞLI sonucu alınırsa doğrulanmış sayılır.
+Naratif motoru kaynak hatasında diğer kaynaklara devam eder. HTTP isteklerinin zaman aşımı 10 saniyedir. Kaynak aralıkları AIXBT 5 dakika, CMC/DEX profilleri/CoinGecko 10 dakika, DEX topluluk akışı 15 dakika, RSS varsayılan 30 dakikadır. Santiment proje kataloğu 30 günde bir; ücretsiz aktif adres ve geliştirici etkinliği ölçümleri 6 saatte bir sorgulanır. En fazla 30 eşleşen coin tek metrik sorgusunda toplu alınır. Free API aylık 1.000 çağrı sınırı içinde yaklaşık 241 çağrı/30 gün hedeflenir. API anahtarı yalnızca `SANTIMENT_API_KEY` ortam değişkeninden okunur. Herhangi bir kaynağın canlı erişimi yalnızca programın çalışma anında BAĞLI sonucu alınırsa doğrulanmış sayılır.
 
 ### Naratif puanı ve geçmişin yorumu
 
@@ -1052,3 +1052,16 @@ Kaynak örneğinin zamanı (`sample_at_utc`), Santiment hesaplama zamanı (`comp
 Coin ayrıntısında aktif adreslerin son altı saatlik örneği ve geliştirici etkinliğinin son yedi günlük örneği gösterilir. SQLite geçmişi API anahtarı geçici olarak bulunmadığında da, önceden önbelleğe alınmış Santiment proje kataloğuyla eşleştirme yapılabildiği ölçüde okunabilir. Yeni veri çekmek için `SANTIMENT_API_KEY` ortam değişkeni yine gereklidir.
 
 Bu kayıt yalnızca gözlem ve araştırma içindir; naratif puanını, teknik puanı, A/B/C aşamalarını, güçlü fırsat koşullarını veya alarm kararlarını değiştirmez. Program eski tarihlere kendi adına gözlem uydurmaz. İlk çalıştırmada sağlayıcının sunduğu son 2 günlük/saatlik ve 15 günlük/günlük gerçek örnekler kaydedilebilir; programın yerel takip geçmişi bu örneklerin ilk alınma zamanından başlar. Ham Santiment erişim aralıkları ve ücretsiz kota politikası değiştirilmemiştir.
+
+
+---
+
+## RSS/Atom kaynakları ve haber tekilleştirme — 31 Ekim 2026
+
+Varsayılan RSS/Atom listesi yedi kaynaktır: Ethereum Foundation (resmî proje duyuruları), CoinDesk, Cointelegraph, The Block, Decrypt, Bitcoin Magazine ve The Defiant. Kaynaklar HTTPS üzerinden alınır; her yayın akışının başarı, hata, önbellek ve veri yaşı ayrı izlenir. Kullanıcının `ayarlar.json` içindeki `narrative_rss_feeds` özel liste tanımı varsayılan listenin yerine geçer; aynı URL veya kaynak kimliği ikinci kez eklenmez. Kaynak başına istek sayısını tutumlu tutmak için varsayılan yenileme 30 dakikadır; ayar 15 dakika ile 24 saat arasında sınırlandırılır.
+
+RSS 2.0 ve Atom ayrıştırıcısı Atom `alternate` bağlantısını tercih eder; `self`/`hub` bağlantılarını haber adresi olarak seçmez. Haber bağlantısı yoksa URL biçimindeki GUID yedek olarak kullanılır. URL normalleştirmesi `www`, sondaki eğik çizgi, izleme sorgu parametreleri ve parça kimliğini tek biçime getirir.
+
+Haber tekilleştirme sırası: (1) normalleştirilmiş makale URL'si, (2) noktalama/HTML farkları temizlenmiş tam başlık, (3) yalnızca iki yayın tarihi 72 saat içinde olduğunda yüksek benzerlikli başlık kontrolü. Benzer başlık karşılaştırması metin benzerliği yanında kelime örtüşmesini ve varsa coin eşleşmesini de dikkate alır; yalnızca aynı konuya değinen ama farklı gelişmeleri otomatik birleştirmemek için kısa başlıklar veya tarih bilgisi eksik kayıtlar benzerlik kuralıyla birleştirilmez.
+
+Aynı haber birden fazla yayıncıda yer alırsa tek olay olarak tutulur. İlk yayıncı ana kaynak kalır; diğer yayıncılar ve alternatif bağlantılar olay ayrıntısında saklanır. Tekrar yayıncıları bağımsız haber kaynağı sayısına, haber olay sayısına veya naratif puanına eklenmez. Haber tekilleştirme yalnızca editoryal RSS/TrendKia olayları içindir; AIXBT/CMC keşif olayları haber teyidi olarak sınıflandırılmaz.
