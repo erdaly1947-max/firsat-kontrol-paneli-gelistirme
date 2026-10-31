@@ -306,7 +306,12 @@ def _load_common_symbols(root: Path = ROOT) -> tuple[list[str], dict[str, Any]]:
             "verified": True,
         }
 
-    local = _read_json(root / "btcturk_usdt_spot.json", {})
+    local = {}
+    for local_path in (root / "data" / "btcturk_usdt_spot.json", root / "btcturk_usdt_spot.json"):
+        candidate = _read_json(local_path, {})
+        if isinstance(candidate, dict) and isinstance(candidate.get("symbols"), dict) and candidate["symbols"]:
+            local = candidate
+            break
     local_symbols = local.get("symbols") if isinstance(local, dict) else None
     fallback = []
     if isinstance(local_symbols, dict):
@@ -419,7 +424,7 @@ class NarrativeEngine:
             url,
             headers={"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})},
             params=params,
-            timeout=18,
+            timeout=10,
         )
         if response.status_code in (418, 429):
             raise RuntimeError(f"Kaynak hız sınırı yanıtı verdi: HTTP {response.status_code}; alternatif hostla aşılmadı.")
@@ -430,7 +435,7 @@ class NarrativeEngine:
         response = self.session.get(
             url,
             headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"},
-            timeout=18,
+            timeout=10,
         )
         if response.status_code in (418, 429):
             raise RuntimeError(f"RSS kaynağı hız sınırı yanıtı verdi: HTTP {response.status_code}.")
@@ -460,6 +465,10 @@ class NarrativeEngine:
         last_success = entry.get("last_success_epoch")
         last_attempt = entry.get("last_attempt_epoch")
         if self._due(key, interval):
+            if self.stop_file.exists():
+                status["status"] = "DURDURMA İSTENDİ"
+                status["item_count"] = len(data) if isinstance(data, list) else 0
+                return data
             attempted = self.clock()
             status["last_attempt_utc"] = datetime.fromtimestamp(attempted, timezone.utc).isoformat(timespec="seconds")
             self.cache[key] = {**entry, "last_attempt_epoch": attempted}
@@ -1009,6 +1018,21 @@ class NarrativeEngine:
                         ),
                     })
                     seen.add(alert_id)
+        # Alerts are durable notifications, but are not orders or technical strong signals.
+        with sqlite3.connect(self.history_path) as connection:
+            for item in alerts[-50:]:
+                if not isinstance(item, dict):
+                    continue
+                connection.execute(
+                    """INSERT OR IGNORE INTO narrative_alerts
+                    (alert_id,created_at_utc,narrative_id,alert_type,message)
+                    VALUES (?,?,?,?,?)""",
+                    (
+                        item.get("alert_id"), item.get("created_at_utc", utc_now()),
+                        item.get("narrative_id", ""), item.get("alert_type", ""),
+                        item.get("message", ""),
+                    ),
+                )
         return alerts[-50:]
 
     def run_cycle(self) -> dict[str, Any]:
