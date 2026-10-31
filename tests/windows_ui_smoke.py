@@ -50,6 +50,12 @@ def main() -> int:
             raise AssertionError(
                 f"Navigation buttons do not match page frames: {sorted(app.workspace_nav_buttons)}"
             )
+        if not hasattr(app, "backtest_symbols_var") or not hasattr(app, "backtest_start_button"):
+            raise AssertionError("Historical backtest controls are missing from the Reports workspace.")
+        if str(app.backtest_start_button.cget("text")) != "Geri Testi Başlat":
+            raise AssertionError("Historical backtest start control is not connected to the Reports workspace.")
+        if str(app.backtest_cancel_button.cget("text")) != "Durdur":
+            raise AssertionError("Historical backtest cancellation control is missing.")
 
         for page in (
             "overview", "radar", "tracking", "analysis", "market",
@@ -124,6 +130,7 @@ def main() -> int:
         print("WINDOWS_ALL_9_WORKSPACE_NAVIGATION_OK")
         print("WINDOWS_ALL_8_CHART_TIMEFRAMES_OK")
         print("WINDOWS_SHARED_START_STOP_EVENT_BINDINGS_OK")
+        print("WINDOWS_HISTORICAL_BACKTEST_REPORTS_CONTROLS_OK")
         return 0
     finally:
         if app is not None:
