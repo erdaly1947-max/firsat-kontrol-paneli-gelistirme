@@ -2024,7 +2024,7 @@ class ControlPanel(tk.Tk):
             "Santiment verisi yardımcı bilgidir; naratif puanını ve teknik fırsat koşullarını değiştirmez.",
             "Teknik radar henüz sinyal üretmemiş olsa bile coin naratif nedeniyle erken takipte tutulur.",
             "Bu kayıt teknik puana eklenmez ve tek başına güçlü fırsat/alım alarmı oluşturmaz.",
-        ]
+        ])
         self._set_text(self.narrative_detail_text, "\n".join(lines))
 
     def _candidate_for_symbol(self, symbol: str) -> dict[str, Any] | None:
