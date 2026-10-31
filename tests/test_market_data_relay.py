@@ -100,9 +100,9 @@ class MarketDataRelayTests(unittest.TestCase):
 
     def test_direct_fallback_checks_all_binance_hosts_before_render(self):
         relay_url = "https://firsat.example.workers.dev/binance/api/v3/klines"
-        direct_urls = [
-            base + "/api/v3/klines" for base in ortak_piyasa.BINANCE_REST_BASES
-        ]
+        direct_urls = ortak_piyasa._market_direct_urls(
+            "https://api.binance.com/api/v3/klines", "binance_rest"
+        )
 
         def request(url, **kwargs):
             if url in direct_urls:
