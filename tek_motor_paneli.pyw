@@ -1072,6 +1072,31 @@ class ControlPanel(tk.Tk):
         detail_frame.rowconfigure(0, weight=1)
         detail_frame.columnconfigure(0, weight=1)
 
+        self.radar_narrative_frame = ttk.LabelFrame(
+            self.quick_panel,
+            text="Naratif erken izleme — teknik sinyal beklenmiyor",
+            padding=(5, 3),
+        )
+        self.radar_narrative_frame.pack(fill="x", pady=(4, 2))
+        radar_watch_columns = ("symbol", "score", "phase", "direction")
+        self.radar_narrative_tree = ttk.Treeview(
+            self.radar_narrative_frame,
+            columns=radar_watch_columns,
+            show="headings",
+            selectmode="browse",
+            height=3,
+        )
+        for column, label, width in (
+            ("symbol", "Coin", 78), ("score", "Naratif", 75),
+            ("phase", "Aşama", 105), ("direction", "İlgi", 95),
+        ):
+            self.radar_narrative_tree.heading(column, text=label)
+            self.radar_narrative_tree.column(column, width=width, minwidth=50, anchor="center")
+        self.radar_narrative_tree.pack(fill="x")
+        self.radar_narrative_tree.bind(
+            "<Double-1>", lambda _event: self._open_narrative_watch_from_radar()
+        )
+
         self.technical_panel = ttk.Frame(self.right_content, padding=(4, 4, 4, 4))
         ttk.Label(self.technical_panel, text="Göstergeler · sekiz zaman dilimi · fiyat yapısı · eksik kanıtlar", style="Section.TLabel").pack(anchor="w", pady=(0, 4))
         tech_text_frame = ttk.Frame(self.technical_panel)
@@ -1187,27 +1212,32 @@ class ControlPanel(tk.Tk):
         narrative_split.add(narrative_right, weight=4)
         narrative_table_frame = ttk.LabelFrame(narrative_left, text="Naratifler", padding=7)
         narrative_table_frame.pack(fill="both", expand=True, pady=(0, 7))
-        narrative_columns = ("name", "phase", "score", "direction", "coins", "confidence")
+        narrative_columns = ("name", "phase", "score", "direction", "coins", "confidence", "data")
         self.narrative_tree = ttk.Treeview(
             narrative_table_frame, columns=narrative_columns, show="headings", selectmode="browse",
         )
         for column, label, width in (
-            ("name", "Naratif", 210), ("phase", "Aşama", 110), ("score", "Naratif Puanı", 95),
-            ("direction", "İlgi", 105), ("coins", "Coin sayısı", 80), ("confidence", "Güven", 80),
+            ("name", "Naratif", 190), ("phase", "Aşama", 105), ("score", "Naratif Puanı", 95),
+            ("direction", "İlgi", 100), ("coins", "İlişkili coinler", 180),
+            ("confidence", "Güven", 75), ("data", "Veri", 70),
         ):
             self.narrative_tree.heading(column, text=label)
-            self.narrative_tree.column(column, width=width, minwidth=55, stretch=column in ("name", "direction"))
+            self.narrative_tree.column(
+                column, width=width, minwidth=55,
+                stretch=column in ("name", "coins", "direction"),
+            )
         self.narrative_tree.pack(fill="both", expand=True)
         self.narrative_tree.bind("<<TreeviewSelect>>", lambda _event: self._narrative_show_selected())
         self.narrative_watch_frame = ttk.LabelFrame(narrative_left, text="Teknik sinyalden önce erken izlenen coinler", padding=7)
         self.narrative_watch_frame.pack(fill="both", expand=True)
-        watch_columns = ("symbol", "score", "phase", "confidence", "themes")
+        watch_columns = ("symbol", "score", "phase", "direction", "confidence", "themes")
         self.narrative_watch_tree = ttk.Treeview(
             self.narrative_watch_frame, columns=watch_columns, show="headings", selectmode="browse", height=7,
         )
         for column, label, width in (
-            ("symbol", "Coin", 85), ("score", "Naratif Puanı", 95),
-            ("phase", "Aşama", 110), ("confidence", "Güven", 80), ("themes", "İlişkili temalar", 260),
+            ("symbol", "Coin", 75), ("score", "Naratif Puanı", 90),
+            ("phase", "Aşama", 100), ("direction", "İlgi", 95),
+            ("confidence", "Güven", 75), ("themes", "İlişkili temalar", 250),
         ):
             self.narrative_watch_tree.heading(column, text=label)
             self.narrative_watch_tree.column(column, width=width, minwidth=50, stretch=column == "themes")
@@ -1629,10 +1659,49 @@ class ControlPanel(tk.Tk):
         self._refresh_plans_page()
         self._refresh_market_page()
         self._refresh_settings_page()
+        self._refresh_radar_narrative_watch()
         if self.workspace_current_page == "analysis":
             self._refresh_analysis_view()
         elif self.workspace_current_page == "narrative":
             self._refresh_narrative_page()
+
+    def _refresh_radar_narrative_watch(self) -> None:
+        if not hasattr(self, "radar_narrative_tree"):
+            return
+        state = _read_json(NARRATIVE_STATE_PATH, {})
+        rows = state.get("early_watch", []) if isinstance(state, dict) else []
+        selected = self.radar_narrative_tree.selection()
+        selected_symbol = selected[0] if selected else None
+        self.radar_narrative_tree.delete(*self.radar_narrative_tree.get_children())
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            self.radar_narrative_tree.insert(
+                "", "end", iid=symbol,
+                values=(
+                    symbol,
+                    item.get("narrative_score") if item.get("narrative_score") is not None else "—",
+                    item.get("phase", "—"),
+                    item.get("interest_direction", "—"),
+                ),
+            )
+        if selected_symbol and self.radar_narrative_tree.exists(selected_symbol):
+            self.radar_narrative_tree.selection_set(selected_symbol)
+
+    def _open_narrative_watch_from_radar(self) -> None:
+        selection = self.radar_narrative_tree.selection() if hasattr(self, "radar_narrative_tree") else ()
+        if not selection:
+            return
+        symbol = selection[0]
+        self._show_workspace_page("narrative")
+        self._refresh_narrative_page()
+        if self.narrative_watch_tree.exists(symbol):
+            self.narrative_watch_tree.selection_set(symbol)
+            self.narrative_watch_tree.focus(symbol)
+            self._narrative_show_watch()
 
     def _refresh_narrative_page(self) -> None:
         if not hasattr(self, "narrative_tree"):
@@ -1672,14 +1741,20 @@ class ControlPanel(tk.Tk):
             narrative_id = str(item.get("narrative_id") or item.get("name") or "")
             if not narrative_id:
                 continue
+            related_coins = item.get("related_coins") if isinstance(item.get("related_coins"), list) else []
+            coverage = item.get("coverage") if isinstance(item.get("coverage"), dict) else {}
+            missing_evidence = coverage.get("missing") if isinstance(coverage.get("missing"), list) else []
+            coin_label = ", ".join(str(symbol) for symbol in related_coins[:6]) or "Eşleşme yok"
+            if len(related_coins) > 6:
+                coin_label += "…"
             self.narrative_tree.insert(
                 "", "end", iid=narrative_id,
                 values=(
                     item.get("name", "—"), item.get("phase", "—"),
                     item.get("narrative_score") if item.get("narrative_score") is not None else "—",
                     item.get("interest_direction", "—"),
-                    len(item.get("related_coins", [])) if isinstance(item.get("related_coins"), list) else 0,
-                    item.get("confidence", "—"),
+                    coin_label, item.get("confidence", "—"),
+                    "EKSİK" if missing_evidence else "KANIT VAR",
                 ),
             )
         if selected_id and self.narrative_tree.exists(selected_id):
@@ -1699,7 +1774,8 @@ class ControlPanel(tk.Tk):
                 "", "end", iid=symbol,
                 values=(
                     symbol, item.get("narrative_score") if item.get("narrative_score") is not None else "—",
-                    item.get("phase", "—"), item.get("confidence", "—"),
+                    item.get("phase", "—"), item.get("interest_direction", "—"),
+                    item.get("confidence", "—"),
                     ", ".join(item.get("narratives", [])[:3]) if isinstance(item.get("narratives"), list) else "—",
                 ),
             )
@@ -1760,8 +1836,12 @@ class ControlPanel(tk.Tk):
             f"İlgi yönü / değişim: {selected.get('interest_direction', '—')} / {selected.get('interest_change', '—')}",
             f"Güven: {selected.get('confidence', '—')}",
             f"İlişkili coinler: {', '.join(selected.get('related_coins', [])) or 'Eşleşme yok'}",
-            f"Kaynak aileleri: {', '.join(selected.get('sources', [])) or '—'}",
-            f"Farklı olay: {coverage.get('event_count', 0)} · bağımsız kaynak: {coverage.get('independent_news_sources', 0)}",
+            f"Bağımsız haber kaynakları: {', '.join(selected.get('sources', [])) or '—'}",
+            f"Naratif keşif kaynakları: {', '.join(selected.get('discovery_sources', [])) or '—'}",
+            f"Farklı olay: {coverage.get('event_count', 0)} · bağımsız haber: {coverage.get('independent_news_sources', 0)}",
+            f"En güncel kaynak yaşı: {_format_age(selected.get('data_freshness_seconds')) if selected.get('data_freshness_seconds') is not None else 'hesaplanamadı'}",
+            f"24 saat fiyat tepkisi ort.: {selected.get('market_reaction_24h_pct_avg', '—')}%",
+            f"24 saat hacim değişimi ort.: {selected.get('average_volume_change_24h', '—')}%",
             f"Eksik kanıt: {', '.join(coverage.get('missing', [])) or 'Belirtilmedi'}",
             "",
             "Puan bileşenleri:",
@@ -1800,7 +1880,10 @@ class ControlPanel(tk.Tk):
             f"İlişkili temalar: {', '.join(selected.get('narratives', []))}",
             f"Aşama: {selected.get('phase', '—')}",
             f"Güven: {selected.get('confidence', '—')}",
-            f"Kaynaklar: {', '.join(selected.get('sources', []))}",
+            f"Bağımsız haber kaynakları: {', '.join(selected.get('sources', [])) or '—'}",
+            f"Naratif keşif kaynakları: {', '.join(selected.get('discovery_sources', [])) or '—'}",
+            f"İlgi yönü: {selected.get('interest_direction', '—')}",
+            f"En güncel kaynak yaşı: {_format_age(selected.get('data_freshness_seconds')) if selected.get('data_freshness_seconds') is not None else 'hesaplanamadı'}",
             "",
             "Teknik radar henüz sinyal üretmemiş olsa bile coin naratif nedeniyle erken takipte tutulur.",
             "Bu kayıt teknik puana eklenmez ve tek başına güçlü fırsat/alım alarmı oluşturmaz.",
