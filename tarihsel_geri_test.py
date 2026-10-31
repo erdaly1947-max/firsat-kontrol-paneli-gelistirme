@@ -501,6 +501,12 @@ def run_historical_backtest(
                         if active_episode is not None:
                             active_episode["coverage_gaps_count"] = int(active_episode.get("coverage_gaps_count", 0)) + 1
                         continue
+                    if len(symbol_bars["5m"]) < 30:
+                        # A short post-gap tail is not evidence that a previous signal ended.
+                        skipped_points += 1
+                        if active_episode is not None:
+                            active_episode["coverage_gaps_count"] = int(active_episode.get("coverage_gaps_count", 0)) + 1
+                        continue
 
                     btc_bars: dict[str, list[dict[str, Any]]] = {}
                     btc_notes: list[str] = []
@@ -586,6 +592,18 @@ def run_historical_backtest(
                             "initial_decision": candidate.get("final_decision"),
                             "initial_findings": candidate.get("findings", []),
                             "initial_risk_plan": candidate.get("risk_plan"),
+                            "technical_plan_start_ms": (
+                                as_of_ms if (
+                                    isinstance(candidate.get("risk_plan"), dict)
+                                    and candidate["risk_plan"].get("technical_targets_available") is True
+                                ) else None
+                            ),
+                            "technical_plan_start_price": (
+                                latest_price if (
+                                    isinstance(candidate.get("risk_plan"), dict)
+                                    and candidate["risk_plan"].get("technical_targets_available") is True
+                                ) else None
+                            ),
                             "latest_phase": phase,
                             "latest_score": candidate.get("opportunity_score"),
                             "latest_decision": candidate.get("final_decision"),
@@ -611,6 +629,16 @@ def run_historical_backtest(
                                 "from": active_episode.get("latest_decision"), "to": candidate.get("final_decision"),
                             })
                         active_episode["latest_phase"] = phase
+                        if (
+                            active_episode.get("technical_plan_start_ms") is None
+                            and isinstance(candidate.get("risk_plan"), dict)
+                            and candidate["risk_plan"].get("technical_targets_available") is True
+                        ):
+                            # Freeze the first valid plan when one appears; an A-stage
+                            # detection may precede the later B/C technical plan.
+                            active_episode["initial_risk_plan"] = candidate.get("risk_plan")
+                            active_episode["technical_plan_start_ms"] = as_of_ms
+                            active_episode["technical_plan_start_price"] = latest_price
                         active_episode["latest_score"] = candidate.get("opportunity_score")
                         active_episode["latest_decision"] = candidate.get("final_decision")
                         old_max_score = _safe_number(active_episode.get("maximum_score"))
@@ -665,9 +693,21 @@ def run_historical_backtest(
                     episode["mfe_mae_24h"] = _excursion_24h(
                         full_5m, all_close_times, signal_ms, signal_price,
                     )
-                    episode["technical_plan_evaluation"] = _evaluate_technical_plan(
-                        episode.get("initial_risk_plan"), full_5m, all_close_times, signal_ms,
+                    plan_start_ms = episode.get("technical_plan_start_ms")
+                    if plan_start_ms is None:
+                        episode["technical_plan_evaluation"] = {
+                            "status": "PLAN OLUŞMADI — TEKNİK İŞLEM PLANI YOK"
+                        }
+                    else:
+                        episode["technical_plan_evaluation"] = _evaluate_technical_plan(
+                            episode.get("initial_risk_plan"), full_5m, all_close_times,
+                            int(plan_start_ms),
+                        )
+                    episode["technical_plan_created_at_utc"] = (
+                        datetime.fromtimestamp(int(plan_start_ms) / 1000, timezone.utc).isoformat()
+                        if plan_start_ms is not None else None
                     )
+                    episode.pop("technical_plan_start_ms", None)
                     episode["historical_liquidity_status"] = (
                         "DEĞERLENDİRİLEMEDİ — emir defteri, spread ve derinlik geçmişi arşivde yok"
                     )
