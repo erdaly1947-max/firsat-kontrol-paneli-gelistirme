@@ -370,5 +370,26 @@ class NarrativeRuntimeTests(unittest.TestCase):
         self.assertIn("market_volume_reaction_24h", meme["score_components"])
 
 
+
+
+    def test_unchanged_evidence_does_not_create_false_interest_acceleration(self):
+        engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+        events = [{
+            "event_id": "stable-event",
+            "title": "Ethereum layer 2 development",
+            "source_id": "alpha",
+            "source_kind": "media",
+            "themes": ["Katman-2 (Layer 2)"],
+            "symbols": [{"symbol": "ARB", "confidence": "YÜKSEK"}],
+        }]
+        market = {"ARB": {"percent_change_24h": 3.0, "volume_change_24h": 5.0}}
+        sources = {"rss_alpha": {"age_seconds": 120}}
+        first, _ = engine._build_narratives(events, market, [], source_statuses=sources)
+        second, _ = engine._build_narratives(events, market, first, source_statuses=sources)
+        self.assertAlmostEqual(second[0]["narrative_score"], first[0]["narrative_score"], places=1)
+        self.assertEqual(second[0]["interest_direction"], "YATAY")
+        self.assertEqual(second[0]["score_components"]["interest_velocity"], 50.0)
+
+
 if __name__ == "__main__":
     unittest.main()
