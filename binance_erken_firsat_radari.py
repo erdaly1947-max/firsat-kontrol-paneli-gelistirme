@@ -59,6 +59,8 @@ TIMEFRAMES = {
     "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h",
     "4h": "4h", "1d": "1d", "1w": "1w", "1M": "1M",
 }
+NARRATIVE_MOTOR_BRIDGE_PATH = DATA_DIR / "naratif_motor_koprusu.json"
+NARRATIVE_BRIDGE_MAX_ITEMS = 100
 BOOTSTRAP_LIMIT = 90
 MIN_STORAGE_MAINTENANCE_INTERVAL_SECONDS = 3600
 MAX_STORAGE_MAINTENANCE_INTERVAL_SECONDS = 30 * 24 * 60 * 60
@@ -1051,6 +1053,185 @@ def _assess_liquidity_snapshot(
         "sampled_at_epoch": latest_sample.get("timestamp_epoch"),
     }
 
+
+
+
+
+_NARRATIVE_BRIDGE_METRIC_KEYS = (
+    "close", "one_bar_change_pct", "three_bar_change_pct", "positive_return_z",
+    "current_volume", "volume_unusual", "volume_persistence_count",
+    "directional_structure", "breakout_level", "previous_resistance", "previous_support",
+    "compression_ratio", "compression", "rising_lows", "near_resistance",
+    "continuity", "retest_hold", "ema_fast", "ema_slow", "ema_bullish",
+    "ema_confirmed_bullish", "ema_cross_up", "macd_line", "macd_signal",
+    "macd_histogram", "macd_histogram_rising", "rsi_14", "adx_14",
+    "plus_di_14", "minus_di_14", "atr_14",
+)
+
+
+def _bridge_finite_number(value: Any) -> float | int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if math.isfinite(float(value)) else None
+
+
+def _bridge_timeframe_summary(candidate: dict[str, Any]) -> dict[str, Any]:
+    raw_timeframes = candidate.get("timeframes")
+    if not isinstance(raw_timeframes, dict):
+        return {}
+    result: dict[str, Any] = {}
+    for timeframe in TIMEFRAMES:
+        assessment = raw_timeframes.get(timeframe)
+        if not isinstance(assessment, dict):
+            continue
+        raw_metrics = assessment.get("metrics")
+        metrics = {}
+        if isinstance(raw_metrics, dict):
+            for key in _NARRATIVE_BRIDGE_METRIC_KEYS:
+                value = raw_metrics.get(key)
+                if isinstance(value, bool) or value is None or isinstance(value, str):
+                    metrics[key] = value
+                elif _bridge_finite_number(value) is not None:
+                    metrics[key] = value
+        result[timeframe] = {
+            "phase": assessment.get("phase"),
+            "state": assessment.get("state"),
+            "data_sufficient": assessment.get("data_sufficient") is True,
+            "closed_bars": assessment.get("closed_bars"),
+            "required_closed_bars": assessment.get("required_closed_bars"),
+            "metrics": metrics,
+            "missing_checks": [
+                str(value)[:220]
+                for value in assessment.get("missing_checks", [])[:4]
+            ] if isinstance(assessment.get("missing_checks"), list) else [],
+        }
+    return result
+
+
+def _bridge_symbol(row: dict[str, Any]) -> str:
+    symbol = str(row.get("base_asset") or row.get("symbol") or "").strip().upper()
+    if symbol.endswith("USDT"):
+        symbol = symbol[:-4]
+    return symbol[:32]
+
+
+def build_narrative_motor_bridge_payload(
+    candidates: list[dict[str, Any]],
+    narrative_state: dict[str, Any],
+    *,
+    generated_at_utc: str | None = None,
+    narrative_state_fresh: bool = False,
+) -> dict[str, Any]:
+    """Create the one-way technical-engine output read by Naratif Avcı."""
+    generated_at_utc = generated_at_utc or utc_now()
+    candidate_rows = [row for row in candidates if isinstance(row, dict)]
+    candidate_by_symbol = {
+        _bridge_symbol(row): row for row in candidate_rows if _bridge_symbol(row)
+    }
+
+    technical_candidates = []
+    for row in candidate_rows:
+        symbol = _bridge_symbol(row)
+        phase = row.get("phase")
+        if (
+            not symbol
+            or phase not in ("A", "B", "C")
+            or row.get("data_freshness") != "CANLI AKIŞ GÜNCEL"
+        ):
+            continue
+        technical_candidates.append({
+            "symbol": symbol,
+            "phase": phase,
+            "phase_timeframe": row.get("phase_timeframe"),
+            "state": row.get("state"),
+            "latest_price": _bridge_finite_number(row.get("latest_price")),
+            "opportunity_score": _bridge_finite_number(row.get("opportunity_score")),
+            "final_decision": row.get("final_decision"),
+            "findings": [
+                str(value)[:220] for value in row.get("findings", [])[:6]
+            ] if isinstance(row.get("findings"), list) else [],
+            "generated_at_utc": row.get("generated_at_utc"),
+        })
+        if len(technical_candidates) >= NARRATIVE_BRIDGE_MAX_ITEMS:
+            break
+
+    raw_watch = narrative_state.get("early_watch")
+    watch_rows = raw_watch if isinstance(raw_watch, list) else []
+    technical_watch = []
+    seen_symbols: set[str] = set()
+    for watch in watch_rows:
+        if not isinstance(watch, dict):
+            continue
+        symbol = _bridge_symbol(watch)
+        if not symbol or symbol in seen_symbols:
+            continue
+        seen_symbols.add(symbol)
+        row = candidate_by_symbol.get(symbol)
+        data_freshness = row.get("data_freshness") if isinstance(row, dict) else None
+        phase = row.get("phase") if isinstance(row, dict) else None
+        if not narrative_state_fresh:
+            tracking_status = "NARATİF VERİSİ ESKİ"
+        elif row is None:
+            tracking_status = "TEKNİK VERİ BEKLENİYOR"
+        elif data_freshness != "CANLI AKIŞ GÜNCEL":
+            tracking_status = "CANLI TEKNİK VERİ ESKİ/EKSİK"
+        elif phase in ("A", "B", "C"):
+            tracking_status = f"TEKNİK AŞAMA {phase}"
+        else:
+            tracking_status = "TEKNİK EŞİK BEKLENİYOR"
+
+        relative = row.get("relative_strength_vs_btc_pct_points", {}) if isinstance(row, dict) else {}
+        relative = {
+            key: _bridge_finite_number(value)
+            for key, value in relative.items()
+        } if isinstance(relative, dict) else {}
+        correlation = row.get("btc_return_correlation", {}) if isinstance(row, dict) else {}
+        if not isinstance(correlation, dict):
+            correlation = {}
+        technical_watch.append({
+            "symbol": symbol,
+            "active": bool(narrative_state_fresh),
+            "narrative_score": _bridge_finite_number(watch.get("narrative_score")),
+            "narrative_phase": watch.get("phase"),
+            "narratives": [
+                str(value)[:100] for value in watch.get("narratives", [])[:8]
+            ] if isinstance(watch.get("narratives"), list) else [],
+            "confidence": watch.get("confidence"),
+            "technical_status": tracking_status,
+            "technical_phase": phase,
+            "technical_state": row.get("state") if isinstance(row, dict) else None,
+            "technical_score": (
+                _bridge_finite_number(row.get("opportunity_score"))
+                if isinstance(row, dict) and phase in ("A", "B", "C") else None
+            ),
+            "technical_decision": row.get("final_decision") if isinstance(row, dict) else None,
+            "phase_timeframe": row.get("phase_timeframe") if isinstance(row, dict) else None,
+            "latest_price": (
+                _bridge_finite_number(row.get("latest_price")) if isinstance(row, dict) else None
+            ),
+            "data_freshness": data_freshness,
+            "relative_strength_vs_btc_pct_points": relative,
+            "btc_return_correlation": correlation,
+            "timeframes": _bridge_timeframe_summary(row) if isinstance(row, dict) else {},
+            "technical_observed_at_utc": generated_at_utc,
+        })
+        if len(technical_watch) >= NARRATIVE_BRIDGE_MAX_ITEMS:
+            break
+
+    return {
+        "schema_version": 1,
+        "generated_at_utc": generated_at_utc,
+        "narrative_state_generated_at_utc": narrative_state.get("generated_at_utc"),
+        "narrative_state_fresh": bool(narrative_state_fresh),
+        "technical_candidate_count": len(technical_candidates),
+        "technical_candidates": technical_candidates,
+        "narrative_technical_watch_count": len(technical_watch),
+        "narrative_technical_watch": technical_watch,
+        "separation_note": (
+            "Teknik aday araştırması naratif motoruna yönlendirme bilgisidir. "
+            "Naratif puanı teknik puanı, teknik eşikleri veya güçlü fırsat kapılarını değiştirmez."
+        ),
+    }
 
 
 class BinanceRadar:
@@ -2093,6 +2274,13 @@ class BinanceRadar:
             for item in narrative_state.get("early_watch", [])
             if isinstance(item, dict) and item.get("symbol")
         } if isinstance(narrative_state.get("early_watch"), list) else {}
+        research_state = narrative_state.get("technical_candidate_research", {})
+        research_rows = research_state.get("items", []) if isinstance(research_state, dict) else []
+        narrative_research_by_symbol = {
+            str(item.get("symbol") or "").upper(): item
+            for item in research_rows
+            if isinstance(item, dict) and item.get("symbol")
+        } if isinstance(research_rows, list) else {}
         btc_bars = bars_snapshot.get("BTCUSDT", {})
         threshold = float(self.settings.get("websocket_stale_seconds_binance", 45))
         now = time.time()
@@ -2147,6 +2335,17 @@ class BinanceRadar:
                     "observed_at_utc": narrative_state.get("generated_at_utc"),
                     "note": "Naratif desteği ayrı bilgidir; teknik puan ve güçlü fırsat kapılarına eklenmez.",
                 }
+                candidate["narrative_watch"] = {
+                    "active": narrative_fresh,
+                    "narrative_score": narrative_match.get("narrative_score"),
+                    "phase": narrative_match.get("phase"),
+                    "narratives": narrative_match.get("narratives", []),
+                    "confidence": narrative_match.get("confidence"),
+                    "observed_at_utc": narrative_state.get("generated_at_utc"),
+                }
+            narrative_research = narrative_research_by_symbol.get(narrative_symbol)
+            if narrative_research:
+                candidate["narrative_research"] = narrative_research
             pair_info = pair_map.get(symbol, {})
             candidate["strong_alarm_eligible"] = _strong_alarm_permission(
                 pair_info, single_engine=getattr(self, "single_engine", False) is True
@@ -2228,9 +2427,11 @@ class BinanceRadar:
             "relative_strength_vs_btc_json", "btc_return_correlation_json", "timeframes_metrics_json",
             "group_category", "group_category_verified", "group_category_source",
             "group_comparable_count", "group_leadership_score", "group_leadership_basis",
-            "group_leadership_summary",
+            "group_leadership_summary", "narrative_watch_active", "narrative_watch_score",
+            "narrative_watch_phase", "narrative_watch_themes_json", "narrative_watch_confidence",
+            "narrative_watch_observed_at_utc", "narrative_research_status",
         ]
-        schema_version = 3
+        schema_version = 4
         while True:
             path = DATA_DIR / f"binance_candidates_history_{day}_v{schema_version}.csv"
             new_file = not path.exists() or path.stat().st_size == 0
@@ -2312,6 +2513,35 @@ class BinanceRadar:
                     "group_leadership_score": row.get("group_leadership_score"),
                     "group_leadership_basis": row.get("group_leadership_basis"),
                     "group_leadership_summary": row.get("group_leadership_summary"),
+                    "narrative_watch_active": (
+                        isinstance(row.get("narrative_watch"), dict)
+                        and row["narrative_watch"].get("active") is True
+                    ),
+                    "narrative_watch_score": (
+                        row.get("narrative_watch", {}).get("narrative_score")
+                        if isinstance(row.get("narrative_watch"), dict) else None
+                    ),
+                    "narrative_watch_phase": (
+                        row.get("narrative_watch", {}).get("phase")
+                        if isinstance(row.get("narrative_watch"), dict) else None
+                    ),
+                    "narrative_watch_themes_json": json.dumps(
+                        row.get("narrative_watch", {}).get("narratives", [])
+                        if isinstance(row.get("narrative_watch"), dict) else [],
+                        ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                    ),
+                    "narrative_watch_confidence": (
+                        row.get("narrative_watch", {}).get("confidence")
+                        if isinstance(row.get("narrative_watch"), dict) else None
+                    ),
+                    "narrative_watch_observed_at_utc": (
+                        row.get("narrative_watch", {}).get("observed_at_utc")
+                        if isinstance(row.get("narrative_watch"), dict) else None
+                    ),
+                    "narrative_research_status": (
+                        row.get("narrative_research", {}).get("status")
+                        if isinstance(row.get("narrative_research"), dict) else None
+                    ),
                 })
 
     def _wait_for_initial_universe(self) -> bool:
@@ -2590,6 +2820,18 @@ class BinanceRadar:
                     narrative_fresh = (
                         narrative_age_seconds is not None and narrative_age_seconds <= 1800
                     )
+                    bridge_payload = build_narrative_motor_bridge_payload(
+                        candidates,
+                        narrative_snapshot,
+                        generated_at_utc=utc_now(),
+                        narrative_state_fresh=narrative_fresh,
+                    )
+                    try:
+                        atomic_json(NARRATIVE_MOTOR_BRIDGE_PATH, bridge_payload)
+                    except Exception:
+                        self.logger.exception(
+                            "Naratif motor köprüsü yazılamadı; teknik tarama bağımsız devam ediyor."
+                        )
                     state = {
                         "application_version": APP_VERSION,
                         "radar": "Tek Motor — Binance Spot" if self.single_engine else "Binance Erken Fırsat Radarı",
@@ -2654,6 +2896,9 @@ class BinanceRadar:
                         "narrative_status": "GÜNCEL" if narrative_fresh else "VERİ YOK / ESKİ",
                         "narrative_generated_at_utc": narrative_generated_at,
                         "narrative_early_watch": narrative_snapshot.get("early_watch", []),
+                        "narrative_technical_watch": bridge_payload.get("narrative_technical_watch", []),
+                        "technical_candidate_handoff_count": bridge_payload.get("technical_candidate_count", 0),
+                        "motor_bridge_generated_at_utc": bridge_payload.get("generated_at_utc"),
                         "narrative_source_statuses": narrative_snapshot.get("source_statuses", {}),
                         "narrative_history_backfilled": False,
                         "btcturk_universe_generated_at_utc": self.universe.get("btcturk_universe_generated_at_utc"),

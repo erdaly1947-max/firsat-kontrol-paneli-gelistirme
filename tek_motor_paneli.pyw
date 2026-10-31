@@ -1232,14 +1232,19 @@ class ControlPanel(tk.Tk):
         self.narrative_tree.bind("<<TreeviewSelect>>", lambda _event: self._narrative_show_selected())
         self.narrative_watch_frame = ttk.LabelFrame(narrative_left, text="Teknik sinyalden önce erken izlenen coinler", padding=7)
         self.narrative_watch_frame.pack(fill="both", expand=True)
-        watch_columns = ("symbol", "score", "phase", "direction", "confidence", "themes")
+        watch_columns = (
+            "symbol", "score", "phase", "direction", "confidence", "themes",
+            "technical_phase", "technical_status", "rsi",
+        )
         self.narrative_watch_tree = ttk.Treeview(
             self.narrative_watch_frame, columns=watch_columns, show="headings", selectmode="browse", height=7,
         )
         for column, label, width in (
-            ("symbol", "Coin", 75), ("score", "Naratif Puanı", 90),
-            ("phase", "Aşama", 100), ("direction", "İlgi", 95),
-            ("confidence", "Güven", 75), ("themes", "İlişkili temalar", 250),
+            ("symbol", "Coin", 65), ("score", "Naratif", 70),
+            ("phase", "Naratif aşama", 90), ("direction", "İlgi", 75),
+            ("confidence", "Güven", 60), ("themes", "İlişkili temalar", 170),
+            ("technical_phase", "Teknik", 58), ("technical_status", "Teknik takip", 175),
+            ("rsi", "15m RSI", 65),
         ):
             self.narrative_watch_tree.heading(column, text=label)
             self.narrative_watch_tree.column(column, width=width, minwidth=50, stretch=column == "themes")
@@ -1779,6 +1784,11 @@ class ControlPanel(tk.Tk):
             symbol = str(item.get("symbol") or "").upper()
             if not symbol:
                 continue
+            technical = item.get("technical_tracking") if isinstance(item.get("technical_tracking"), dict) else {}
+            technical_timeframes = technical.get("timeframes") if isinstance(technical.get("timeframes"), dict) else {}
+            technical_15m = technical_timeframes.get("15m") if isinstance(technical_timeframes.get("15m"), dict) else {}
+            technical_15m_metrics = technical_15m.get("metrics") if isinstance(technical_15m.get("metrics"), dict) else {}
+            technical_rsi = technical_15m_metrics.get("rsi_14")
             self.narrative_watch_tree.insert(
                 "", "end", iid=symbol,
                 values=(
@@ -1786,6 +1796,9 @@ class ControlPanel(tk.Tk):
                     item.get("phase", "—"), item.get("interest_direction", "—"),
                     item.get("confidence", "—"),
                     ", ".join(item.get("narratives", [])[:3]) if isinstance(item.get("narratives"), list) else "—",
+                    technical.get("technical_phase") or "—",
+                    technical.get("technical_status") or technical.get("status") or "BEKLİYOR",
+                    f"{technical_rsi:.1f}" if isinstance(technical_rsi, (int, float)) else "—",
                 ),
             )
         if selected_symbol and self.narrative_watch_tree.exists(selected_symbol):
@@ -2050,6 +2063,32 @@ class ControlPanel(tk.Tk):
             f"İlgi yönü: {selected.get('interest_direction', '—')}",
             f"En güncel kaynak yaşı: {_format_age(selected.get('data_freshness_seconds')) if selected.get('data_freshness_seconds') is not None else 'hesaplanamadı'}",
         ]
+        technical = selected.get("technical_tracking") if isinstance(selected.get("technical_tracking"), dict) else {}
+        technical_relative = technical.get("relative_strength_vs_btc_pct_points") if isinstance(technical.get("relative_strength_vs_btc_pct_points"), dict) else {}
+        technical_lines = [
+            "",
+            "TEKNİK MOTOR TAKİBİ",
+            f"Takip durumu: {technical.get('technical_status') or technical.get('status') or 'Henüz veri yok'}",
+            f"Teknik aşama / durum: {technical.get('technical_phase') or '—'} / {technical.get('technical_state') or '—'}",
+            f"Teknik puan / karar: {technical.get('technical_score') if technical.get('technical_score') is not None else '—'} / {technical.get('technical_decision') or '—'}",
+            f"Canlı fiyat: {_format_price(technical.get('latest_price')) if technical.get('latest_price') is not None else '—'} USDT",
+            "BTC'ye göre fark: " + " · ".join(
+                f"{tf}: {value:+.2f} yüzde puan" if isinstance(value, (int, float)) else f"{tf}: hesaplanamadı"
+                for tf, value in technical_relative.items()
+            ),
+        ]
+        technical_timeframes = technical.get("timeframes") if isinstance(technical.get("timeframes"), dict) else {}
+        for timeframe in ("5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"):
+            snapshot = technical_timeframes.get(timeframe)
+            if not isinstance(snapshot, dict):
+                continue
+            metrics = snapshot.get("metrics") if isinstance(snapshot.get("metrics"), dict) else {}
+            technical_lines.append(
+                f"{timeframe}: aşama {snapshot.get('phase') or '—'} · RSI {_format_metric(metrics.get('rsi_14'))} · "
+                f"MACD {_format_metric(metrics.get('macd_histogram'))} · ADX {_format_metric(metrics.get('adx_14'))} · "
+                f"durum {snapshot.get('state') or '—'}"
+            )
+        lines.extend(technical_lines)
         market_activity = selected.get("market_activity") if isinstance(selected.get("market_activity"), dict) else {}
         santiment = market_activity.get("santiment") if isinstance(market_activity.get("santiment"), dict) else None
         if santiment:
@@ -2334,6 +2373,17 @@ class ControlPanel(tk.Tk):
             if narrative else
             ["Naratif desteği: kayıt yok; teknik aday bu nedenle elenmez."]
         )
+        research = candidate.get("narrative_research") if isinstance(candidate.get("narrative_research"), dict) else {}
+        research_lines = (
+            [
+                f"Naratif araştırma durumu: {research.get('status') or '—'}",
+                f"Eşleşen naratifler: {', '.join(research.get('matched_narratives', [])) or '—'}",
+                f"Haber kaynakları: {', '.join(research.get('news_sources', [])) or '—'}",
+                f"Keşif kaynakları: {', '.join(research.get('discovery_sources', [])) or '—'}",
+            ]
+            if research else
+            ["Naratif araştırması: Teknik aday aktarımı Naratif Avcı'nın bir sonraki döngüsünde değerlendirilecek."]
+        )
         details = [
             f"Plan durumu: {plan.get('status') or 'plan yok'}",
             f"Plan türü: {plan_presentation}",
@@ -2344,6 +2394,8 @@ class ControlPanel(tk.Tk):
             f"Geçersizlik koşulu: {plan.get('invalid_if') or plan.get('reason') or 'belirtilmedi'}",
             "",
             *narrative_lines,
+            "",
+            *research_lines,
             "",
             "Not: Naratif puanı teknik puandan ayrıdır; tek başına alım veya güçlü fırsat sinyali değildir.",
             "Not: Koşullu teknik plan seviyeleri emir göndermez ve otomatik etkinleştirilmez.",
@@ -3939,6 +3991,17 @@ class ControlPanel(tk.Tk):
             if narrative else
             ["NARATİF DESTEĞİ: kayıt yok; teknik aday bundan etkilenmez."]
         )
+        research = candidate.get("narrative_research") if isinstance(candidate.get("narrative_research"), dict) else {}
+        research_lines = (
+            [
+                f"NARATİF ARAŞTIRMA: {research.get('status') or '—'}",
+                f"Eşleşen temalar: {', '.join(research.get('matched_narratives', [])) or '—'}",
+                f"Haber kaynakları: {', '.join(research.get('news_sources', [])) or '—'}",
+                f"Keşif kaynakları: {', '.join(research.get('discovery_sources', [])) or '—'}",
+            ]
+            if research else
+            ["NARATİF ARAŞTIRMA: aktarım/sonuç henüz yok."]
+        )
         missing = candidate.get("missing_checks")
         missing = [str(item) for item in missing if item] if isinstance(missing, list) else []
         gate_reasons = candidate.get("strong_opportunity_gate_reasons")
@@ -3979,6 +4042,8 @@ class ControlPanel(tk.Tk):
             f"Neden öne çıkıyor: {reason}",
             "", "--- AYRI NARATİF DESTEĞİ ---",
             *narrative_lines,
+            "",
+            *research_lines,
             "", "--- BTC İLİŞKİSİ VE ANA ENGEL ---",
             _format_candidate_decision_summary(candidate),
             "", "--- GİRİŞ VE RİSK KONTROLÜ ---",

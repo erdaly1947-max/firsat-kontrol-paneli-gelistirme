@@ -33,6 +33,8 @@ LOCAL_UNIVERSE_PATH = ROOT / "btcturk_usdt_spot.json"
 CACHE_PATH = DATA_DIR / "naratif_kaynak_onbellek.json"
 STATE_PATH = DATA_DIR / "naratif_state.json"
 HISTORY_PATH = DATA_DIR / "naratif_gecmisi.sqlite3"
+MOTOR_BRIDGE_FILENAME = "naratif_motor_koprusu.json"
+MOTOR_BRIDGE_MAX_AGE_SECONDS = 1800
 LOG_PATH = LOG_DIR / "naratif_avcisi.log"
 
 AIXBT_TOPICS_URL = "https://api.aixbt.tech/v3/topics"
@@ -139,6 +141,18 @@ KNOWN_ALIASES: dict[str, tuple[str, ...]] = {
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _timestamp_age_seconds(value: Any, now_epoch: float | None = None) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return max(0.0, (now_epoch if now_epoch is not None else time.time()) - parsed.timestamp())
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -1031,6 +1045,7 @@ class NarrativeEngine:
         self.cache_path = self.data_dir / "naratif_kaynak_onbellek.json"
         self.state_path = self.data_dir / "naratif_state.json"
         self.history_path = self.data_dir / "naratif_gecmisi.sqlite3"
+        self.motor_bridge_path = self.data_dir / MOTOR_BRIDGE_FILENAME
         self.stop_file = Path(stop_file) if stop_file else self.root / "run" / "stop_narrative.flag"
         self.session = session or requests.Session()
         self.clock = clock
@@ -2372,6 +2387,214 @@ class NarrativeEngine:
                 )
         return alerts[-50:]
 
+
+    def _build_technical_candidate_research(
+        self,
+        bridge_state: dict[str, Any],
+        events: list[dict[str, Any]],
+        early_watch: list[dict[str, Any]],
+        source_statuses: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Match fresh technical candidates against the already-collected narrative evidence."""
+        bridge_state = bridge_state if isinstance(bridge_state, dict) else {}
+        generated = str(bridge_state.get("generated_at_utc") or "").strip()
+        try:
+            parsed = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            bridge_age = max(0.0, self.clock() - parsed.timestamp())
+        except (TypeError, ValueError, OverflowError):
+            bridge_age = None
+        bridge_fresh = bridge_age is not None and bridge_age <= MOTOR_BRIDGE_MAX_AGE_SECONDS
+        raw_candidates = bridge_state.get("technical_candidates")
+        raw_candidates = raw_candidates if isinstance(raw_candidates, list) else []
+
+        watch_by_symbol = {
+            str(item.get("symbol") or "").strip().upper(): item
+            for item in early_watch
+            if isinstance(item, dict) and item.get("symbol")
+        }
+        events_by_symbol: dict[str, list[dict[str, Any]]] = {}
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            for match in event.get("symbols", []) if isinstance(event.get("symbols"), list) else []:
+                if not isinstance(match, dict):
+                    continue
+                symbol = str(match.get("symbol") or "").strip().upper()
+                if symbol:
+                    events_by_symbol.setdefault(symbol, []).append(event)
+
+        allowed_source_prefixes = ("rss_", "cmc_category_")
+        allowed_source_ids = {
+            "aixbt_topics", "cmc_narrative_categories", "trendkia_news",
+            "dex_profiles", "dex_community", "coingecko_trending",
+        }
+        checked_sources = []
+        for key, source in source_statuses.items():
+            if not (
+                key.startswith(allowed_source_prefixes)
+                or key in allowed_source_ids
+            ) or not isinstance(source, dict):
+                continue
+            if source.get("enabled") is False:
+                continue
+            status = str(source.get("status") or "")
+            item_count = source.get("item_count", 0)
+            usable_cache = (
+                status == "ÖNBELLEK"
+                and isinstance(item_count, int)
+                and not isinstance(item_count, bool)
+                and item_count > 0
+            )
+            if status == "BAĞLI" or usable_cache:
+                checked_sources.append(str(source.get("name") or key))
+
+        result_rows = []
+        seen_symbols: set[str] = set()
+        for candidate in raw_candidates[:100]:
+            if not isinstance(candidate, dict):
+                continue
+            symbol = str(candidate.get("symbol") or "").strip().upper()
+            if not symbol or len(symbol) > 32 or symbol in seen_symbols:
+                continue
+            seen_symbols.add(symbol)
+            matches = events_by_symbol.get(symbol, []) if bridge_fresh else []
+            watch = watch_by_symbol.get(symbol, {}) if bridge_fresh else {}
+            themes = watch.get("narratives") if isinstance(watch.get("narratives"), list) else []
+            news_sources = sorted({
+                str(event.get("source_name") or event.get("source_id") or "")
+                for event in matches
+                if event.get("source_kind") in ("official", "media")
+                and (event.get("source_name") or event.get("source_id"))
+            })
+            discovery_sources = sorted({
+                str(event.get("source_name") or event.get("source_id") or "")
+                for event in matches
+                if event.get("source_kind") == "topic_discovery"
+                and (event.get("source_name") or event.get("source_id"))
+            })
+            if not bridge_fresh:
+                research_status = "TEKNİK ADAY AKTARIMI ESKİ"
+            elif themes:
+                research_status = "NARATİF EŞLEŞMESİ BULUNDU"
+            elif matches:
+                research_status = "COIN İZİ VAR — TEMA EŞLEŞMESİ YOK"
+            elif checked_sources:
+                research_status = "TARAMA YAPILDI — KANIT BULUNAMADI"
+            else:
+                research_status = "KAYNAK VERİSİ EKSİK — DEĞERLENDİRİLEMEDİ"
+
+            matching_events = []
+            for event in matches[:5]:
+                matching_events.append({
+                    "event_id": event.get("event_id"),
+                    "title": str(event.get("title") or "")[:220],
+                    "source_name": event.get("source_name"),
+                    "source_kind": event.get("source_kind"),
+                    "published_at": event.get("published_at"),
+                    "url": event.get("url"),
+                    "themes": event.get("themes", [])[:5]
+                    if isinstance(event.get("themes"), list) else [],
+                    "evidence_class": event.get("evidence_class"),
+                })
+            result_rows.append({
+                "symbol": symbol,
+                "status": research_status,
+                "technical_phase": candidate.get("phase"),
+                "technical_phase_timeframe": candidate.get("phase_timeframe"),
+                "technical_state": candidate.get("state"),
+                "technical_score": _safe_float(candidate.get("opportunity_score")),
+                "technical_decision": candidate.get("final_decision"),
+                "technical_price": _safe_float(candidate.get("latest_price")),
+                "matched_narratives": list(themes[:8]),
+                "news_sources": news_sources,
+                "discovery_sources": discovery_sources,
+                "matching_event_count": len(matches),
+                "matching_events": matching_events,
+                "checked_sources": checked_sources,
+                "handoff_generated_at_utc": generated or None,
+                "handoff_fresh": bridge_fresh,
+                "researched_at_utc": utc_now(),
+                "scope_note": (
+                    "Mevcut haber ve keşif akışları coin adı/proje aliası üzerinden tarandı. "
+                    "Bu işlem ilave veya ücretli API çağrısı yapmaz."
+                ),
+            })
+
+        status = (
+            "GÜNCEL" if bridge_fresh and result_rows
+            else "GÜNCEL — TEKNİK ADAY YOK" if bridge_fresh
+            else "TEKNİK MOTOR AKTARIMI ESKİ/BEKLENİYOR"
+        )
+        return {
+            "status": status,
+            "generated_at_utc": utc_now(),
+            "handoff_generated_at_utc": generated or None,
+            "handoff_age_seconds": round(bridge_age, 1) if bridge_age is not None else None,
+            "handoff_fresh": bridge_fresh,
+            "technical_candidate_count": len(result_rows),
+            "candidates_with_narrative": sum(
+                item.get("status") == "NARATİF EŞLEŞMESİ BULUNDU" for item in result_rows
+            ),
+            "sources_checked": checked_sources,
+            "items": result_rows,
+            "score_separation_note": (
+                "Bu araştırma sonucu teknik puana veya güçlü fırsat kapılarına eklenmez; "
+                "naratif puanı da teknik adayı değiştirmez."
+            ),
+        }
+
+    def _attach_technical_tracking(
+        self,
+        early_watch: list[dict[str, Any]],
+        bridge_state: dict[str, Any],
+        *,
+        bridge_fresh: bool,
+    ) -> dict[str, Any]:
+        """Attach technical-engine observations to narrative watch rows without changing scores."""
+        raw_rows = bridge_state.get("narrative_technical_watch")
+        raw_rows = raw_rows if isinstance(raw_rows, list) else []
+        by_symbol = {
+            str(item.get("symbol") or "").strip().upper(): item
+            for item in raw_rows
+            if isinstance(item, dict) and item.get("symbol")
+        }
+        for item in early_watch:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol") or "").strip().upper()
+            tracking = by_symbol.get(symbol)
+            if bridge_fresh and tracking:
+                item["technical_tracking"] = {
+                    **tracking,
+                    "fresh": tracking.get("active") is True
+                    and tracking.get("data_freshness") == "CANLI AKIŞ GÜNCEL",
+                }
+            else:
+                item["technical_tracking"] = {
+                    "symbol": symbol,
+                    "status": (
+                        "TEKNİK MOTOR VERİSİ ESKİ"
+                        if not bridge_fresh else "TEKNİK ÖLÇÜM BEKLENİYOR"
+                    ),
+                    "technical_status": (
+                        "TEKNİK MOTOR VERİSİ ESKİ"
+                        if not bridge_fresh else "TEKNİK ÖLÇÜM BEKLENİYOR"
+                    ),
+                    "fresh": False,
+                    "technical_phase": None,
+                    "technical_state": None,
+                    "technical_score": None,
+                    "timeframes": {},
+                }
+        return {
+            "status": "GÜNCEL" if bridge_fresh else "TEKNİK MOTOR VERİSİ ESKİ/BEKLENİYOR",
+            "generated_at_utc": bridge_state.get("generated_at_utc"),
+            "age_seconds": _timestamp_age_seconds(bridge_state.get("generated_at_utc"), self.clock()),
+            "tracked_coin_count": len(raw_rows),
+        }
+
     def run_cycle(self) -> dict[str, Any]:
         statuses, rss_events, source_data = self._collect_sources()
         symbols, universe = _load_common_symbols(self.root)
@@ -2397,6 +2620,17 @@ class NarrativeEngine:
             market_map,
             self.previous_state.get("narratives", []) if isinstance(self.previous_state.get("narratives"), list) else [],
             source_statuses=statuses,
+        )
+        bridge_state = _read_json(self.motor_bridge_path, {})
+        if not isinstance(bridge_state, dict):
+            bridge_state = {}
+        technical_candidate_research = self._build_technical_candidate_research(
+            bridge_state, events, early_watch, statuses,
+        )
+        technical_watch_bridge = self._attach_technical_tracking(
+            early_watch,
+            bridge_state,
+            bridge_fresh=technical_candidate_research.get("handoff_fresh") is True,
         )
         self._save_history(narratives, events)
         alerts = self._alerts(narratives)
@@ -2450,11 +2684,16 @@ class NarrativeEngine:
                 "event_count": len(events),
                 "narrative_count": len(narratives),
                 "early_watch_count": len(early_watch),
+                "technical_candidate_count": technical_candidate_research.get("technical_candidate_count", 0),
+                "technical_candidates_with_narrative": technical_candidate_research.get("candidates_with_narrative", 0),
+                "narrative_coin_technical_watch_count": technical_watch_bridge.get("tracked_coin_count", 0),
                 "errors": errors,
             },
             "universe": universe,
             "narratives": narratives,
             "early_watch": early_watch,
+            "technical_candidate_research": technical_candidate_research,
+            "technical_watch_bridge": technical_watch_bridge,
             "alerts": alerts,
             "market_context": source_data.get("market_context", {}),
             "market_activity": {
@@ -2491,6 +2730,9 @@ class NarrativeEngine:
                 "Santiment API anahtarı yalnızca SANTIMENT_API_KEY ortam değişkeninden okunur; ayarlar dosyasına veya rapora yazılmaz.",
                 "Kaynağın geçmiş verisi geri doldurulmaz; naratif geçmişi bu motorun ilk gözleminden başlar.",
                 "Naratif puanı teknik puandan ayrıdır; teknik eşikleri, likidite kapılarını ve güçlü alarm koşullarını değiştirmez.",
+                "Teknik A/B/C adayları her döngüde mevcut haber/keşif kanıtları ve proje aliaslarıyla ayrı araştırma listesine alınır; kaynak kanıtı bulunmaması veri eksikliğiyle karıştırılmaz.",
+                "Naratif erken izleme coinleri teknik motor tarafından sekiz zaman diliminde ölçülür; teknik görünüm ve geçmiş kayıt naratif puanına eklenmez.",
+                "Motorlar arası aktarım yerel naratif_motor_koprusu.json dosyasıyla yapılır; köprü verisi 30 dakikadan eskiyse güncel sayılmaz.",
             ],
         }
         self.previous_state = state
