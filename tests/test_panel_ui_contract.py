@@ -10,7 +10,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 PANEL_PATH = ROOT / "tek_motor_paneli.pyw"
+RADAR_PATH = ROOT / "binance_erken_firsat_radari.py"
 PANEL_SOURCE = PANEL_PATH.read_text(encoding="utf-8")
+RADAR_SOURCE = RADAR_PATH.read_text(encoding="utf-8")
 PANEL_TREE = ast.parse(PANEL_SOURCE, filename=str(PANEL_PATH))
 
 
@@ -36,7 +38,7 @@ class PanelUIContractTests(unittest.TestCase):
         values = tuple(ast.literal_eval(item) for item in columns.elts)
         self.assertEqual(
             values,
-            ("symbol", "price", "btcturk_price", "score", "timeframe", "phase", "freshness", "btc_relative", "decision"),
+            ("symbol", "price", "btcturk_price", "score", "timeframe", "phase", "freshness", "btc_relative", "decision", "narrative"),
         )
         self.assertFalse(any("diff" in value.lower() for value in values))
 
@@ -269,10 +271,9 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertNotIn("stop_engine", historical_stop)
 
     def test_narrative_is_not_in_technical_opportunity_score(self):
-        radar = RADAR_SOURCE if "RADAR_SOURCE" in globals() else ""
-        if radar:
-            self.assertIn('candidate["narrative_support"]', radar)
-            self.assertIn("strong_alarm_eligible", radar)
+        self.assertIn('candidate["narrative_support"]', RADAR_SOURCE)
+        self.assertIn("strong_alarm_eligible", RADAR_SOURCE)
+        self.assertIn('"narrative_early_watch"', RADAR_SOURCE)
         self.assertIn("narrative puanı teknik puandan ayrıdır", PANEL_SOURCE.casefold())
 
     def test_analysis_chart_uses_only_motor_closed_candles_and_eight_timeframes(self):
