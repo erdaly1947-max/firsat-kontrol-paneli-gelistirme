@@ -853,4 +853,44 @@ Uygulanan dosyalar:
 
 Kullanıcı Tarihsel Geri Test'i değerlendirmiş ve kabul ettikten sonra Naratif Avcı kodlamasına geçilmesine açıkça izin vermiştir. Naratif Avcı'nın 153.1–153.15 kapsamındaki ilk uygulaması, teknik radar bağlantısı, ortak canlı motor kontrolleri ve rapor/arayüz entegrasyonu main dalına eklenmiştir. Bundan sonraki durma noktası, bu uygulama ve test sonuçlarının kullanıcıya sunulmasıdır. Kullanıcının görüşü alınmadan genel Dosya Gezgini arayüz yenilemesine veya grafiklerin koddan çıkarılmasına başlanmayacaktır.
 
+---
+
+## Reddit Data API entegrasyonu — kullanım kapsamı ve kota politikası (31 Ekim 2026)
+
+Bu kayıt kullanıcının açık talebiyle eklenmiştir. Reddit entegrasyonu, kullanıcının kendi Windows bilgisayarında çalışan kişisel Fırsat-Kontrol Paneli için, yalnızca kendi piyasa kararlarını destekleyen **tek kullanıcılı ve ticari olmayan** bir işlevdir. Program başkalarına sunulan, ücretlendirilen, reklamlı veya abonelikli bir ürün/hizmet olarak kullanılmayacaktır. Bu kullanım, ticari API erişimi talebi olarak tanımlanmayacaktır; akademik araştırma projesi olarak da sunulmayacaktır.
+
+### Resmî erişim ön koşulu
+
+- Bu entegrasyon Reddit içinde çalışan bir Devvit uygulaması değil, harici Windows/Python masaüstü programıdır. Reddit'in güncel geliştirici belgeleri harici Python entegrasyonları için Data API yolunu ve Devvit'in desteklemediği kullanım durumlarında Reddit Help üzerinden erişim talebini tarif eder.
+- Reddit Responsible Builder Policy (5 Ekim 2026 güncellemesi), API üzerinden Reddit verisine erişmeden önce talep gönderilmesini ve açık onay alınmasını zorunlu kılar. Bu, kişisel kullanımın ticari sayıldığı anlamına gelmez; ticari olmayan harici API erişimi için de onay ön koşuludur.
+- Reddit erişim onayı alınmadan API çağrısı yapılmayacak ve kaynak BAĞLI gösterilmeyecektir.
+- Erişim yalnızca OAuth ile, doğru ve tanımlayıcı User-Agent (istemci tanımı) kullanılarak yapılacaktır. Kimlik veya kullanım amacı gizlenmeyecektir.
+- İlk uygulama salt okunur olacaktır. Gönderi, yorum, oy veya özel mesaj gönderilmeyecek; özel/kapalı topluluk verisi alınmayacaktır.
+- Reddit gönderileri yapay zekâ modeli eğitmek için kullanılmayacaktır. Duygu sınıflandırması yerel ve kurallı (sözlük/ölçüt tabanlı) yöntemle yapılacaktır.
+
+### Tutumlu ücretsiz kota politikası — ilk uygulama sınırları
+
+| Ayar | Başlangıç sınırı |
+|---|---:|
+| Yenileme aralığı | 30 dakika |
+| İstek üst sınırı | Saatte 2; günde toplam 48 |
+| Her yanıtta alınacak gönderi | En fazla 50 |
+| Sayfalama | İlk aşamada kapalı |
+| Yorumları ayrıca çekme | İlk aşamada kapalı |
+| Ham gönderi verisinin yerel saklanması | En fazla 48 saat |
+| Yetkili kota başlıklarını izleme | X-Ratelimit-Used, X-Ratelimit-Remaining, X-Ratelimit-Reset |
+
+Bu sınırlar Reddit'in izin verdiği kotanın tamamını tüketmek için değil, gereksiz trafik oluşturmadan düşük başlangıç kullanımını garanti etmek içindir. İstek sınırı tüm Reddit taraması için ortak bütçedir; her topluluk veya coin için ayrı ayrı 2 istek/saat hakkı oluşturmaz. Kalan kota azalırsa sorgu aralığı uzatılır. HTTP 429 yanıtında Reddit'in bildirdiği sıfırlanma süresi beklenir; alternatif alan adı, farklı hesap veya başka bir yöntemle sınır aşılmaz. Geçici bağlantı hatalarında artan bekleme uygulanır.
+
+Silindiği tespit edilen gönderi ve ona bağlı içerik/kayıtlar kaldırılacaktır. Yazar adı ve kullanıcı kimliği gereksiz yere saklanmayacaktır. Ham gönderi içeriği 48 saatten uzun tutulmayacak; uzun dönemli takip için yalnızca gerekli toplulaştırılmış duygu/yoğunluk ölçümleri değerlendirilecektir.
+
+### Kullanıcıdan beklenen işlem ve entegrasyon durumu
+
+- Kullanıcı kendi Reddit hesabıyla harici Data API erişim talebini Reddit Help üzerinden gönderecektir. Başvuruda uygulamanın tek kullanıcılı, kişisel, ticari olmayan ve yerel Windows masaüstü aracı olduğu; kapsamının yalnızca izin verilen herkese açık kripto topluluklarından sınırlı sayıda gönderiyi salt okunur biçimde almak ve yerelde özetlemek olduğu açıkça belirtilecektir.
+- Devvit'in uygun olmama nedeni: bu program Reddit içinde çalışan bir uygulama değil, kullanıcının kendi bilgisayarında çalışan mevcut Python masaüstü programıdır.
+- Başvuru bağlantısı: https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=14868593862164
+- Reddit erişim onayından sonra verilecek OAuth istemci bilgileri sohbete veya GitHub'a yazılmayacak; yalnızca kullanıcının kendi bilgisayarındaki ortam değişkenlerinde saklanacaktır.
+- Kullanıcı erişim onayını ve gerekli kimlik bilgilerini yerel olarak hazırlayana kadar kaynak durumu **BAĞLI DEĞİL / ONAY BEKLİYOR** kalacaktır.
+
+**Mevcut kod durumu:** Bu bölüm kota ve kullanım politikasını kaydeder; Reddit API bağlantısının kodlandığı veya canlı test edildiği anlamına gelmez. Entegrasyon kodu, testler, README uygulama kaydı ve gerçek OAuth erişim doğrulaması ayrı ayrı tamamlanıp doğrulanacaktır.
 
