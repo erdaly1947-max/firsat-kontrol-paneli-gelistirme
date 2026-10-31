@@ -193,10 +193,12 @@ def _compact_candidate(candidate: Any) -> dict[str, Any]:
     # Raw candle arrays and repeated per-coin BTC context are deliberately omitted.
     return result
 
-def build_analysis_report(state: Any) -> dict[str, Any]:
-    """Build analysis-only data; no diagnostic payload or raw candle history."""
+def build_analysis_report(state: Any, narrative_state: Any = None) -> dict[str, Any]:
+    """Build a compact report with technical and separately scored live narrative evidence."""
     if not isinstance(state, dict):
         state = {}
+    if not isinstance(narrative_state, dict):
+        narrative_state = {}
     raw_candidates = state.get("candidates")
     if not isinstance(raw_candidates, list):
         raw_candidates = []
@@ -204,9 +206,44 @@ def build_analysis_report(state: Any) -> dict[str, Any]:
         compact for item in raw_candidates
         if (compact := _compact_candidate(item))
     ]
+    narratives = narrative_state.get("narratives")
+    early_watch = narrative_state.get("early_watch")
+    source_statuses = narrative_state.get("source_statuses")
+    if not isinstance(narratives, list):
+        narratives = []
+    if not isinstance(early_watch, list):
+        early_watch = []
+    if not isinstance(source_statuses, dict):
+        source_statuses = {}
+    compact_sources = {
+        key: {
+            field: item.get(field)
+            for field in ("name", "role", "enabled", "status", "last_success_utc",
+                          "age_seconds", "item_count", "error")
+            if field in item
+        }
+        for key, item in source_statuses.items()
+        if isinstance(item, dict)
+    }
+    narrative_summary = {
+        "status": narrative_state.get("status", "NARATİF VERİSİ YOK"),
+        "generated_at_utc": narrative_state.get("generated_at_utc"),
+        "first_observed_only": narrative_state.get("first_observed_only", True),
+        "historical_narrative_backfill": False,
+        "narrative_count": len(narratives),
+        "early_watch_count": len(early_watch),
+        "narratives": narratives[:25],
+        "early_watch": early_watch[:100],
+        "source_statuses": compact_sources,
+        "market_activity": narrative_state.get("market_activity", {}),
+        "limits": narrative_state.get("limits", [
+            "Tarihsel naratif verisi bulunmadığından ölçüm ilk gerçek gözlemden başlar.",
+            "Naratif puanı teknik puandan ayrıdır ve güçlü fırsat koşullarını değiştirmez.",
+        ]),
+    }
     return {
         "report_type": "analysis",
-        "schema_version": 1,
+        "schema_version": 2,
         "application": "FIRSAT-KONTROL PANELİ",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "source_state_generated_at_utc": state.get("generated_at_utc"),
@@ -227,11 +264,14 @@ def build_analysis_report(state: Any) -> dict[str, Any]:
         "market_context_warning": state.get("btc_market_context_warning"),
         "candidate_count": len(candidates),
         "candidates": candidates,
+        "narrative": narrative_summary,
         "interpretation_limits": [
             "A/B/C araştırma aşamalarıdır; emir veya kârlılık garantisi değildir.",
             "Giriş, stop ve hedefler koşullu teknik senaryolardır.",
             "Sabit %0,14 giriş ve %0,14 çıkış komisyonuyla tahmini net risk/getiri ayrıca hesaplanır; bu gerçek tahsilat değildir.",
             "Fiyat kayması yalnızca yeterli BtcTurk alış-satış farkı/emir defteri verisi varsa tahmin edilir; veri yoksa kayma oranı uydurulmaz.",
+            "Naratif puanı 100 puanlık teknik puandan ayrıdır; teknik fırsat kapılarını veya güçlü alarm koşullarını değiştirmez.",
+            "Tarihsel naratif arşivi yoktur; rapordaki naratif kayıtları ilk gözlem zamanından itibaren geçerlidir.",
             "Otomatik emir gönderilmez.",
         ],
     }
