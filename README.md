@@ -904,3 +904,14 @@ ChatGPT'nin Reddit hesabına bağlanması veya asistanın Reddit hesabını kull
 
 **Mevcut kod durumu:** Bu bölüm kota ve kullanım politikasını kaydeder; Reddit API bağlantısının kodlandığı veya canlı test edildiği anlamına gelmez. Entegrasyon kodu, testler, README uygulama kaydı ve gerçek OAuth erişim doğrulaması ayrı ayrı tamamlanıp doğrulanacaktır.
 
+
+
+### Reddit başvuru takibi — 31 Ekim 2026
+
+- **Başvuru durumu:** Kullanıcı Reddit Data API erişim talebini 31 Ekim 2026 tarihinde gönderdi. Reddit, “Your request was successfully submitted.” mesajıyla talebin alındığını bildirdi.
+- **Mevcut aşama:** Başvuru alınmış durumda; bu mesaj erişim onayı değildir. Değerlendirme/yanıt bekleniyor. API erişim onayı ve gerekli istemci bilgileri gelmeden Reddit API çağrısı yapılmayacak; kaynak bağlı gösterilmeyecek.
+- **Referans numarası:** Reddit'in alındı mesajında parantez içinde yer alan harf-rakam dizisi kullanıcı tarafından saklanacaktır. Bu kimlik README'ye veya kaynak koda kopyalanmayacaktır.
+- **Takip:** 7 Kasım 2026 tarihinde e-posta ve Reddit başvuru durumu kontrol edilecek. Yanıt yoksa referans numarası kullanılarak takip adımı değerlendirilecek.
+- **Hatırlatma:** Kullanıcıya Reddit başvurusunu yeniden gündeme getirip durumunu kontrol etmesi hatırlatılacaktır.
+
+**Kod durumu:** Bu kayıt yalnızca başvuru ve takip durumunu belgelendirir. Reddit API entegrasyon kodu henüz uygulanmış veya canlı test edilmiş sayılmaz.
