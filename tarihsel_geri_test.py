@@ -116,25 +116,39 @@ def _continuous_suffix(
     return list(bars[start:]), had_gap
 
 
-def _bars_as_of(
-    rows: list[dict[str, Any]], timeframe: str, as_of_ms: int,
+def _prepare_series(rows: list[dict[str, Any]], timeframe: str) -> dict[str, Any]:
+    """Validate and time-index an archived series once, outside the replay loop."""
+    clean = valid_bars(rows, closed_only=True, exclude_synthetic=True)
+    return {
+        "bars": clean,
+        "close_times": _series_close_times(clean, timeframe),
+    }
+
+
+def _bars_as_of_prepared(
+    prepared: dict[str, Any], timeframe: str, as_of_ms: int,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Return only candles whose full close time is at/before the replay instant."""
-    closed_rows = valid_bars(rows, closed_only=True, exclude_synthetic=True)
-    usable = [
-        row for row in closed_rows
-        if (end_ms := timeframe_bar_end_ms(timeframe, int(row["t"]))) is not None
-        and end_ms <= as_of_ms
-    ]
+    """Slice a prevalidated series without scanning its full history at every step."""
+    rows = prepared.get("bars", [])
+    close_times = prepared.get("close_times", [])
+    end_index = bisect.bisect_right(close_times, as_of_ms)
+    usable = rows[max(0, end_index - 140):end_index]
     suffix, had_gap = _continuous_suffix(usable, timeframe)
     notes: list[str] = []
     if had_gap:
-        notes.append(f"{timeframe}: geçmiş mumlarda boşluk; yalnızca son kesintisiz bölüm kullanıldı.")
+        notes.append(f"{timeframe}: son arşiv penceresinde mum boşluğu; yalnızca son kesintisiz bölüm kullanıldı.")
     expected_open = _timeframe_previous_open(timeframe, as_of_ms)
     if not suffix or int(suffix[-1]["t"]) != expected_open:
         notes.append(f"{timeframe}: test anında beklenen son kapanmış mum arşivde yok.")
         return [], notes
-    return suffix[-140:], notes
+    return suffix, notes
+
+
+def _bars_as_of(
+    rows: list[dict[str, Any]], timeframe: str, as_of_ms: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Convenience wrapper used by focused tests."""
+    return _bars_as_of_prepared(_prepare_series(rows, timeframe), timeframe, as_of_ms)
 
 
 def _series_close_times(bars: list[dict[str, Any]], timeframe: str) -> list[int]:
@@ -437,10 +451,12 @@ def run_historical_backtest(
         timeframe: archive.load_bars("BTCUSDT", timeframe)
         for timeframe in TIMEFRAMES
     } if "BTCUSDT" in available_symbols else {timeframe: [] for timeframe in TIMEFRAMES}
-    btc_close_times = {
-        timeframe: _series_close_times(rows, timeframe)
+    btc_prepared = {
+        timeframe: _prepare_series(rows, timeframe)
         for timeframe, rows in btc_series_raw.items()
     }
+    btc_context_cache: dict[int, dict[str, Any]] = {}
+    btc_notes_cache: dict[int, list[str]] = []
 
     try:
         with gzip.open(observations_tmp, "wt", encoding="utf-8", newline="") as compressed:
@@ -454,17 +470,16 @@ def run_historical_backtest(
                     timeframe: archive.load_bars(symbol, timeframe)
                     for timeframe in TIMEFRAMES
                 }
-                master_bars = raw_by_tf["5m"]
+                prepared_by_tf = {
+                    timeframe: _prepare_series(rows, timeframe)
+                    for timeframe, rows in raw_by_tf.items()
+                }
+                master_bars = prepared_by_tf["5m"]["bars"]
                 if not master_bars:
                     warnings.append(f"{symbol}: 5m mum arşivi boş.")
                     continue
-                master_close_times = _series_close_times(master_bars, "5m")
-                series = {
-                    timeframe: _series_close_times(rows, timeframe)
-                    for timeframe, rows in raw_by_tf.items()
-                }
+                master_close_times = prepared_by_tf["5m"]["close_times"]
                 active_episode: dict[str, Any] | None = None
-                last_coverage_stamp: int | None = None
 
                 def finish_episode(reason: str, ended_ms: int | None) -> None:
                     nonlocal active_episode
@@ -492,7 +507,7 @@ def run_historical_backtest(
                     symbol_bars: dict[str, list[dict[str, Any]]] = {}
                     missing_inputs: list[str] = []
                     for timeframe in TIMEFRAMES:
-                        sliced, notes = _bars_as_of(raw_by_tf[timeframe], timeframe, as_of_ms)
+                        sliced, notes = _bars_as_of_prepared(prepared_by_tf[timeframe], timeframe, as_of_ms)
                         symbol_bars[timeframe] = sliced
                         missing_inputs.extend(notes)
                     latest_5m = symbol_bars["5m"][-1] if symbol_bars["5m"] else None
@@ -511,10 +526,13 @@ def run_historical_backtest(
                     btc_bars: dict[str, list[dict[str, Any]]] = {}
                     btc_notes: list[str] = []
                     for timeframe in TIMEFRAMES:
-                        sliced, notes = _bars_as_of(btc_series_raw[timeframe], timeframe, as_of_ms)
+                        sliced, notes = _bars_as_of_prepared(btc_prepared[timeframe], timeframe, as_of_ms)
                         btc_bars[timeframe] = sliced
                         btc_notes.extend(notes)
-                    btc_context = score_btc_market_context(btc_bars)
+                    if as_of_ms not in btc_context_cache:
+                        btc_context_cache[as_of_ms] = score_btc_market_context(btc_bars)
+                        btc_notes_cache[as_of_ms] = list(btc_notes)
+                    btc_context = btc_context_cache[as_of_ms]
                     btc_complete = isinstance(btc_context, dict) and btc_context.get("data_completeness") == "TAM"
 
                     base_asset = symbol[:-4]
@@ -681,8 +699,8 @@ def run_historical_backtest(
                 if active_episode is not None:
                     finish_episode("Arşiv/test aralığının sonuna ulaşıldı; adaylığın sona erdiği varsayılmadı.", None)
 
-                full_5m = raw_by_tf["5m"]
-                all_close_times = _series_close_times(full_5m, "5m")
+                full_5m = prepared_by_tf["5m"]["bars"]
+                all_close_times = prepared_by_tf["5m"]["close_times"]
                 for episode in [item for item in episodes if item["symbol"] == symbol and "forward_returns" not in item]:
                     signal_ms = int(episode["first_detected_epoch_ms"])
                     signal_price = float(episode["initial_price"])
