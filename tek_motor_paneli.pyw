@@ -4202,7 +4202,7 @@ class ControlPanel(tk.Tk):
                 f"Bağımsız haber yayıncıları: {', '.join(research.get('news_sources', [])) or '—'}",
                 f"Keşif kaynakları: {', '.join(research.get('discovery_sources', [])) or '—'}",
                 f"Kontrol edilen haber/keşif kaynakları: {', '.join(research.get('checked_sources', [])) or '—'}",
-                f"Kontrol edilen piyasa kaynakları: {', '.join(research.get('checked_market_sources', [])) or '—'}",
+                f"Kontrol edilen piyasa/proje kaynakları: {', '.join(research.get('checked_market_sources', [])) or '—'}",
             ]
             if research else
             ["HEDEFLİ ARAŞTIRMA: aktarım/sonuç henüz yok."]
@@ -4212,6 +4212,9 @@ class ControlPanel(tk.Tk):
         dex = evidence.get("dex") if isinstance(evidence.get("dex"), dict) else {}
         santiment = evidence.get("santiment") if isinstance(evidence.get("santiment"), dict) else {}
         defi_protocols = evidence.get("defillama_protocols") if isinstance(evidence.get("defillama_protocols"), list) else []
+        github = evidence.get("github") if isinstance(evidence.get("github"), dict) else {}
+        github_repo = github.get("repository") if isinstance(github.get("repository"), dict) else {}
+        github_commits = github.get("recent_commits") if isinstance(github.get("recent_commits"), list) else []
         research_findings = research.get("research_findings") if isinstance(research.get("research_findings"), list) else []
         missing_evidence = research.get("missing_evidence") if isinstance(research.get("missing_evidence"), list) else []
         if cmc:
@@ -4253,6 +4256,32 @@ class ControlPanel(tk.Tk):
                     f"Santiment yerel geçmiş: {history.get('observation_count', 0)} örnek · "
                     f"ilk kayıt {history.get('tracked_since_utc') or '—'}"
                 )
+        if github_repo.get("full_name"):
+            research_lines.extend([
+                "GITHUB GELİŞTİRME ETKİNLİĞİ — RESMÎ SAHİPLİK TEYİTSİZ",
+                f"Depo adayı: {github_repo.get('full_name')} · {github_repo.get('url') or 'bağlantı yok'}",
+                f"Eşleşme: {github_repo.get('match_confidence') or 'belirtilmedi'} · "
+                f"Yıldız: {github_repo.get('stars', 0)} · Fork: {github_repo.get('forks', 0)}",
+                f"Son push: {github_repo.get('pushed_at') or 'bilinmiyor'} · "
+                f"Son commit kontrolü: {github.get('last_activity_checked_at_utc') or '—'}",
+                f"Depo dili: {github_repo.get('language') or 'belirtilmedi'} · "
+                f"Konular: {', '.join(github_repo.get('topics', [])) or '—'}",
+            ])
+            if github_repo.get("description"):
+                research_lines.append(f"Depo açıklaması: {github_repo.get('description')}")
+            if github_commits:
+                research_lines.append("SON COMMIT ÖRNEKLERİ (en fazla 3):")
+                for commit in github_commits[:3]:
+                    if not isinstance(commit, dict):
+                        continue
+                    committed_at = str(commit.get("committed_at_utc") or "tarih yok").replace("T", " ").replace("Z", " UTC")
+                    research_lines.append(
+                        f"{committed_at} · {commit.get('author') or 'yazar bilinmiyor'} · "
+                        f"{commit.get('message') or 'commit açıklaması yok'} · {commit.get('url') or ''}"
+                    )
+            research_lines.append(
+                "GitHub verisi proje geliştirme etkinliğidir; resmî sahiplik, güvenlik veya yatırım değeri kanıtı değildir."
+            )
         if research_findings:
             research_lines.append("ARAŞTIRMA BULGULARI:")
             research_lines.extend(f"• {str(item)}" for item in research_findings[:8])
