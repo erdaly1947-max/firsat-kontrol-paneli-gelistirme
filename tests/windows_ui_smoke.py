@@ -39,7 +39,7 @@ def main() -> int:
         app._open_btcturk_pro_from_radar = lambda: app._show_workspace_page("btcturk")
 
         expected_pages = {
-            "overview", "radar", "tracking", "analysis", "market",
+            "overview", "radar", "tracking", "analysis", "narrative", "market",
             "plans", "reports", "btcturk", "settings",
         }
         if set(app.workspace_page_frames) != expected_pages:
@@ -50,6 +50,10 @@ def main() -> int:
             raise AssertionError(
                 f"Navigation buttons do not match page frames: {sorted(app.workspace_nav_buttons)}"
             )
+        if not hasattr(app, "narrative_tree") or not hasattr(app, "narrative_watch_tree"):
+            raise AssertionError("Naratif Avcısı page is missing its narrative/early-watch tables.")
+        if not hasattr(app, "narrative_source_tree") or not hasattr(app, "narrative_detail_text"):
+            raise AssertionError("Naratif Avcısı source-status or detail panel is missing.")
         if not hasattr(app, "backtest_symbols_var") or not hasattr(app, "backtest_start_button"):
             raise AssertionError("Historical backtest controls are missing from the Reports workspace.")
         if str(app.backtest_start_button.cget("text")) != "Geri Testi Başlat":
@@ -58,7 +62,7 @@ def main() -> int:
             raise AssertionError("Historical backtest cancellation control is missing.")
 
         for page in (
-            "overview", "radar", "tracking", "analysis", "market",
+            "overview", "radar", "tracking", "analysis", "narrative", "market",
             "plans", "reports", "btcturk", "settings",
         ):
             app.workspace_nav_buttons[page].invoke()
@@ -127,7 +131,7 @@ def main() -> int:
             raise AssertionError("Tk callback errors: " + "; ".join(callback_errors))
 
         print("WINDOWS_TK_WINDOW_CREATE_OK")
-        print("WINDOWS_ALL_9_WORKSPACE_NAVIGATION_OK")
+        print("WINDOWS_ALL_10_WORKSPACE_NAVIGATION_OK")
         print("WINDOWS_ALL_8_CHART_TIMEFRAMES_OK")
         print("WINDOWS_SHARED_START_STOP_EVENT_BINDINGS_OK")
         print("WINDOWS_HISTORICAL_BACKTEST_REPORTS_CONTROLS_OK")
