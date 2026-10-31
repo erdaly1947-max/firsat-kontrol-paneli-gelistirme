@@ -1802,7 +1802,7 @@ class ControlPanel(tk.Tk):
         if selected_source_id and self.narrative_source_tree.exists(selected_source_id):
             self.narrative_source_tree.selection_set(selected_source_id)
             self._narrative_show_source_status()
-        if selected_id and self.narrative_tree.exists(selected_id):
+        elif selected_id and self.narrative_tree.exists(selected_id):
             self._narrative_show_selected()
         elif selected_symbol and self.narrative_watch_tree.exists(selected_symbol):
             self._narrative_show_watch()
@@ -1829,6 +1829,8 @@ class ControlPanel(tk.Tk):
         selection = self.narrative_tree.selection()
         if not selection:
             return
+        self.narrative_source_tree.selection_remove(*self.narrative_source_tree.selection())
+        self.narrative_watch_tree.selection_remove(*self.narrative_watch_tree.selection())
         state = _read_json(NARRATIVE_STATE_PATH, {})
         rows = state.get("narratives", []) if isinstance(state, dict) else []
         selected = next(
@@ -1875,6 +1877,8 @@ class ControlPanel(tk.Tk):
         selection = self.narrative_source_tree.selection() if hasattr(self, "narrative_source_tree") else ()
         if not selection:
             return
+        self.narrative_tree.selection_remove(*self.narrative_tree.selection())
+        self.narrative_watch_tree.selection_remove(*self.narrative_watch_tree.selection())
         source_id = selection[0]
         state = _read_json(NARRATIVE_STATE_PATH, {})
         statuses = state.get("source_statuses", {}) if isinstance(state, dict) else {}
@@ -1954,6 +1958,8 @@ class ControlPanel(tk.Tk):
         selection = self.narrative_watch_tree.selection()
         if not selection:
             return
+        self.narrative_tree.selection_remove(*self.narrative_tree.selection())
+        self.narrative_source_tree.selection_remove(*self.narrative_source_tree.selection())
         state = _read_json(NARRATIVE_STATE_PATH, {})
         rows = state.get("early_watch", []) if isinstance(state, dict) else []
         selected = next(
