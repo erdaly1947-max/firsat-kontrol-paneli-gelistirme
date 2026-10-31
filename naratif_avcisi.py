@@ -60,6 +60,13 @@ DEX_COMMUNITY_URL = "https://api.dexscreener.com/community-takeovers/latest/v1"
 DEX_TOKENS_URL = "https://api.dexscreener.com/tokens/v1"
 COINGECKO_TRENDING_URL = "https://api.coingecko.com/api/v3/search/trending"
 SANTIMENT_GRAPHQL_URL = "https://api.santiment.net/graphql"
+DEFILLAMA_BASE_URL = "https://api.llama.fi"
+DEFILLAMA_PROTOCOLS_URL = f"{DEFILLAMA_BASE_URL}/protocols"
+DEFILLAMA_CHAINS_URL = f"{DEFILLAMA_BASE_URL}/v2/chains"
+DEFILLAMA_STABLECOIN_CHAINS_URL = f"{DEFILLAMA_BASE_URL}/stablecoinchains"
+DEFILLAMA_STABLECOIN_HISTORY_URL = f"{DEFILLAMA_BASE_URL}/stablecoincharts/all"
+DEFILLAMA_DEX_OVERVIEW_URL = f"{DEFILLAMA_BASE_URL}/overview/dexs"
+DEFILLAMA_FEES_OVERVIEW_URL = f"{DEFILLAMA_BASE_URL}/overview/fees"
 
 DEFAULT_FEEDS = [
     {"id": "ethereum_foundation", "name": "Ethereum Foundation", "url": "https://blog.ethereum.org/en/feed.xml", "kind": "official"},
@@ -92,6 +99,12 @@ SOURCE_INTERVALS = {
     "santiment_project_catalog": 30 * 86400,
     "santiment_active_addresses": 6 * 3600,
     "santiment_dev_activity": 6 * 3600,
+    "defillama_protocols": 3 * 3600,
+    "defillama_chains": 3 * 3600,
+    "defillama_stablecoin_chains": 6 * 3600,
+    "defillama_stablecoin_history": 6 * 3600,
+    "defillama_dex_overview": 3 * 3600,
+    "defillama_fees_overview": 3 * 3600,
 }
 MAX_SOURCE_ITEMS = 500
 MAX_CMC_CATEGORY_ITEMS = 5000
@@ -1153,6 +1166,317 @@ def aggregate_dex_market_activity(
     return result
 
 
+
+
+def parse_defillama_protocols(payload: Any) -> list[dict[str, Any]]:
+    """Normalize the public protocol catalogue without relying on paid endpoints."""
+    result = []
+    for item in _records(payload):
+        name = str(item.get("name") or item.get("displayName") or "").strip()
+        if not name:
+            continue
+        chains = item.get("chains") if isinstance(item.get("chains"), list) else []
+        raw_chain_tvls = item.get("chainTvls") if isinstance(item.get("chainTvls"), dict) else {}
+        chain_tvls = {}
+        for chain, amount in raw_chain_tvls.items():
+            value = _safe_float(amount)
+            if value is None and isinstance(amount, dict):
+                value = _safe_float(amount.get("tvl") or amount.get("totalLiquidityUSD"))
+            if value is not None:
+                chain_tvls[str(chain)] = value
+        result.append({
+            "id": str(item.get("id") or ""),
+            "slug": str(item.get("slug") or item.get("module") or "").strip().lower(),
+            "name": name[:180],
+            "symbol": str(item.get("symbol") or "").strip().upper()[:32],
+            "category": str(item.get("category") or ""),
+            "chains": sorted({str(chain) for chain in chains if str(chain).strip()}),
+            "tvl_usd": _safe_float(item.get("tvl")),
+            "change_1d_pct": _safe_float(item.get("change_1d")),
+            "change_7d_pct": _safe_float(item.get("change_7d")),
+            "market_cap_usd": _safe_float(item.get("mcap")),
+            "chain_tvls": chain_tvls,
+        })
+    result.sort(
+        key=lambda row: (
+            row.get("tvl_usd") is not None,
+            row.get("tvl_usd") if row.get("tvl_usd") is not None else -1.0,
+        ),
+        reverse=True,
+    )
+    return result[:5000]
+
+
+def parse_defillama_chains(payload: Any) -> list[dict[str, Any]]:
+    """Normalize current TVL by chain."""
+    result = []
+    for item in _records(payload):
+        name = str(item.get("name") or "").strip()
+        tvl = _safe_float(item.get("tvl"))
+        if not name or tvl is None:
+            continue
+        result.append({
+            "name": name[:100],
+            "tvl_usd": tvl,
+            "chain_id": _safe_int(item.get("chainId")),
+            "token_symbol": str(item.get("tokenSymbol") or "").upper(),
+            "gecko_id": str(item.get("gecko_id") or ""),
+            "cmc_id": str(item.get("cmcId") or ""),
+        })
+    result.sort(key=lambda row: row["tvl_usd"], reverse=True)
+    return result[:300]
+
+
+def parse_defillama_stablecoin_chains(payload: Any) -> list[dict[str, Any]]:
+    """Normalize current stablecoin supply by chain, using the reported USD peg amount."""
+    result = []
+    for item in _records(payload):
+        name = str(item.get("name") or item.get("chain") or "").strip()
+        raw = item.get("totalCirculating") or item.get("total_circulating")
+        if isinstance(raw, dict):
+            amount = _safe_float(raw.get("peggedUSD"))
+        else:
+            amount = _safe_float(raw)
+        if not name or amount is None:
+            continue
+        result.append({"name": name[:100], "supply_usd": amount})
+    result.sort(key=lambda row: row["supply_usd"], reverse=True)
+    return result[:300]
+
+
+def parse_defillama_stablecoin_history(payload: Any) -> list[dict[str, Any]]:
+    """Normalize historical aggregate stablecoin circulation."""
+    rows = payload if isinstance(payload, list) else _records(payload)
+    result = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        timestamp = _safe_int(item.get("date") or item.get("timestamp"))
+        raw = item.get("totalCirculating")
+        if isinstance(raw, dict):
+            amount = _safe_float(raw.get("peggedUSD"))
+        else:
+            amount = _safe_float(raw)
+        if timestamp is None or amount is None:
+            continue
+        result.append({"timestamp": timestamp, "supply_usd": amount})
+    result.sort(key=lambda row: row["timestamp"])
+    return result[-1200:]
+
+
+def parse_defillama_overview(payload: Any, *, metric: str) -> dict[str, Any]:
+    """Normalize DEX-volume or fees overview protocol rows, excluding large chart payloads."""
+    if isinstance(payload, dict):
+        raw_rows = payload.get("protocols") if isinstance(payload.get("protocols"), list) else []
+        all_chains = payload.get("allChains") if isinstance(payload.get("allChains"), list) else []
+    else:
+        raw_rows = []
+        all_chains = []
+    result = []
+    for item in raw_rows:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("displayName") or "").strip()
+        if not name:
+            continue
+        result.append({
+            "slug": str(item.get("slug") or item.get("module") or "").strip().lower(),
+            "name": name[:180],
+            "symbol": str(item.get("symbol") or "").strip().upper()[:32],
+            "category": str(item.get("category") or ""),
+            "total_24h_usd": _safe_float(
+                item.get("total24h") or item.get("total24H") or item.get("dailyFees")
+                or item.get("dailyVolume")
+            ),
+            "total_7d_usd": _safe_float(item.get("total7d") or item.get("total7D")),
+            "change_1d_pct": _safe_float(item.get("change_1d")),
+            "chains": sorted({
+                str(chain) for chain in (
+                    item.get("chains") if isinstance(item.get("chains"), list) else []
+                ) if str(chain).strip()
+            }),
+            "metric": metric,
+        })
+    result.sort(
+        key=lambda row: (
+            row.get("total_24h_usd") is not None,
+            row.get("total_24h_usd") if row.get("total_24h_usd") is not None else -1.0,
+        ),
+        reverse=True,
+    )
+    return {
+        "metric": metric,
+        "protocols": result[:3000],
+        "all_chains": [str(row) for row in all_chains[:300] if str(row).strip()],
+    }
+
+
+def summarize_defillama_stablecoin_history(
+    rows: list[dict[str, Any]],
+    *,
+    now_epoch: float | None = None,
+) -> dict[str, Any]:
+    """Compare latest global stablecoin supply against nearby 24h and 7d observations."""
+    points = [
+        row for row in rows
+        if isinstance(row, dict)
+        and _safe_int(row.get("timestamp")) is not None
+        and _safe_float(row.get("supply_usd")) is not None
+    ]
+    if not points:
+        return {}
+    points.sort(key=lambda row: int(row["timestamp"]))
+    latest = points[-1]
+    latest_time = int(latest["timestamp"])
+    latest_supply = float(latest["supply_usd"])
+    result: dict[str, Any] = {
+        "latest_supply_usd": latest_supply,
+        "latest_timestamp": latest_time,
+        "sample_count": len(points),
+    }
+    for label, target_seconds, tolerance_seconds in (
+        ("change_24h_pct", 24 * 3600, 12 * 3600),
+        ("change_7d_pct", 7 * 86400, 36 * 3600),
+        ("change_30d_pct", 30 * 86400, 72 * 3600),
+    ):
+        target = latest_time - target_seconds
+        previous = min(points[:-1], key=lambda row: abs(int(row["timestamp"]) - target)) if len(points) > 1 else None
+        if previous is None:
+            continue
+        delta = abs(int(previous["timestamp"]) - target)
+        old_value = _safe_float(previous.get("supply_usd"))
+        if delta <= tolerance_seconds and old_value and old_value > 0:
+            result[label] = round((latest_supply / old_value - 1.0) * 100.0, 3)
+    return result
+
+
+def _defillama_name_key(value: Any) -> str:
+    return re.sub(r"[^0-9a-zçğıöşü]+", " ", str(value or "").casefold()).strip()
+
+
+def attach_defillama_protocol_activity(
+    market_map: dict[str, dict[str, Any]],
+    protocols: list[dict[str, Any]],
+    dex_overview: dict[str, Any],
+    fees_overview: dict[str, Any],
+    symbols: list[str],
+    aliases: dict[str, list[str]],
+) -> int:
+    """Attach protocol TVL and DeFi activity only to unique full-name or protocol-token matches."""
+    symbol_counts: dict[str, int] = {}
+    for protocol in protocols:
+        symbol = str(protocol.get("symbol") or "").strip().upper()
+        if symbol and symbol in symbols:
+            symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+
+    def overview_index(value: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        raw = value.get("protocols") if isinstance(value, dict) else None
+        result: dict[str, dict[str, Any]] = {}
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            for candidate in (item.get("slug"), item.get("name")):
+                key = _defillama_name_key(candidate)
+                if key:
+                    result[key] = item
+        return result
+
+    dex_index = overview_index(dex_overview)
+    fees_index = overview_index(fees_overview)
+    matched = 0
+    for protocol in protocols:
+        if not isinstance(protocol, dict):
+            continue
+        raw_symbol = str(protocol.get("symbol") or "").strip().upper()
+        symbol = (
+            raw_symbol if raw_symbol in symbols and symbol_counts.get(raw_symbol) == 1
+            else _dex_exact_name_symbol(str(protocol.get("name") or ""), symbols, aliases)
+        )
+        if not symbol:
+            continue
+        key_slug = _defillama_name_key(protocol.get("slug"))
+        key_name = _defillama_name_key(protocol.get("name"))
+        dex_row = dex_index.get(key_slug) or dex_index.get(key_name) or {}
+        fees_row = fees_index.get(key_slug) or fees_index.get(key_name) or {}
+        item = {
+            "slug": protocol.get("slug"),
+            "name": protocol.get("name"),
+            "symbol": raw_symbol,
+            "category": protocol.get("category"),
+            "tvl_usd": _safe_float(protocol.get("tvl_usd")),
+            "tvl_change_1d_pct": _safe_float(protocol.get("change_1d_pct")),
+            "tvl_change_7d_pct": _safe_float(protocol.get("change_7d_pct")),
+            "market_cap_usd": _safe_float(protocol.get("market_cap_usd")),
+            "chains": protocol.get("chains", []),
+            "chain_tvls": protocol.get("chain_tvls", {}),
+            "dex_volume_24h_usd": _safe_float(dex_row.get("total_24h_usd")),
+            "dex_volume_7d_usd": _safe_float(dex_row.get("total_7d_usd")),
+            "dex_volume_change_1d_pct": _safe_float(dex_row.get("change_1d_pct")),
+            "fees_24h_usd": _safe_float(fees_row.get("total_24h_usd")),
+            "fees_7d_usd": _safe_float(fees_row.get("total_7d_usd")),
+            "fees_change_1d_pct": _safe_float(fees_row.get("change_1d_pct")),
+        }
+        if not any(item.get(k) is not None for k in (
+            "tvl_usd", "dex_volume_24h_usd", "fees_24h_usd"
+        )):
+            continue
+        target = market_map.setdefault(symbol, {"symbol": symbol})
+        rows = target.setdefault("defillama_protocols", [])
+        if not any(
+            str(old.get("slug") or "").casefold() == str(item.get("slug") or "").casefold()
+            and str(old.get("name") or "").casefold() == str(item.get("name") or "").casefold()
+            for old in rows if isinstance(old, dict)
+        ):
+            rows.append(item)
+            matched += 1
+
+    for value in market_map.values():
+        if isinstance(value, dict) and isinstance(value.get("defillama_protocols"), list):
+            value["defillama_protocols"].sort(
+                key=lambda row: (
+                    _safe_float(row.get("tvl_usd")) is not None,
+                    _safe_float(row.get("tvl_usd")) or 0.0,
+                ),
+                reverse=True,
+            )
+            value["defillama_protocols"] = value["defillama_protocols"][:5]
+    return matched
+
+
+def build_defillama_global_context(
+    protocols: list[dict[str, Any]],
+    chains: list[dict[str, Any]],
+    stablecoin_chains: list[dict[str, Any]],
+    stablecoin_history: list[dict[str, Any]],
+    dex_overview: dict[str, Any],
+    fees_overview: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a compact market-wide DeFi summary, separate from technical scoring."""
+    stablecoin_total = sum(
+        _safe_float(row.get("supply_usd")) or 0.0
+        for row in stablecoin_chains if isinstance(row, dict)
+    )
+    history_summary = summarize_defillama_stablecoin_history(stablecoin_history)
+    dex_rows = dex_overview.get("protocols", []) if isinstance(dex_overview, dict) else []
+    fee_rows = fees_overview.get("protocols", []) if isinstance(fees_overview, dict) else []
+    return {
+        "protocol_count": len(protocols),
+        "chain_count": len(chains),
+        "sum_listed_chain_tvl_usd": round(sum(
+            _safe_float(row.get("tvl_usd")) or 0.0
+            for row in chains if isinstance(row, dict)
+        ), 2),
+        "top_chains": chains[:10],
+        "stablecoin_chain_count": len(stablecoin_chains),
+        "sum_listed_stablecoin_supply_usd": round(stablecoin_total, 2),
+        "top_stablecoin_chains": stablecoin_chains[:10],
+        "stablecoin_history": history_summary,
+        "dex_protocol_count": len(dex_rows) if isinstance(dex_rows, list) else 0,
+        "top_dex_protocols": dex_rows[:10] if isinstance(dex_rows, list) else [],
+        "fees_protocol_count": len(fee_rows) if isinstance(fee_rows, list) else 0,
+        "top_fee_protocols": fee_rows[:10] if isinstance(fee_rows, list) else [],
+        "scope_note": "DeFiLlama genel DeFi bağlamı ve protokol verisidir; teknik puana veya güçlü fırsat koşullarına eklenmez.",
+    }
 
 
 def canonicalize_news_url(value: str) -> str:
@@ -2400,6 +2724,86 @@ class NarrativeEngine:
             statuses[source_key] = source_status
             market_context[source_key] = value if isinstance(value, dict) else {}
 
+        defillama_specs = (
+            ("defillama_protocols", DEFILLAMA_PROTOCOLS_URL, SOURCE_INTERVALS["defillama_protocols"],
+             parse_defillama_protocols, "Ücretsiz protokol TVL kataloğu; ad ve token sembolüyle ortak USDT evrenine eşleştirilir.", None),
+            ("defillama_chains", DEFILLAMA_CHAINS_URL, SOURCE_INTERVALS["defillama_chains"],
+             parse_defillama_chains, "Ücretsiz zincir TVL özeti; genel piyasa bağlamıdır.", None),
+            ("defillama_stablecoin_chains", DEFILLAMA_STABLECOIN_CHAINS_URL, SOURCE_INTERVALS["defillama_stablecoin_chains"],
+             parse_defillama_stablecoin_chains, "Zincirlere göre stablecoin arzı; genel likidite bağlamıdır.", None),
+            ("defillama_stablecoin_history", DEFILLAMA_STABLECOIN_HISTORY_URL, SOURCE_INTERVALS["defillama_stablecoin_history"],
+             parse_defillama_stablecoin_history, "Toplam stablecoin arzının geçmişi; 24 saat/7 gün/30 gün değişimi için kullanılır.", None),
+            ("defillama_dex_overview", DEFILLAMA_DEX_OVERVIEW_URL, SOURCE_INTERVALS["defillama_dex_overview"],
+             parse_defillama_overview, "DEX protokollerinin 24 saat/7 gün hacim özeti; grafik yükü hariç tutulur.", {"excludeTotalDataChart": "true", "excludeTotalDataChartBreakdown": "true"}),
+            ("defillama_fees_overview", DEFILLAMA_FEES_OVERVIEW_URL, SOURCE_INTERVALS["defillama_fees_overview"],
+             parse_defillama_overview, "Protokol ücretleri özeti; günlük ücret verisi, grafik yükü hariç tutulur.", {"excludeTotalDataChart": "true", "excludeTotalDataChartBreakdown": "true", "dataType": "dailyFees"}),
+        )
+        defillama_values: dict[str, Any] = {}
+        defillama_status_rows = []
+        for source_key, source_url, interval, parser, role, params in defillama_specs:
+            source_status = _source_status(source_key, role=role)
+            value = self._fetch_source(
+                source_key,
+                interval,
+                lambda url=source_url, parse=parser, query=params: parse(
+                    self._get_json(url, params=query)
+                ) if parse is not parse_defillama_overview else parse(
+                    self._get_json(url, params=query),
+                    metric="dailyFees" if "fees" in source_key else "dex_volume",
+                ),
+                source_status,
+                count_fn=lambda item: (
+                    len(item.get("protocols", [])) if isinstance(item, dict) and isinstance(item.get("protocols"), list)
+                    else len(item or [])
+                ),
+            )
+            statuses[source_key] = source_status
+            defillama_values[source_key] = value
+            defillama_status_rows.append(source_status)
+
+        defillama_protocols = defillama_values.get("defillama_protocols")
+        defillama_protocols = defillama_protocols if isinstance(defillama_protocols, list) else []
+        defillama_chains = defillama_values.get("defillama_chains")
+        defillama_chains = defillama_chains if isinstance(defillama_chains, list) else []
+        defillama_stablecoin_chains = defillama_values.get("defillama_stablecoin_chains")
+        defillama_stablecoin_chains = defillama_stablecoin_chains if isinstance(defillama_stablecoin_chains, list) else []
+        defillama_stablecoin_history = defillama_values.get("defillama_stablecoin_history")
+        defillama_stablecoin_history = defillama_stablecoin_history if isinstance(defillama_stablecoin_history, list) else []
+        defillama_dex_overview = defillama_values.get("defillama_dex_overview")
+        defillama_dex_overview = defillama_dex_overview if isinstance(defillama_dex_overview, dict) else {}
+        defillama_fees_overview = defillama_values.get("defillama_fees_overview")
+        defillama_fees_overview = defillama_fees_overview if isinstance(defillama_fees_overview, dict) else {}
+        market_context["defillama"] = build_defillama_global_context(
+            defillama_protocols,
+            defillama_chains,
+            defillama_stablecoin_chains,
+            defillama_stablecoin_history,
+            defillama_dex_overview,
+            defillama_fees_overview,
+        )
+        successful_defillama = [
+            row for row in defillama_status_rows
+            if row.get("status") in ("BAĞLI", "ÖNBELLEK", "HATA — ÖNCEKİ VERİ VAR", "ESKİ VERİ")
+        ]
+        parent_defillama = _source_status(
+            "defillama",
+            role="Ücretsiz, anahtarsız DeFiLlama protokol TVL, zincir TVL, stablecoin arzı, DEX hacmi ve protokol ücretleri.",
+            enabled=True,
+            status="BAĞLI" if any(row.get("status") == "BAĞLI" for row in successful_defillama)
+            else ("ÖNBELLEK" if successful_defillama else "ERİŞİLEMEDİ"),
+        )
+        parent_defillama["item_count"] = sum(
+            int(row.get("item_count") or 0) for row in successful_defillama
+        )
+        parent_defillama["last_success_utc"] = max(
+            (str(row.get("last_success_utc")) for row in successful_defillama if row.get("last_success_utc")),
+            default=None,
+        )
+        parent_defillama["error"] = "; ".join(
+            str(row.get("error")) for row in defillama_status_rows if row.get("error")
+        )[:500] or None
+        statuses["defillama"] = parent_defillama
+
         trendkia_status = _source_status(
             "trendkia_news",
             role="Herkese açık TrendKia MCP haber akışı; kripto/makro filtreli ve tarih kontrollü.",
@@ -2560,6 +2964,14 @@ class NarrativeEngine:
             "cmc_category_events": category_events,
             "cmc_category_coins": category_coin_rows,
             "market_context": market_context,
+            "defillama": {
+                "protocols": defillama_protocols,
+                "chains": defillama_chains,
+                "stablecoin_chains": defillama_stablecoin_chains,
+                "stablecoin_history": defillama_stablecoin_history,
+                "dex_overview": defillama_dex_overview,
+                "fees_overview": defillama_fees_overview,
+            },
             "dex_profiles": dex_profiles or [],
             "dex_community": dex_community or [],
             "dex_market_activity": dex_market_activity if isinstance(dex_market_activity, dict) else {},
@@ -3430,6 +3842,33 @@ class NarrativeEngine:
                     ),
                 }
 
+        for symbol, market_row in market_map.items():
+            defi_protocols = market_row.get("defillama_protocols") if isinstance(market_row, dict) else None
+            if not isinstance(defi_protocols, list) or not defi_protocols:
+                continue
+            if symbol in early_watch:
+                early_watch[symbol]["discovery_sources"].add("defillama_protocols")
+                if "DeFiLlama protokol verisi" not in early_watch[symbol]["narratives"]:
+                    early_watch[symbol]["narratives"].append("DeFiLlama protokol verisi")
+                continue
+            early_watch[symbol] = {
+                "symbol": symbol,
+                "narrative_score": None,
+                "phase": "BELİRSİZ",
+                "interest_direction": "İLK GÖZLEM",
+                "data_freshness_seconds": None,
+                "narratives": ["DeFiLlama protokol verisi"],
+                "sources": set(),
+                "discovery_sources": {"defillama_protocols"},
+                "aixbt_topic_associations": [],
+                "confidence": "DÜŞÜK",
+                "market_activity": market_row,
+                "reason": (
+                    "DeFiLlama'da ortak USDT evrenindeki coinle tam adı veya tekil protokol token sembolü eşleşen "
+                    "protokol verisi bulundu. Bu bir piyasa bağlamı kaydıdır; haber teyidi veya işlem sinyali değildir."
+                ),
+            }
+
         for watch in early_watch.values():
             watch["sources"] = sorted(watch["sources"])
             watch["discovery_sources"] = sorted(watch["discovery_sources"])
@@ -3839,6 +4278,15 @@ class NarrativeEngine:
             aliases,
             source_data.get("dex_market_activity", {}),
         )
+        defillama_data = source_data.get("defillama", {}) if isinstance(source_data.get("defillama"), dict) else {}
+        defillama_matched_protocols = attach_defillama_protocol_activity(
+            market_map,
+            defillama_data.get("protocols", []) if isinstance(defillama_data.get("protocols"), list) else [],
+            defillama_data.get("dex_overview", {}) if isinstance(defillama_data.get("dex_overview"), dict) else {},
+            defillama_data.get("fees_overview", {}) if isinstance(defillama_data.get("fees_overview"), dict) else {},
+            symbols,
+            aliases,
+        )
         santiment_map = self._collect_santiment(statuses, events, aliases)
         # Supplementary detail only: the narrative scorer reads price/volume fields, not this nested field.
         for symbol, metrics in santiment_map.items():
@@ -3889,6 +4337,11 @@ class NarrativeEngine:
             isinstance(santiment_status, dict)
             and santiment_status.get("status") in ("BAĞLI", "ÖNBELLEK")
         )
+        defillama_status = statuses.get("defillama", {})
+        defillama_connected = bool(
+            isinstance(defillama_status, dict)
+            and defillama_status.get("status") in ("BAĞLI", "ÖNBELLEK")
+        )
         errors = [
             f"{item['name']}: {item['status']}"
             for item in statuses.values()
@@ -3897,7 +4350,7 @@ class NarrativeEngine:
         state = {
             "schema_version": 1,
             "engine": "Naratif Avcısı",
-            "status": "ÇALIŞIYOR" if (connected_news or topic_connected or category_connected or santiment_connected) else "KAYNAK VERİSİ BEKLENİYOR",
+            "status": "ÇALIŞIYOR" if (connected_news or topic_connected or category_connected or santiment_connected or defillama_connected) else "KAYNAK VERİSİ BEKLENİYOR",
             "generated_at_utc": utc_now(),
             "first_observed_only": True,
             "historical_narrative_backfill": False,
@@ -3953,6 +4406,13 @@ class NarrativeEngine:
                 "santiment_coin_count": len(santiment_map),
                 "santiment_symbols": sorted(santiment_map),
                 "santiment_history_observation_count": statuses.get("santiment_history", {}).get("item_count", 0),
+                "defillama_protocol_count": len(source_data.get("defillama", {}).get("protocols", []))
+                if isinstance(source_data.get("defillama"), dict) else 0,
+                "defillama_matched_protocol_count": defillama_matched_protocols,
+                "defillama_matched_coin_count": sum(
+                    1 for item in market_map.values()
+                    if isinstance(item, dict) and isinstance(item.get("defillama_protocols"), list)
+                ),
             },
             "limits": [
                 "AIXBT ücretsiz/anahtarsız Topics uç noktası mevcut ilk 25 konuyu verir; tüm AIXBT konu arşivi değildir.",
@@ -3973,6 +4433,8 @@ class NarrativeEngine:
                 "The Fly ve Reddit otomatik entegrasyonları erişim/kullanım izni doğrulanmadan çağrılmaz.",
                 "CoinGecko Demo API anahtarı yoksa devre dışıdır; anahtar gizli ortam değişkeninden okunur.",
                 "DEX profil/topluluk hareketi organik ilgi veya bağımsız haber teyidi olarak tek başına yorumlanmaz.",
+                "DeFiLlama yalnızca anahtarsız ücretsiz API uçlarını kullanır; protokol TVL, zincir TVL, stablecoin arzı, DEX hacmi ve günlük protokol ücretleri önbellekle seyrek yenilenir. Protokoller ortak USDT evrenine yalnızca tekil tam ad veya benzersiz protokol token sembolüyle eşleştirilir; DeFi verisi teknik/naratif puan ve güçlü fırsat koşullarını değiştirmez.",
+                "DeFiLlama ücretsiz /pools getiri uç noktası 13 Kasım 2026'da kapatılacağı duyurulduğundan bu entegrasyonda kullanılmaz; ücretli API veya anahtar gerekmez.",
                 "Santiment yalnızca ücretsiz active_addresses_24h ve dev_activity modern:v1 ölçümlerini, en fazla 30 eşleşen aday coin için altı saatte bir toplu sorgular.",
                 "Free API aylık 1.000 çağrı sınırı içinde tahmini kullanım yaklaşık 241 çağrı/30 gündür; ücretli/kısıtlı ölçümler çağrılmaz.",
                 "Santiment API anahtarı yalnızca SANTIMENT_API_KEY ortam değişkeninden okunur; ayarlar dosyasına veya rapora yazılmaz.",
