@@ -929,16 +929,46 @@ class NarrativeEngine:
                     ),
                 )
             for item in narratives:
-                connection.execute(
-                    """INSERT OR IGNORE INTO narrative_snapshots
-                    (observed_at_utc,narrative_id,name,phase,score,interest_direction,confidence,payload_json)
-                    VALUES (?,?,?,?,?,?,?,?)""",
-                    (
-                        now, item["narrative_id"], item["name"], item["phase"],
-                        item.get("narrative_score"), item["interest_direction"], item["confidence"],
-                        json.dumps(item, ensure_ascii=False),
-                    ),
-                )
+                previous = connection.execute(
+                    """SELECT observed_at_utc, phase, score, interest_direction, confidence
+                    FROM narrative_snapshots WHERE narrative_id=?
+                    ORDER BY observed_at_utc DESC LIMIT 1""",
+                    (item["narrative_id"],),
+                ).fetchone()
+                write_snapshot = previous is None
+                if previous is not None:
+                    try:
+                        previous_epoch = datetime.fromisoformat(
+                            str(previous[0]).replace("Z", "+00:00")
+                        ).timestamp()
+                    except (TypeError, ValueError, OverflowError):
+                        previous_epoch = 0.0
+                    score_changed = (
+                        previous[2] is None and item.get("narrative_score") is not None
+                    ) or (
+                        previous[2] is not None and item.get("narrative_score") is None
+                    ) or (
+                        previous[2] is not None and item.get("narrative_score") is not None
+                        and abs(float(previous[2]) - float(item["narrative_score"])) >= 1.0
+                    )
+                    write_snapshot = bool(
+                        previous[1] != item["phase"]
+                        or score_changed
+                        or previous[3] != item["interest_direction"]
+                        or previous[4] != item["confidence"]
+                        or time.time() - previous_epoch >= 300
+                    )
+                if write_snapshot:
+                    connection.execute(
+                        """INSERT OR IGNORE INTO narrative_snapshots
+                        (observed_at_utc,narrative_id,name,phase,score,interest_direction,confidence,payload_json)
+                        VALUES (?,?,?,?,?,?,?,?)""",
+                        (
+                            now, item["narrative_id"], item["name"], item["phase"],
+                            item.get("narrative_score"), item["interest_direction"], item["confidence"],
+                            json.dumps(item, ensure_ascii=False),
+                        ),
+                    )
                 row = connection.execute(
                     "SELECT MIN(observed_at_utc) FROM narrative_snapshots WHERE narrative_id=?",
                     (item["narrative_id"],),
@@ -1054,7 +1084,8 @@ class NarrativeEngine:
 
     def run(self, *, once: bool = False, poll_seconds: int = 15) -> int:
         self.stop_file.parent.mkdir(parents=True, exist_ok=True)
-        self.stop_file.unlink(missing_ok=True)
+        # The panel clears this marker before process creation. Do not unlink it here:
+        # an immediate user stop between Popen() and run() must not be lost.
         self.logger.info("Naratif Avcısı başlatıldı; teknik radardan ayrı süreçte çalışıyor.")
         try:
             while not self.stop_file.exists():
