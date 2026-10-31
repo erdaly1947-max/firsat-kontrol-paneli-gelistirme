@@ -20,6 +20,19 @@ class NarrativeParsingTests(unittest.TestCase):
         self.assertEqual(rows[0]["rank"], 1)
         self.assertEqual(rows[-1]["name"], "Topic 25")
 
+    def test_aixbt_topics_accepts_nested_data_topics_envelope(self):
+        rows = narrative.parse_aixbt_topics({
+            "data": {
+                "topics": [
+                    {"topicId": "t1", "name": "AI agents", "rank": 1,
+                     "summary": "AI agents and DePIN", "postCount": 8, "authorCount": 3}
+                ]
+            }
+        })
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], "t1")
+        self.assertEqual(rows[0]["name"], "AI agents")
+
     def test_cmc_listing_is_marked_as_market_data_not_news(self):
         payload = {"data": {"cryptoCurrencyList": [{
             "symbol": "ETH", "name": "Ethereum", "cmc_rank": 2,
