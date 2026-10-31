@@ -4059,9 +4059,11 @@ class NarrativeEngine:
         events: list[dict[str, Any]],
         early_watch: list[dict[str, Any]],
         source_statuses: dict[str, Any],
+        market_map: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Match fresh technical candidates against the already-collected narrative evidence."""
+        """Build a source-separated research bundle for each fresh A/B/C technical candidate."""
         bridge_state = bridge_state if isinstance(bridge_state, dict) else {}
+        market_map = market_map if isinstance(market_map, dict) else {}
         generated = str(bridge_state.get("generated_at_utc") or "").strip()
         try:
             parsed = datetime.fromisoformat(generated.replace("Z", "+00:00"))
@@ -4090,33 +4092,59 @@ class NarrativeEngine:
                 if symbol:
                     events_by_symbol.setdefault(symbol, []).append(event)
 
-        allowed_source_prefixes = ("rss_", "cmc_category_")
-        allowed_source_ids = {
-            "aixbt_topics", "cmc_narrative_categories", "trendkia_news",
-            "dex_profiles", "dex_community", "coingecko_trending",
+        source_groups = {
+            "haber": lambda key: key.startswith("rss_") or key == "trendkia_news",
+            "kesif": lambda key: key in (
+                "aixbt_topics", "aixbt_project_mapping", "cmc_narrative_categories",
+            ) or key.startswith("cmc_category_"),
+            "dex": lambda key: key in ("dex_profiles", "dex_community", "dex_market_activity"),
+            "defillama": lambda key: key == "defillama" or key.startswith("defillama_"),
+            "santiment": lambda key: key == "santiment" or key.startswith("santiment_"),
+            "piyasa": lambda key: key in (
+                "cmc_market_activity", "cmc_id_map", "cmc_quotes", "coingecko_trending",
+            ),
         }
-        checked_sources = []
-        for key, source in source_statuses.items():
-            if not (
-                key.startswith(allowed_source_prefixes)
-                or key in allowed_source_ids
-            ) or not isinstance(source, dict):
+        source_coverage: dict[str, dict[str, Any]] = {}
+        checked_sources: list[str] = []
+        checked_market_sources: list[str] = []
+        for key, source_row in source_statuses.items():
+            if not isinstance(source_row, dict):
                 continue
-            if source.get("enabled") is False:
+            group = next((name for name, predicate in source_groups.items() if predicate(key)), None)
+            if group is None or source_row.get("enabled") is False:
                 continue
-            status = str(source.get("status") or "")
-            item_count = source.get("item_count", 0)
-            usable_cache = (
-                status == "ÖNBELLEK"
-                and isinstance(item_count, int)
-                and not isinstance(item_count, bool)
-                and item_count > 0
-            )
-            if status == "BAĞLI" or usable_cache:
-                checked_sources.append(str(source.get("name") or key))
+            status = str(source_row.get("status") or "")
+            item_count = _safe_int(source_row.get("item_count")) or 0
+            usable = status in ("BAĞLI", "ÖNBELLEK") and item_count > 0
+            source_coverage[key] = {
+                "group": group,
+                "name": str(source_row.get("name") or key),
+                "status": status or "DURUM BİLİNMİYOR",
+                "usable": usable,
+                "item_count": item_count,
+                "last_success_utc": source_row.get("last_success_utc"),
+                "age_seconds": _safe_float(source_row.get("age_seconds")),
+                "error": str(source_row.get("error") or "")[:240] or None,
+            }
+            if usable:
+                display_name = str(source_row.get("name") or key)
+                if group in ("haber", "kesif") and display_name not in checked_sources:
+                    checked_sources.append(display_name)
+                if group in ("dex", "defillama", "santiment", "piyasa") and display_name not in checked_market_sources:
+                    checked_market_sources.append(display_name)
 
         result_rows = []
         seen_symbols: set[str] = set()
+        counts = {
+            "candidates_with_narrative": 0,
+            "candidates_with_news": 0,
+            "candidates_with_dex_activity": 0,
+            "candidates_with_defi_activity": 0,
+            "candidates_with_santiment_data": 0,
+            "candidates_with_market_data": 0,
+            "candidates_with_any_evidence": 0,
+        }
+
         for candidate in raw_candidates[:100]:
             if not isinstance(candidate, dict):
                 continue
@@ -4124,9 +4152,15 @@ class NarrativeEngine:
             if not symbol or len(symbol) > 32 or symbol in seen_symbols:
                 continue
             seen_symbols.add(symbol)
+
+            # Never combine an old technical handoff with new source evidence as though both
+            # describe the same observation time. The bundle exposes freshness explicitly.
             matches = events_by_symbol.get(symbol, []) if bridge_fresh else []
             watch = watch_by_symbol.get(symbol, {}) if bridge_fresh else {}
             themes = watch.get("narratives") if isinstance(watch.get("narratives"), list) else []
+            coin_market = market_map.get(symbol, {})
+            coin_market = coin_market if isinstance(coin_market, dict) else {}
+
             news_sources = sorted({
                 str(event.get("source_name") or event.get("source_id") or "")
                 for event in matches
@@ -4139,19 +4173,9 @@ class NarrativeEngine:
                 if event.get("source_kind") == "topic_discovery"
                 and (event.get("source_name") or event.get("source_id"))
             })
-            if not bridge_fresh:
-                research_status = "TEKNİK ADAY AKTARIMI ESKİ"
-            elif themes:
-                research_status = "NARATİF EŞLEŞMESİ BULUNDU"
-            elif matches:
-                research_status = "COIN İZİ VAR — TEMA EŞLEŞMESİ YOK"
-            elif checked_sources:
-                research_status = "TARAMA YAPILDI — KANIT BULUNAMADI"
-            else:
-                research_status = "KAYNAK VERİSİ EKSİK — DEĞERLENDİRİLEMEDİ"
 
             matching_events = []
-            for event in matches[:5]:
+            for event in matches[:8]:
                 matching_events.append({
                     "event_id": event.get("event_id"),
                     "title": str(event.get("title") or "")[:220],
@@ -4161,8 +4185,211 @@ class NarrativeEngine:
                     "url": event.get("url"),
                     "themes": event.get("themes", [])[:5]
                     if isinstance(event.get("themes"), list) else [],
+                    "republishers": event.get("republishers", [])[:5]
+                    if isinstance(event.get("republishers"), list) else [],
                     "evidence_class": event.get("evidence_class"),
                 })
+
+            # Market evidence is separate from news/discovery evidence and is never scored.
+            dex = coin_market.get("dex_market_activity")
+            dex = dex if isinstance(dex, dict) else None
+            defi_rows = coin_market.get("defillama_protocols")
+            defi_rows = defi_rows if isinstance(defi_rows, list) else []
+            santiment = coin_market.get("santiment")
+            santiment = santiment if isinstance(santiment, dict) else None
+
+            cmc_evidence = {}
+            for field in (
+                "name", "percent_change_24h", "volume_24h",
+                "volume_change_24h", "cmc_rank", "market_activity_source",
+            ):
+                if coin_market.get(field) is not None:
+                    cmc_evidence[field] = coin_market.get(field)
+
+            dex_evidence = None
+            if dex:
+                dex_evidence = {
+                    "pair_count": _safe_int(dex.get("pair_count")) or 0,
+                    "chain_count": _safe_int(dex.get("chain_count")) or 0,
+                    "chains": list(dex.get("chains", []))[:12]
+                    if isinstance(dex.get("chains"), list) else [],
+                    "liquidity_usd": _safe_float(dex.get("liquidity_usd")),
+                    "volume_usd_m5": _safe_float(dex.get("volume_usd_m5")),
+                    "volume_usd_h1": _safe_float(dex.get("volume_usd_h1")),
+                    "volume_usd_h6": _safe_float(dex.get("volume_usd_h6")),
+                    "volume_usd_h24": _safe_float(dex.get("volume_usd_h24")),
+                    "buys_h24": _safe_int(dex.get("buys_h24")),
+                    "sells_h24": _safe_int(dex.get("sells_h24")),
+                    "transactions_h24": _safe_int(dex.get("transactions_h24")),
+                    "buy_sell_ratio_h24": _safe_float(dex.get("buy_sell_ratio_h24")),
+                    "current_price_usd": _safe_float(dex.get("current_price_usd")),
+                    "price_change_24h_pct": _safe_float(dex.get("price_change_24h_pct")),
+                    "top_pairs": [
+                        {
+                            key: pair.get(key)
+                            for key in (
+                                "chain", "dex_id", "pair_address", "url", "base_symbol",
+                                "quote_symbol", "liquidity_usd", "volume_usd_h24",
+                                "buys_h24", "sells_h24", "price_change_24h_pct",
+                            )
+                        }
+                        for pair in (dex.get("top_pairs") if isinstance(dex.get("top_pairs"), list) else [])[:3]
+                        if isinstance(pair, dict)
+                    ],
+                }
+
+            defi_evidence = []
+            for protocol in defi_rows[:3]:
+                if not isinstance(protocol, dict):
+                    continue
+                defi_evidence.append({
+                    "name": protocol.get("name"),
+                    "slug": protocol.get("slug"),
+                    "symbol": protocol.get("symbol"),
+                    "category": protocol.get("category"),
+                    "tvl_usd": _safe_float(protocol.get("tvl_usd")),
+                    "tvl_change_1d_pct": _safe_float(protocol.get("tvl_change_1d_pct")),
+                    "tvl_change_7d_pct": _safe_float(protocol.get("tvl_change_7d_pct")),
+                    "dex_volume_24h_usd": _safe_float(protocol.get("dex_volume_24h_usd")),
+                    "dex_volume_7d_usd": _safe_float(protocol.get("dex_volume_7d_usd")),
+                    "fees_24h_usd": _safe_float(protocol.get("fees_24h_usd")),
+                    "fees_7d_usd": _safe_float(protocol.get("fees_7d_usd")),
+                    "chains": list(protocol.get("chains", []))[:8]
+                    if isinstance(protocol.get("chains"), list) else [],
+                })
+
+            santiment_evidence = None
+            if santiment:
+                santiment_evidence = {
+                    "asset_slug": santiment.get("asset_slug"),
+                    "active_addresses_24h": _safe_float(santiment.get("active_addresses_24h")),
+                    "active_addresses_change_24h_pct": _safe_float(santiment.get("active_addresses_change_24h_pct")),
+                    "dev_activity_7d": _safe_float(santiment.get("dev_activity_7d")),
+                    "dev_activity_change_7d_pct": _safe_float(santiment.get("dev_activity_change_7d_pct")),
+                    "observation_history": None,
+                }
+                history = santiment.get("observation_history")
+                if isinstance(history, dict):
+                    santiment_evidence["observation_history"] = {
+                        "tracked_since_utc": history.get("tracked_since_utc"),
+                        "last_collected_at_utc": history.get("last_collected_at_utc"),
+                        "observation_count": _safe_int(history.get("observation_count")) or 0,
+                        "active_addresses_24h": (
+                            history.get("active_addresses_24h", [])[-6:]
+                            if isinstance(history.get("active_addresses_24h"), list) else []
+                        ),
+                        "dev_activity": (
+                            history.get("dev_activity", [])[-7:]
+                            if isinstance(history.get("dev_activity"), list) else []
+                        ),
+                    }
+
+            has_cmc = bool(cmc_evidence)
+            has_dex = bool(dex_evidence and dex_evidence.get("pair_count"))
+            has_defi = bool(defi_evidence)
+            has_santiment = bool(santiment_evidence and any(
+                santiment_evidence.get(field) is not None
+                for field in (
+                    "active_addresses_24h", "active_addresses_change_24h_pct",
+                    "dev_activity_7d", "dev_activity_change_7d_pct",
+                )
+            ))
+            has_news = bool(news_sources)
+            has_narrative = bool(themes)
+            any_evidence = bool(matches or has_cmc or has_dex or has_defi or has_santiment)
+
+            if not bridge_fresh:
+                research_status = "TEKNİK ADAY AKTARIMI ESKİ"
+            elif has_narrative and (has_dex or has_defi or has_santiment):
+                research_status = "NARATİF + PİYASA KANITI BULUNDU"
+            elif has_narrative:
+                research_status = "NARATİF EŞLEŞMESİ BULUNDU"
+            elif any_evidence:
+                research_status = "PİYASA/PROJE KANITI VAR — NARATİF EŞLEŞMESİ YOK"
+            elif checked_sources or checked_market_sources:
+                research_status = "TARAMA YAPILDI — KANIT EŞLEŞMESİ BULUNAMADI"
+            else:
+                research_status = "KAYNAK VERİSİ EKSİK — DEĞERLENDİRİLEMEDİ"
+
+            findings = []
+            if has_news:
+                findings.append(f"{len(news_sources)} bağımsız editoryal yayıncı eşleşti; yinelenen yayınlar ikinci teyit sayılmadı.")
+            elif matches:
+                findings.append("Coinle ilişkili keşif/duyuru kaydı var; bağımsız editoryal yayıncı eşleşmesi bulunmadı.")
+            if has_cmc:
+                change = _safe_float(cmc_evidence.get("percent_change_24h"))
+                volume_change = _safe_float(cmc_evidence.get("volume_change_24h"))
+                if change is not None:
+                    findings.append(f"CMC son piyasa verisi 24 saatlik fiyat değişimini %{change:+.2f} gösteriyor.")
+                if volume_change is not None:
+                    findings.append(f"CMC 24 saatlik hacim değişimi %{volume_change:+.2f}.")
+            if has_dex:
+                findings.append(
+                    f"DEX'te {dex_evidence['pair_count']} işlem çifti, "
+                    f"{dex_evidence['chain_count']} zincir, "
+                    f"{_safe_float(dex_evidence.get('liquidity_usd')) or 0.0:,.0f} USD likidite ve "
+                    f"{_safe_float(dex_evidence.get('volume_usd_h24')) or 0.0:,.0f} USD 24s hacim kaydı var."
+                )
+                buys = dex_evidence.get("buys_h24")
+                sells = dex_evidence.get("sells_h24")
+                if buys is not None and sells is not None:
+                    findings.append(f"DEX 24 saat işlem yönü: {buys} alış / {sells} satış.")
+            if has_defi:
+                for protocol in defi_evidence[:2]:
+                    tvl_change = protocol.get("tvl_change_7d_pct")
+                    dex_volume = protocol.get("dex_volume_24h_usd")
+                    fees = protocol.get("fees_24h_usd")
+                    parts = [f"{protocol.get('name') or 'Protokol'}"]
+                    if protocol.get("tvl_usd") is not None:
+                        parts.append(f"TVL {_safe_float(protocol.get('tvl_usd')):,.0f} USD")
+                    if tvl_change is not None:
+                        parts.append(f"7g TVL %{float(tvl_change):+.2f}")
+                    if dex_volume is not None:
+                        parts.append(f"24s DEX hacmi {_safe_float(dex_volume):,.0f} USD")
+                    if fees is not None:
+                        parts.append(f"24s ücret {_safe_float(fees):,.0f} USD")
+                    findings.append(" · ".join(parts) + ".")
+            if has_santiment:
+                active_change = santiment_evidence.get("active_addresses_change_24h_pct")
+                dev_change = santiment_evidence.get("dev_activity_change_7d_pct")
+                if active_change is not None:
+                    findings.append(f"Santiment aktif adres değişimi (24s): %{float(active_change):+.2f}.")
+                if dev_change is not None:
+                    findings.append(f"Santiment geliştirici etkinliği değişimi (7g): %{float(dev_change):+.2f}.")
+                history = santiment_evidence.get("observation_history")
+                if isinstance(history, dict) and history.get("observation_count"):
+                    findings.append(
+                        f"Santiment yerel gözlem geçmişinde {history['observation_count']} örnek var; "
+                        f"ilk yerel kayıt {history.get('tracked_since_utc') or '—'}."
+                    )
+
+            missing = []
+            if not matches:
+                missing.append("Haber/keşif akışlarında coinle eşleşen olay bulunmadı.")
+            if not has_cmc:
+                missing.append("CMC coin piyasa verisi eşleşmedi.")
+            if not has_dex:
+                missing.append("Seçilen DEX profil/topluluk adreslerinde eşleşen gerçek pair verisi bulunmadı.")
+            if not has_defi:
+                missing.append("DeFiLlama protokol verisiyle güvenilir coin eşleşmesi bulunmadı.")
+            if not has_santiment:
+                missing.append("Santiment ücretsiz ölçümlerinde coin için veri yok veya API erişimi etkin değil.")
+            if not bridge_fresh:
+                missing.append("Teknik aday aktarımı 30 dakikalık güncellik sınırını aştı; güncel aday teyidi bekleniyor.")
+
+            coverage = {
+                group: {
+                    "available_count": sum(
+                        1 for value in source_coverage.values()
+                        if value.get("group") == group and value.get("usable") is True
+                    ),
+                    "sources": [
+                        key for key, value in source_coverage.items()
+                        if value.get("group") == group
+                    ],
+                }
+                for group in source_groups
+            }
             result_rows.append({
                 "symbol": symbol,
                 "status": research_status,
@@ -4178,14 +4405,49 @@ class NarrativeEngine:
                 "matching_event_count": len(matches),
                 "matching_events": matching_events,
                 "checked_sources": checked_sources,
+                "checked_market_sources": checked_market_sources,
+                "source_coverage": coverage,
+                "market_evidence": {
+                    "cmc": cmc_evidence or None,
+                    "dex": dex_evidence,
+                    "defillama_protocols": defi_evidence,
+                    "santiment": santiment_evidence,
+                },
+                "research_findings": findings[:10],
+                "missing_evidence": missing[:10],
+                "evidence_counts": {
+                    "independent_news_publishers": len(news_sources),
+                    "discovery_sources": len(discovery_sources),
+                    "matching_events": len(matches),
+                    "dex_pairs": dex_evidence.get("pair_count", 0) if dex_evidence else 0,
+                    "defillama_protocols": len(defi_evidence),
+                    "santiment_observations": (
+                        santiment_evidence.get("observation_history", {}).get("observation_count", 0)
+                        if santiment_evidence and isinstance(santiment_evidence.get("observation_history"), dict)
+                        else 0
+                    ),
+                },
                 "handoff_generated_at_utc": generated or None,
                 "handoff_fresh": bridge_fresh,
+                "market_data_generated_at_utc": utc_now(),
                 "researched_at_utc": utc_now(),
                 "scope_note": (
-                    "Mevcut haber ve keşif akışları coin adı/proje aliası üzerinden tarandı. "
-                    "Bu işlem ilave veya ücretli API çağrısı yapmaz."
+                    "Teknik A/B/C adayları mevcut haber/keşif kayıtları ve aynı döngüde toplanmış "
+                    "CMC, DEX, DeFiLlama ve Santiment verileriyle hedefli eşleştirilir. Coin başına "
+                    "yeni API isteği yapılmaz. Veri yokluğu olumsuz sinyal veya sıfır değer sayılmaz."
+                ),
+                "score_separation_note": (
+                    "Bu araştırma teknik puanı, A/B/C aşamasını, likidite kapılarını veya güçlü fırsat "
+                    "koşullarını değiştirmez; yalnızca açıklayıcı kanıt sunar."
                 ),
             })
+            counts["candidates_with_narrative"] += int(has_narrative)
+            counts["candidates_with_news"] += int(has_news)
+            counts["candidates_with_dex_activity"] += int(has_dex)
+            counts["candidates_with_defi_activity"] += int(has_defi)
+            counts["candidates_with_santiment_data"] += int(has_santiment)
+            counts["candidates_with_market_data"] += int(has_cmc)
+            counts["candidates_with_any_evidence"] += int(any_evidence)
 
         status = (
             "GÜNCEL" if bridge_fresh and result_rows
@@ -4199,13 +4461,13 @@ class NarrativeEngine:
             "handoff_age_seconds": round(bridge_age, 1) if bridge_age is not None else None,
             "handoff_fresh": bridge_fresh,
             "technical_candidate_count": len(result_rows),
-            "candidates_with_narrative": sum(
-                item.get("status") == "NARATİF EŞLEŞMESİ BULUNDU" for item in result_rows
-            ),
+            **counts,
             "sources_checked": checked_sources,
+            "market_sources_checked": checked_market_sources,
+            "source_coverage": source_coverage,
             "items": result_rows,
             "score_separation_note": (
-                "Bu araştırma sonucu teknik puana veya güçlü fırsat kapılarına eklenmez; "
+                "Araştırma sonucu teknik puana veya güçlü fırsat kapılarına eklenmez; "
                 "naratif puanı da teknik adayı değiştirmez."
             ),
         }
@@ -4301,7 +4563,7 @@ class NarrativeEngine:
         if not isinstance(bridge_state, dict):
             bridge_state = {}
         technical_candidate_research = self._build_technical_candidate_research(
-            bridge_state, events, early_watch, statuses,
+            bridge_state, events, early_watch, statuses, market_map,
         )
         technical_watch_bridge = self._attach_technical_tracking(
             early_watch,
@@ -4369,6 +4631,12 @@ class NarrativeEngine:
                 "early_watch_count": len(early_watch),
                 "technical_candidate_count": technical_candidate_research.get("technical_candidate_count", 0),
                 "technical_candidates_with_narrative": technical_candidate_research.get("candidates_with_narrative", 0),
+                "technical_candidates_with_news": technical_candidate_research.get("candidates_with_news", 0),
+                "technical_candidates_with_dex_activity": technical_candidate_research.get("candidates_with_dex_activity", 0),
+                "technical_candidates_with_defi_activity": technical_candidate_research.get("candidates_with_defi_activity", 0),
+                "technical_candidates_with_santiment_data": technical_candidate_research.get("candidates_with_santiment_data", 0),
+                "technical_candidates_with_any_market_data": technical_candidate_research.get("candidates_with_market_data", 0),
+                "technical_candidates_with_any_research_evidence": technical_candidate_research.get("candidates_with_any_evidence", 0),
                 "narrative_coin_technical_watch_count": technical_watch_bridge.get("tracked_coin_count", 0),
                 "errors": errors,
             },

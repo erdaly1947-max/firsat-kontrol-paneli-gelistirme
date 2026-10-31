@@ -1098,3 +1098,22 @@ Her kaynak kendi önbellek ve hata durumunu taşır; bir endpoint'in arızası d
 Veri haber/bağımsız teyit değildir; naratif puanı, teknik puan, A/B/C aşamaları, likidite kapıları veya güçlü fırsat/alarm kararlarına eklenmez. Zincir TVL toplamı zincirlerin raporlanan değerlerinin toplamıdır; zincirler arası çifte sayım bulunabileceğinden mutlak küresel DeFi TVL diye yorumlanmaz. Zincir stablecoin arzı toplamı da zincirlerin raporladığı miktarları toplar; global arz karşılaştırması için ayrıca `/stablecoincharts/all` geçmişi kullanılır.
 
 Ücretsiz `/pools` getiri/APY uç noktası, resmî belgede 13 Kasım 2026'da kapatılacağı duyurulduğu için kullanılmaz. Ücretli API planı, API anahtarı veya ücretli MCP bağlantısı bu entegrasyonun parçası değildir.
+
+
+---
+
+## Teknik adaylar için hedefli araştırma — 31 Ekim 2026
+
+Teknik motorun yalnızca canlı ve 30 dakikadan yeni A/B/C aday aktarımları, Naratif Avcı tarafından coin bazında hedefli araştırmaya alınır. Aday başına yeni API isteği üretilmez; aynı çalışma döngüsünde toplanmış RSS/Atom, TrendKia, AIXBT/CMC keşif, CoinMarketCap, DEX Screener, DeFiLlama ve Santiment verileri ile yerel önbellek kullanılır.
+
+Araştırma çıktısı kaynak ailelerini birbirinden ayırır:
+
+- Haber/duyuru: eşleşen olaylar, yayıncılar, yayın tarihleri, bağlantılar ve konu temaları. Yinelenen yayınlar bağımsız haber teyidi sayılmaz.
+- DEX: gerçek işlem çifti sayısı, zincir kapsamı, likidite, 24 saat hacim, alış/satış ve en yüksek likiditeli çiftler.
+- DeFiLlama: eşleşen protokol, TVL, 1/7 günlük değişim, DEX hacmi, protokol ücretleri ve zincirler.
+- Santiment: aktif adres ve geliştirici etkinliği değişimleri ile mevcutsa yerel SQLite gözlem geçmişi.
+- CoinMarketCap: fiyat/hacim değişimleri ve listeleme bağlamı.
+
+Kontrol edilen kaynakların BAĞLI/ÖNBELLEK durumu, son başarılı erişim zamanı ve veri yaşı ayrı gösterilir. Kaynak erişilemediyse veya coin eşleşmesi bulunmadıysa bu, olumsuz piyasa sinyali ya da sıfır değer olarak yorumlanmaz; eksik kanıt listesinde kalır.
+
+Coin ayrıntısındaki teknik aday kartında araştırma durumu, eşleşen temalar, bağımsız haber yayıncıları, DEX faaliyeti, protokol TVL/DEX hacmi/ücret bilgileri, Santiment ölçümleri ve eksik kanıtlar birlikte gösterilir. Teknik radarın kendi teknik puanı, A/B/C aşaması, likidite kapıları, güçlü fırsat koşulları ve bildirim izinleri değiştirilmez. Hedefli araştırma açıklayıcı kanıt sunar; alım-satım sinyali, otomatik emir veya kârlılık iddiası değildir.

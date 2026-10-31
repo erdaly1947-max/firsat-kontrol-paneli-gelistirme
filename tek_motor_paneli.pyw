@@ -4197,13 +4197,70 @@ class ControlPanel(tk.Tk):
         research = candidate.get("narrative_research") if isinstance(candidate.get("narrative_research"), dict) else {}
         research_lines = (
             [
-                f"NARATİF ARAŞTIRMA: {research.get('status') or '—'}",
+                f"HEDEFLİ ARAŞTIRMA: {research.get('status') or '—'}",
                 f"Eşleşen temalar: {', '.join(research.get('matched_narratives', [])) or '—'}",
-                f"Haber kaynakları: {', '.join(research.get('news_sources', [])) or '—'}",
+                f"Bağımsız haber yayıncıları: {', '.join(research.get('news_sources', [])) or '—'}",
                 f"Keşif kaynakları: {', '.join(research.get('discovery_sources', [])) or '—'}",
+                f"Kontrol edilen haber/keşif kaynakları: {', '.join(research.get('checked_sources', [])) or '—'}",
+                f"Kontrol edilen piyasa kaynakları: {', '.join(research.get('checked_market_sources', [])) or '—'}",
             ]
             if research else
-            ["NARATİF ARAŞTIRMA: aktarım/sonuç henüz yok."]
+            ["HEDEFLİ ARAŞTIRMA: aktarım/sonuç henüz yok."]
+        )
+        evidence = research.get("market_evidence") if isinstance(research.get("market_evidence"), dict) else {}
+        cmc = evidence.get("cmc") if isinstance(evidence.get("cmc"), dict) else {}
+        dex = evidence.get("dex") if isinstance(evidence.get("dex"), dict) else {}
+        santiment = evidence.get("santiment") if isinstance(evidence.get("santiment"), dict) else {}
+        defi_protocols = evidence.get("defillama_protocols") if isinstance(evidence.get("defillama_protocols"), list) else []
+        research_findings = research.get("research_findings") if isinstance(research.get("research_findings"), list) else []
+        missing_evidence = research.get("missing_evidence") if isinstance(research.get("missing_evidence"), list) else []
+        if cmc:
+            research_lines.extend([
+                "CMC piyasa verisi (haber değildir): "
+                f"24s fiyat %{_format_metric(cmc.get('percent_change_24h'))} · "
+                f"24s hacim değişimi %{_format_metric(cmc.get('volume_change_24h'))}",
+            ])
+        if dex:
+            research_lines.extend([
+                "DEX GERÇEK İŞLEM VERİSİ: "
+                f"{dex.get('pair_count', 0)} pair · {dex.get('chain_count', 0)} zincir · "
+                f"likidite {_format_metric(dex.get('liquidity_usd'))} USD · "
+                f"24s hacim {_format_metric(dex.get('volume_usd_h24'))} USD",
+                f"DEX 24s alış/satış: {dex.get('buys_h24', '—')} / {dex.get('sells_h24', '—')} · "
+                f"işlem sayısı {dex.get('transactions_h24', '—')}",
+            ])
+        if defi_protocols:
+            for protocol in defi_protocols[:3]:
+                if not isinstance(protocol, dict):
+                    continue
+                research_lines.append(
+                    f"DeFiLlama: {protocol.get('name') or '—'} · "
+                    f"TVL {_format_metric(protocol.get('tvl_usd'))} USD · "
+                    f"TVL 7g %{_format_metric(protocol.get('tvl_change_7d_pct'))} · "
+                    f"DEX 24s {_format_metric(protocol.get('dex_volume_24h_usd'))} USD · "
+                    f"ücret 24s {_format_metric(protocol.get('fees_24h_usd'))} USD"
+                )
+        if santiment:
+            research_lines.append(
+                "Santiment: aktif adres 24s değişim "
+                f"%{_format_metric(santiment.get('active_addresses_change_24h_pct'))} · "
+                "geliştirici etkinliği 7g değişim "
+                f"%{_format_metric(santiment.get('dev_activity_change_7d_pct'))}"
+            )
+            history = santiment.get("observation_history") if isinstance(santiment.get("observation_history"), dict) else {}
+            if history:
+                research_lines.append(
+                    f"Santiment yerel geçmiş: {history.get('observation_count', 0)} örnek · "
+                    f"ilk kayıt {history.get('tracked_since_utc') or '—'}"
+                )
+        if research_findings:
+            research_lines.append("ARAŞTIRMA BULGULARI:")
+            research_lines.extend(f"• {str(item)}" for item in research_findings[:8])
+        if missing_evidence:
+            research_lines.append("EKSİK KANIT / KAPSAM:")
+            research_lines.extend(f"• {str(item)}" for item in missing_evidence[:8])
+        research_lines.append(
+            "Bu araştırma teknik puana, A/B/C aşamasına veya güçlü fırsat koşullarına eklenmez."
         )
         missing = candidate.get("missing_checks")
         missing = [str(item) for item in missing if item] if isinstance(missing, list) else []
