@@ -1258,6 +1258,9 @@ class ControlPanel(tk.Tk):
             self.narrative_source_tree.heading(column, text=label)
             self.narrative_source_tree.column(column, width=width, minwidth=45, stretch=column == "source")
         self.narrative_source_tree.pack(fill="both", expand=True)
+        self.narrative_source_tree.bind(
+            "<<TreeviewSelect>>", lambda _event: self._narrative_show_source_status()
+        )
         detail_frame = ttk.LabelFrame(narrative_right, text="Seçili naratif / bildirim ayrıntısı", padding=7)
         detail_frame.pack(fill="both", expand=True)
         self.narrative_detail_text = tk.Text(
@@ -1783,6 +1786,8 @@ class ControlPanel(tk.Tk):
         if selected_symbol and self.narrative_watch_tree.exists(selected_symbol):
             self.narrative_watch_tree.selection_set(selected_symbol)
 
+        old_source_selection = self.narrative_source_tree.selection()
+        selected_source_id = old_source_selection[0] if old_source_selection else None
         self.narrative_source_tree.delete(*self.narrative_source_tree.get_children())
         sources = state.get("source_statuses") if isinstance(state.get("source_statuses"), dict) else {}
         for key, item in sources.items():
@@ -1794,6 +1799,9 @@ class ControlPanel(tk.Tk):
                 "", "end", iid=str(key),
                 values=(item.get("name", key), item.get("status", "—"), item.get("item_count", 0), age_label),
             )
+        if selected_source_id and self.narrative_source_tree.exists(selected_source_id):
+            self.narrative_source_tree.selection_set(selected_source_id)
+            self._narrative_show_source_status()
         if selected_id and self.narrative_tree.exists(selected_id):
             self._narrative_show_selected()
         elif selected_symbol and self.narrative_watch_tree.exists(selected_symbol):
@@ -1861,6 +1869,85 @@ class ControlPanel(tk.Tk):
             if event.get("republishers"):
                 lines.append(f"  Aynı haberin tekrar yayıncıları (ek teyit sayılmaz): {', '.join(event['republishers'])}")
         lines.extend(["", "Bu kayıt bir işlem veya güçlü fırsat alarmı değildir."])
+        self._set_text(self.narrative_detail_text, "\n".join(lines))
+
+    def _narrative_show_source_status(self) -> None:
+        selection = self.narrative_source_tree.selection() if hasattr(self, "narrative_source_tree") else ()
+        if not selection:
+            return
+        source_id = selection[0]
+        state = _read_json(NARRATIVE_STATE_PATH, {})
+        statuses = state.get("source_statuses", {}) if isinstance(state, dict) else {}
+        source = statuses.get(source_id) if isinstance(statuses, dict) else None
+        if not isinstance(source, dict):
+            self._set_text(self.narrative_detail_text, "Seçilen kaynak için durum kaydı bulunamadı.")
+            return
+
+        source_name = str(source.get("name") or source_id)
+        role = str(source.get("role") or "Kaynak rolü tanımlanmamış.")
+        enabled = source.get("enabled") is True
+        status = str(source.get("status") or "DURUM BİLİNMİYOR")
+        lines = [
+            f"KAYNAK: {source_name}",
+            f"Bağlantı durumu: {status}",
+            f"Kullanım: {'AÇIK' if enabled else 'KAPALI / EK ERİŞİM GEREKİYOR'}",
+            f"Kaynağın rolü: {role}",
+            f"Kayıt sayısı: {source.get('item_count', 0)}",
+            f"Veri yaşı: {_format_age(source.get('age_seconds')) if source.get('age_seconds') is not None else '—'}",
+            f"Son başarılı erişim: {source.get('last_success_utc') or 'Henüz başarılı erişim yok'}",
+            f"Son deneme: {source.get('last_attempt_utc') or 'Henüz denenmedi'}",
+        ]
+        if source_id == "coingecko_trending":
+            lines.extend([
+                "",
+                "GEREKSİNİM: Ücretsiz CoinGecko Demo API anahtarı gerekir.",
+                "Anahtar, ayarlar.json içine yazılmaz; COINGECKO_DEMO_API_KEY ortam değişkeninden okunur.",
+                "Anahtar yoksa bu kaynak devre dışı kalır; diğer kaynaklar çalışmaya devam eder.",
+            ])
+        elif source_id == "aixbt_project_mapping":
+            lines.extend([
+                "",
+                "GEREKSİNİM: AIXBT konu→proje eşlemesi bu sürümde çağrılmıyor.",
+                "Ayrıntılı uç nokta ek API anahtarı/hesap yetkisi gerektirebilir; yetki doğrulanmadan bağlı gösterilmez.",
+                "Ücretsiz ve anahtarsız AIXBT Topics akışı ayrı kaynak olarak kullanılmaktadır.",
+            ])
+        elif source_id.startswith("rss_"):
+            lines.extend([
+                "",
+                "GEREKSİNİM: HTTPS RSS/Atom adresi.",
+                "Kaynak listesi ayarlar.json içindeki narrative_rss_feeds alanından değiştirilebilir.",
+                "Yenileme aralığı narrative_rss_interval_seconds alanından ayarlanabilir.",
+                "Varsayılan yayınlar: Ethereum Foundation, CoinDesk, Cointelegraph ve The Block.",
+                "Bu yayın akışlarının erişilebilirliği her çalıştırmada ayrı test edilir.",
+            ])
+        elif source_id == "aixbt_topics":
+            lines.extend([
+                "",
+                "GEREKSİNİM: Ek API anahtarı olmadan herkese açık AIXBT v3 Topics uç noktası.",
+                "Bu uç nokta ilk 25 konuyu verir; kapsam tüm konu arşivi değildir.",
+                "Konu keşfi bağımsız haber yayıncısı teyidi sayılmaz.",
+            ])
+        elif source_id == "cmc_market_activity":
+            lines.extend([
+                "",
+                "GEREKSİNİM: CoinMarketCap anahtarsız halka açık listeleme uç noktası.",
+                "Bu veri piyasa aktivitesidir; haber, katalizör veya bağımsız haber teyidi değildir.",
+            ])
+        elif source_id in ("dex_profiles", "dex_community"):
+            lines.extend([
+                "",
+                "GEREKSİNİM: DEX Screener herkese açık profil/topluluk uç noktası; API anahtarı kullanılmaz.",
+                "Profil veya topluluk görünürlüğü tek başına organik talep ya da bağımsız haber teyidi değildir.",
+            ])
+        if source.get("error"):
+            lines.extend(["", "SON HATA:", str(source.get("error"))])
+        else:
+            lines.extend(["", "Kaynak için son denemede kaydedilmiş hata yok."])
+        lines.extend([
+            "",
+            "Önemli: Kaynak satırındaki BAĞLI/ÖNBELLEK durumu, yalnızca bu kaynağın verisinin alındığını gösterir.",
+            "Bir kaynağın bağlı olması, ilgili naratifin bağımsız biçimde doğrulandığı anlamına gelmez.",
+        ])
         self._set_text(self.narrative_detail_text, "\n".join(lines))
 
     def _narrative_show_watch(self) -> None:
