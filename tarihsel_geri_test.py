@@ -456,7 +456,6 @@ def run_historical_backtest(
         for timeframe, rows in btc_series_raw.items()
     }
     btc_context_cache: dict[int, dict[str, Any]] = {}
-    btc_notes_cache: dict[int, list[str]] = []
 
     try:
         with gzip.open(observations_tmp, "wt", encoding="utf-8", newline="") as compressed:
@@ -531,7 +530,6 @@ def run_historical_backtest(
                         btc_notes.extend(notes)
                     if as_of_ms not in btc_context_cache:
                         btc_context_cache[as_of_ms] = score_btc_market_context(btc_bars)
-                        btc_notes_cache[as_of_ms] = list(btc_notes)
                     btc_context = btc_context_cache[as_of_ms]
                     btc_complete = isinstance(btc_context, dict) and btc_context.get("data_completeness") == "TAM"
 
@@ -542,9 +540,16 @@ def run_historical_backtest(
                         "strong_alarm_eligible": False,
                         "strong_alarm_block_reason": "Geçmiş parite/izin durumu bu test anı için arşivlenmedi.",
                     }
-                    candidate = evaluate_binance_candidate(
-                        symbol, symbol_bars, btc_bars, pair, settings,
-                    )
+                    try:
+                        candidate = evaluate_binance_candidate(
+                            symbol, symbol_bars, btc_bars, pair, settings,
+                        )
+                    except Exception as exc:
+                        warning = f"{symbol} {as_of_ms}: teknik değerlendirme hatası: {type(exc).__name__}: {exc}"
+                        if warning not in warnings:
+                            warnings.append(warning)
+                        skipped_points += 1
+                        continue
                     evaluated_points += 1
                     if not isinstance(candidate, dict):
                         skipped_points += 1
