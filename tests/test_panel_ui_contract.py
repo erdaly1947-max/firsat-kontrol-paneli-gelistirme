@@ -299,6 +299,27 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn("average_volume_change_24h", detail)
         self.assertIn("discovery_sources", detail)
 
+    def test_narrative_source_selection_explains_real_connection_and_configuration_state(self):
+        builder = ast.unparse(_method("_build_additional_workspace_pages"))
+        refresh = ast.unparse(_method("_refresh_narrative_page"))
+        detail = ast.unparse(_method("_narrative_show_source_status"))
+        self.assertIn("narrative_source_tree", builder)
+        self.assertIn("<<TreeviewSelect>>", builder)
+        self.assertIn("last_success_utc", refresh)
+        for required in (
+            "COINGECKO_DEMO_API_KEY",
+            "narrative_rss_feeds",
+            "narrative_rss_interval_seconds",
+            "aixbt_topics",
+            "cmc_market_activity",
+            "dex_profiles",
+            "aixbt_project_mapping",
+            "independent",
+        ):
+            self.assertIn(required, detail)
+        self.assertIn("error", detail)
+        self.assertIn("last_attempt_utc", detail)
+
     def test_analysis_chart_uses_only_motor_closed_candles_and_eight_timeframes(self):
         refresh = ast.unparse(_method("_refresh_analysis_view"))
         drawing = ast.unparse(_method("_draw_analysis_chart"))
