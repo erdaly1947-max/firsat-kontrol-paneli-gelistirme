@@ -61,7 +61,8 @@ class HistoricalReplayTests(unittest.TestCase):
             for index in range(13)
         ]
         closes = backtest._series_close_times(rows, "5m")
-        outcome = backtest._forward_return(rows, closes, start, 100.0, 3600)
+        signal_ms = start + backtest.FIVE_MINUTES_MS  # İlk mumun kapanış anı.
+        outcome = backtest._forward_return(rows, closes, signal_ms, 100.0, 3600)
         self.assertEqual(outcome["status"], "HESAPLANDI")
         self.assertEqual(outcome["close_price"], 112.0)
         self.assertEqual(outcome["return_pct"], 12.0)
@@ -75,7 +76,8 @@ class HistoricalReplayTests(unittest.TestCase):
             bar(start + 3 * backtest.FIVE_MINUTES_MS, close=103.0),
         ]
         closes = backtest._series_close_times(rows, "5m")
-        result, issue = backtest._window_bars(rows, closes, start, 600)
+        signal_ms = start + backtest.FIVE_MINUTES_MS
+        result, issue = backtest._window_bars(rows, closes, signal_ms, 600)
         self.assertIsNone(result)
         self.assertIn("mum boşluğu", issue)
 
