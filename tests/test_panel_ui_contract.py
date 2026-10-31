@@ -276,6 +276,29 @@ class PanelUIContractTests(unittest.TestCase):
         self.assertIn('"narrative_early_watch"', RADAR_SOURCE)
         self.assertIn("narrative puanı teknik puandan ayrıdır", PANEL_SOURCE.casefold())
 
+    def test_narrative_first_early_watch_is_visible_in_radar_without_technical_signal(self):
+        refresh = ast.unparse(_method("_refresh_radar_narrative_watch"))
+        open_watch = ast.unparse(_method("_open_narrative_watch_from_radar"))
+        self.assertIn("early_watch", refresh)
+        self.assertIn("radar_narrative_tree", refresh)
+        self.assertIn("_show_workspace_page", open_watch)
+        self.assertIn("narrative_watch_tree", open_watch)
+        self.assertNotIn("_select_candidate_by_symbol", open_watch)
+        builder = ast.unparse(_method("_build_ui"))
+        self.assertIn("Naratif erken izleme", builder)
+
+    def test_narrative_list_shows_related_coin_symbols_and_missing_data_state(self):
+        builder = ast.unparse(_method("_build_additional_workspace_pages"))
+        refresh = ast.unparse(_method("_refresh_narrative_page"))
+        detail = ast.unparse(_method("_narrative_show_selected"))
+        self.assertIn('"data"', builder)
+        self.assertIn("İlişkili coinler", builder)
+        self.assertIn("coin_label", refresh)
+        self.assertIn("EKSİK", refresh)
+        self.assertIn("data_freshness_seconds", detail)
+        self.assertIn("average_volume_change_24h", detail)
+        self.assertIn("discovery_sources", detail)
+
     def test_analysis_chart_uses_only_motor_closed_candles_and_eight_timeframes(self):
         refresh = ast.unparse(_method("_refresh_analysis_view"))
         drawing = ast.unparse(_method("_draw_analysis_chart"))
