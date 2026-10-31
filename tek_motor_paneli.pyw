@@ -19,6 +19,7 @@ import queue
 import re
 import subprocess
 import sys
+import webbrowser
 import threading
 import time
 from datetime import datetime, timezone
@@ -1478,7 +1479,7 @@ class ControlPanel(tk.Tk):
         # BTC ve Piyasa
         heading(
             self.market_page, "BTC ve Piyasa",
-            "BTC ana yönü, seviye durumu, oynaklık ve piyasa verisinin eksiksizliği.",
+            "BTC ana yönü, seviye durumu, oynaklık, piyasa bağlamı ve önemli ekonomik takvim.",
         )
         market_actions = ttk.Frame(self.market_page, padding=(12, 2, 12, 5))
         market_actions.pack(fill="x")
@@ -1486,6 +1487,10 @@ class ControlPanel(tk.Tk):
             market_actions, text="BTC ayrıntılarını yenile",
             command=self._refresh_market_page,
         ).pack(side="left")
+        ttk.Button(
+            market_actions, text="Ekonomik Takvim (Investing.com)",
+            command=lambda: webbrowser.open("https://tr.investing.com/economic-calendar/index", new=2),
+        ).pack(side="left", padx=(8, 0))
         self.market_context_text = tk.Text(
             self.market_page, wrap="word", state="disabled",
             background="#000000", foreground="#FFFFFF", insertbackground="#FFFFFF",
@@ -1814,9 +1819,21 @@ class ControlPanel(tk.Tk):
                 f"Son gözlem: {generated or '—'}",
                 f"Naratif sayısı: {coverage.get('narrative_count', len(narratives))}",
                 f"Erken izlenen coin: {coverage.get('early_watch_count', len(watch))}",
-                "",
-                "Son naratif bildirimleri:",
             ]
+            market_context = state.get("market_context") if isinstance(state.get("market_context"), dict) else {}
+            global_metrics = market_context.get("cmc_global_metrics") if isinstance(market_context.get("cmc_global_metrics"), dict) else {}
+            fear_greed = market_context.get("cmc_fear_greed") if isinstance(market_context.get("cmc_fear_greed"), dict) else {}
+            altcoin_season = market_context.get("cmc_altcoin_season") if isinstance(market_context.get("cmc_altcoin_season"), dict) else {}
+            if global_metrics or fear_greed or altcoin_season:
+                lines.extend([
+                    "",
+                    "CoinMarketCap piyasa bağlamı (teknik puandan bağımsız):",
+                    f"BTC hâkimiyeti: {global_metrics.get('bitcoin_dominance_pct', '—')}% · ETH hâkimiyeti: {global_metrics.get('ethereum_dominance_pct', '—')}%",
+                    f"Toplam piyasa değeri: {global_metrics.get('total_market_cap_usd', '—')} USD · 24s hacim: {global_metrics.get('total_volume_24h_usd', '—')} USD",
+                    f"Korku/Açgözlülük: {fear_greed.get('value', '—')} · {fear_greed.get('classification', '—')}",
+                    f"Altcoin Sezon Endeksi: {altcoin_season.get('index', '—')} / 100",
+                ])
+            lines.extend(["", "Son naratif bildirimleri:"])
             lines.extend(str(item.get("message") or "") for item in alerts[-5:] if isinstance(item, dict))
             lines.extend([
                 "",
@@ -1891,10 +1908,15 @@ class ControlPanel(tk.Tk):
         role = str(source.get("role") or "Kaynak rolü tanımlanmamış.")
         enabled = source.get("enabled") is True
         status = str(source.get("status") or "DURUM BİLİNMİYOR")
+        usage_label = (
+            "HARİCİ SAYFA BAĞLANTISI"
+            if source_id == "investing_calendar"
+            else ("AÇIK" if enabled else "KAPALI / EK ERİŞİM GEREKİYOR")
+        )
         lines = [
             f"KAYNAK: {source_name}",
             f"Bağlantı durumu: {status}",
-            f"Kullanım: {'AÇIK' if enabled else 'KAPALI / EK ERİŞİM GEREKİYOR'}",
+            f"Kullanım: {usage_label}",
             f"Kaynağın rolü: {role}",
             f"Kayıt sayısı: {source.get('item_count', 0)}",
             f"Veri yaşı: {_format_age(source.get('age_seconds')) if source.get('age_seconds') is not None else '—'}",
@@ -1931,11 +1953,36 @@ class ControlPanel(tk.Tk):
                 "Bu uç nokta ilk 25 konuyu verir; kapsam tüm konu arşivi değildir.",
                 "Konu keşfi bağımsız haber yayıncısı teyidi sayılmaz.",
             ])
-        elif source_id == "cmc_market_activity":
+        elif source_id.startswith("cmc_") or source_id in ("cmc100_index", "cmc20_index"):
             lines.extend([
                 "",
-                "GEREKSİNİM: CoinMarketCap anahtarsız halka açık listeleme uç noktası.",
-                "Bu veri piyasa aktivitesidir; haber, katalizör veya bağımsız haber teyidi değildir.",
+                "ERİŞİM: CoinMarketCap Keyless Public API; hesap, kayıt, e-posta, API anahtarı veya kart gerektirmez.",
+                "Ana adres /public-api yoludur; API anahtarı başlığı gönderilmez. Ortak IP kotası nedeniyle çağrılar düşük sıklıkta ve önbellekle yapılır.",
+                "ID Map sembol çakışmalarını tahmin etmez; tekil CMC ID eşleşmesi bulunmayan coinlerin fiyat/hacim verisi atlanır.",
+                "Global Metrics, Fear and Greed, Altcoin Season ve CMC endeksleri yalnızca piyasa bağlamıdır; teknik puan ve güçlü fırsat koşullarını değiştirmez.",
+                "Listeleme ve ID ile alınan fiyat/hacim verileri naratif piyasa tepkisini tamamlayabilir; teknik radar puanını değiştirmez.",
+            ])
+        elif source_id == "trendkia_news":
+            lines.extend([
+                "",
+                "ERİŞİM: Herkese açık TrendKia MCP uç noktası; API anahtarı, üyelik veya kart bilgisi kullanılmaz.",
+                "Son 30 makale 30 dakikada bir kontrol edilir. Kripto ve ilgili makroekonomi başlıkları süzülür.",
+                "Yayın tarihi bulunmayan, gelecek tarihli veya 72 saatten eski içerikler güncel haber olarak alınmaz.",
+                "Yalnızca başlık, kısa özet, tarih, kategori ve kaynak bağlantısı saklanır; tam makale kopyalanmaz.",
+                "TrendKia içeriği naratif haber kanıtıdır; teknik puanı veya güçlü fırsat koşullarını değiştirmez.",
+            ])
+        elif source_id == "investing_calendar":
+            lines.extend([
+                "",
+                "KULLANIM: BTC ve Piyasa sayfasındaki Ekonomik Takvim düğmesi resmi Türkçe takvim sayfasını varsayılan tarayıcıda açar.",
+                "Investing.com herkese açık veri API'si sunmuyor. Ücretsiz web takvimi ve web sitesi widget'ı mevcut.",
+                "Bu masaüstü sürümü olay verisini çekmez, kopyalamaz veya saklamaz; takvim Investing.com üzerinde görüntülenir.",
+                "Widget'ın web sitesi koşulları masaüstü uygulamasına otomatik veri lisansı vermez; yazılı izin olmadan veri aktarımı yapılmaz.",
+            ])
+        elif source_id == "the_fly":
+            lines.extend([
+                "",
+                "KULLANIM: Ücretsiz geliştirici planı olsa da içerik toplama/birleştirme izni netleşmediği için API çağrısı yapılmıyor.",
             ])
         elif source_id in ("dex_profiles", "dex_community"):
             lines.extend([
@@ -1962,9 +2009,9 @@ class ControlPanel(tk.Tk):
         elif source_id in ("x_api", "reddit"):
             lines.extend([
                 "",
-                "DURUM: Bu kaynak için veri toplama entegrasyonu bu sürümde bulunmuyor.",
-                "Bu kaynaktan veri alınmıyor; naratif puanı, güven veya kaynak çeşitliliğine katkı vermiyor.",
-                "İleride yalnızca erişim koşulları ve izinleri doğrulanırsa ayrıca bağlanabilir.",
+                "DURUM: Bu kaynaktan veri alınmıyor ve naratif puanına katkısı yok.",
+                "Reddit için Data API erişim başvurusunun açık onayı ve OAuth bilgileri bekleniyor.",
+                "Onay gelmeden API çağrısı yapılmaz; ücretsiz kullanım ve izin kapsamı doğrulanmadan kaynak bağlı gösterilmez.",
             ])
         if source.get("error"):
             lines.extend(["", "SON HATA:", str(source.get("error"))])
