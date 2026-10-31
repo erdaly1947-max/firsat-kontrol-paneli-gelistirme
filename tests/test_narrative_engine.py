@@ -483,3 +483,151 @@ class NarrativeRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewFreeNarrativeSourcesTests(unittest.TestCase):
+    def test_cmc_v3_listing_supports_usd_quote_array(self):
+        rows = narrative.parse_cmc_market_listings({"data": [{
+            "id": 1027, "symbol": "ETH", "name": "Ethereum", "cmc_rank": 2,
+            "quote": [{"symbol": "USD", "price": 3100.5, "volume_24h": 2000000,
+                       "percent_change_24h": 2.5, "volume_change_24h": 5.0,
+                       "market_cap": 1000000}],
+        }]})
+        self.assertEqual(rows[0]["id"], 1027)
+        self.assertEqual(rows[0]["price"], 3100.5)
+        self.assertEqual(rows[0]["percent_change_24h"], 2.5)
+
+    def test_cmc_legacy_listing_envelope_remains_supported(self):
+        rows = narrative.parse_cmc_market_listings({"data": {"cryptoCurrencyList": [{
+            "symbol": "ETH", "name": "Ethereum",
+            "quote": {"USD": {"price": 3000, "percent_change_24h": 3.5}},
+        }]}})
+        self.assertEqual(rows[0]["symbol"], "ETH")
+        self.assertEqual(rows[0]["percent_change_24h"], 3.5)
+
+    def test_cmc_id_map_skips_ambiguous_symbols(self):
+        rows = narrative.parse_cmc_id_map({"data": [
+            {"id": 1, "symbol": "BTC", "name": "Bitcoin"},
+            {"id": 2, "symbol": "ABC", "name": "Project A"},
+            {"id": 3, "symbol": "ABC", "name": "Project B"},
+        ]})
+        lookup = narrative.build_cmc_id_lookup(rows)
+        self.assertIn("BTC", lookup)
+        self.assertNotIn("ABC", lookup)
+
+    def test_cmc_quotes_parse_batched_id_result(self):
+        rows = narrative.parse_cmc_quotes({"data": {
+            "1027": {"id": 1027, "symbol": "ETH", "name": "Ethereum",
+                     "quote": {"USD": {"price": 3000, "volume_24h": 1000,
+                                       "volume_change_24h": 4, "percent_change_24h": 1.5}}}
+        }})
+        self.assertEqual(rows[0]["id"], 1027)
+        self.assertEqual(rows[0]["volume_change_24h"], 4)
+
+    def test_cmc_global_metrics_normalizes_dominance(self):
+        result = narrative.parse_cmc_global_metrics({"data": {
+            "btc_dominance": 56.2, "eth_dominance": 12.1,
+            "quote": {"USD": {"total_market_cap": 2000000, "total_volume_24h": 100000}},
+        }})
+        self.assertEqual(result["bitcoin_dominance_pct"], 56.2)
+        self.assertEqual(result["total_market_cap_usd"], 2000000)
+
+    def test_cmc_fear_greed_and_altcoin_index(self):
+        fear = narrative.parse_cmc_fear_greed({"data": {
+            "value": 61, "value_classification": "Greed",
+            "timestamp": "2026-10-31T12:00:00Z",
+        }})
+        season = narrative.parse_cmc_altcoin_season({"data": {
+            "altcoin_index": 42, "snapshot_time": "2026-10-31T12:00:00Z",
+        }})
+        self.assertEqual(fear["value"], 61)
+        self.assertEqual(fear["classification"], "Greed")
+        self.assertEqual(season["index"], 42)
+
+    def test_trendkia_parser_filters_old_and_unrelated_articles(self):
+        now = narrative._parse_published_datetime("Sat, 31 Oct 2026 14:00:00 GMT").timestamp()
+        source = """# Recent TrendKia articles
+
+## Bitcoin market sees renewed volatility
+- URL: https://trendkia.com/en/crypto/bitcoin-market-123
+- Category: Crypto
+- Published: Sat, 31 Oct 2026 13:31:53 GMT
+- Summary: Bitcoin and Ethereum react to a Fed rate outlook.
+- Language: en
+
+## Local school recruitment update
+- URL: https://trendkia.com/en/career/local-recruitment-456
+- Category: Career
+- Published: Sat, 31 Oct 2026 13:29:52 GMT
+- Summary: New teacher recruitment dates were announced.
+- Language: en
+
+## Old Ethereum explainer
+- URL: https://trendkia.com/en/crypto/old-ethereum-789
+- Category: Crypto
+- Published: Mon, 20 Oct 2026 13:29:52 GMT
+- Summary: Ethereum historical background.
+- Language: en
+"""
+        rows = narrative.parse_trendkia_articles(source, now_epoch=now)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source_id"], "trendkia_news")
+        self.assertIn("Bitcoin", rows[0]["title"])
+        self.assertEqual(rows[0]["url"], "https://trendkia.com/en/crypto/bitcoin-market-123")
+
+    def test_trendkia_rejects_untrusted_url_and_missing_date(self):
+        source = """## Bitcoin
+- URL: http://trendkia.com/bitcoin
+- Category: Crypto
+- Published: Sat, 31 Oct 2026 13:31:53 GMT
+- Summary: Bitcoin
+
+## Ethereum
+- URL: https://trendkia.com/ethereum
+- Category: Crypto
+- Summary: Ethereum
+"""
+        self.assertEqual(narrative.parse_trendkia_articles(source), [])
+
+    def test_mcp_text_extraction_and_tool_error(self):
+        result = narrative.extract_mcp_text({"result": {
+            "content": [{"type": "text", "text": "Recent articles"}],
+            "isError": False,
+        }})
+        self.assertEqual(result, "Recent articles")
+        with self.assertRaises(RuntimeError):
+            narrative.extract_mcp_text({"result": {"isError": True, "content": []}})
+
+    def test_mcp_sse_transport_extracts_json_rpc_result(self):
+        from types import SimpleNamespace
+        response = SimpleNamespace(
+            headers={"Content-Type": "text/event-stream"},
+            text='event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Recent"}]}}\n\n',
+        )
+        payload = narrative.NarrativeEngine._mcp_response_payload(response)
+        self.assertEqual(narrative.extract_mcp_text(payload), "Recent")
+
+    def test_rate_limit_sets_retry_after_cooldown(self):
+        import logging
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+            engine.cache = {}
+            engine.stop_file = Path(temp) / "stop.flag"
+            engine.clock = lambda: 1000.0
+            engine.logger = logging.getLogger("narrative-rate-limit-test")
+            status = {}
+            engine._fetch_source(
+                "cmc", 300,
+                lambda: (_ for _ in ()).throw(narrative.SourceRateLimited("HTTP 429", 7200)),
+                status, count_fn=len,
+            )
+            self.assertFalse(engine._due("cmc", 300))
+            self.assertGreater(engine.cache["cmc"]["retry_after_epoch"], 8000.0)
+            self.assertIn("retry_after_utc", status)
+
+    def test_free_source_refresh_intervals_are_conservative(self):
+        self.assertGreaterEqual(narrative.SOURCE_INTERVALS["cmc_market_activity"], 1800)
+        self.assertGreaterEqual(narrative.SOURCE_INTERVALS["cmc_global_metrics"], 3600)
+        self.assertGreaterEqual(narrative.SOURCE_INTERVALS["cmc_id_map"], 3600)
+        self.assertGreaterEqual(narrative.SOURCE_INTERVALS["trendkia_news"], 1800)
