@@ -36,6 +36,7 @@ Kaynak kodda bir adresin bulunması, canlı bağlantının başarılı olduğu a
 |---|---|
 | AIXBT v3 Topics | Ücretsiz/anahtarsız konu keşfi; ilk 25 konu ile sınırlı. Konu→proje ayrıntılı eşlemesi bu kodda çağrılmıyor. |
 | CoinMarketCap halka açık v3 listeleme | Anahtarsız piyasa listeleme/aktivite verisi. Haber veya bağımsız haber kaynağı olarak sayılmaz; ilk 100 kayıtla sınırlı istek yapılır. |
+| DeFiLlama ücretsiz API | Anahtarsız protokol TVL/değişimi, zincir TVL, stablecoin arzı/geçmişi, DEX hacmi ve günlük protokol ücretleri. 3–6 saatte bir önbellekle yenilenir; ücretli API veya anahtar kullanılmaz. |
 | DEX Screener token profiles | Anahtarsız proje/token görünürlüğü. Son token adresleri, gerçek pair sorgusuna giriş evrenini oluşturur. Tek başına organik talep veya haber teyidi değildir. |
 | DEX Screener community takeovers | Anahtarsız topluluk görünürlüğü. Son token adresleri, gerçek pair sorgusuna giriş evrenini oluşturur. Tek başına bağımsız haber teyidi değildir. |
 | DEX Screener tokens/v1 pair activity | Son profil/topluluk akışındaki adreslerle gerçek pair fiyatı, likiditesi, hacmi ve alış/satış işlemleri. 15 dakikada en fazla iki istek, istek başına 30 adres; tüm DEX evreninin taraması değildir. Teknik/naratif puana veya haber teyidine eklenmez. |
@@ -1078,3 +1079,22 @@ Pair ayrıntıları herkese açık `GET /tokens/v1/{chainId}/{tokenAddresses}` u
 Pair verisinden işlem çifti sayısı, kapsanan zincirler, USD likidite, 5 dakika/1 saat/6 saat/24 saat hacim, 24 saat alış/satış/işlem sayısı, likidite ağırlıklı USD fiyatı ve fiyat değişimi çıkarılır. Coin eşleştirmesi yalnızca son token adreslerinden biriyle pair tarafının adresi birebir eşleştiğinde ve tokenın tam proje adı ortak Binance–BtcTurk USDT evreninde tek bir coin adına karşılık geldiğinde yapılır. Sembol benzerliği tek başına yeterli değildir.
 
 Bu akış, DEX Screener'ın bütün zincir ve işlem çiftlerini taradığı anlamına gelmez; yalnızca son profil/topluluk listelerinde görünen adreslerin seçilmiş zincir gruplarını kapsar. Bulunan gerçek piyasa faaliyeti coin ayrıntısında ve ayrı erken izleme satırında gösterilir. Haber, bağımsız yayıncı teyidi, naratif puanı, teknik puan, A/B/C aşaması veya güçlü fırsat/alarm kararı oluşturmaz.
+
+---
+
+## DeFiLlama entegrasyonu — 31 Ekim 2026
+
+DeFiLlama'nın ücretsiz, kimlik doğrulaması gerektirmeyen `https://api.llama.fi` uçları kullanılır. Bağlanan veri grupları:
+
+- `/protocols`: protokol adı, token sembolü, kategori, zincirler, TVL ve 1 günlük/7 günlük TVL değişimi. Üç saatte bir.
+- `/v2/chains`: zincir bazında güncel TVL. Üç saatte bir.
+- `/stablecoinchains`: zincir bazında stablecoin arzı. Altı saatte bir.
+- `/stablecoincharts/all`: toplam stablecoin arz geçmişi; son değer ile 24 saat, 7 gün ve 30 gün önceki yakın gözlem arasındaki değişim. Altı saatte bir.
+- `/overview/dexs`: DEX protokol hacmi özeti. Büyük grafik dizileri hariç tutularak üç saatte bir.
+- `/overview/fees`: varsayılan günlük ücret verisi; büyük grafik dizileri hariç tutularak üç saatte bir.
+
+Her kaynak kendi önbellek ve hata durumunu taşır; bir endpoint'in arızası diğer DeFiLlama akışlarını durdurmaz. Global özet BTC ve Piyasa sayfasında; protokolle benzersiz tam ad veya tekil token sembolü üzerinden eşleşen coinlerin TVL, TVL değişimi, DEX hacmi ve ücret bilgileri coin ayrıntısında görünür. Eşleşme belirsizse coin kaydı oluşturulmaz. Protokol ilişkisi bulunan coinler teknik puan veya güçlü fırsat sinyali olmadan ayrı DeFi erken izleme satırına alınabilir.
+
+Veri haber/bağımsız teyit değildir; naratif puanı, teknik puan, A/B/C aşamaları, likidite kapıları veya güçlü fırsat/alarm kararlarına eklenmez. Zincir TVL toplamı zincirlerin raporlanan değerlerinin toplamıdır; zincirler arası çifte sayım bulunabileceğinden mutlak küresel DeFi TVL diye yorumlanmaz. Zincir stablecoin arzı toplamı da zincirlerin raporladığı miktarları toplar; global arz karşılaştırması için ayrıca `/stablecoincharts/all` geçmişi kullanılır.
+
+Ücretsiz `/pools` getiri/APY uç noktası, resmî belgede 13 Kasım 2026'da kapatılacağı duyurulduğu için kullanılmaz. Ücretli API planı, API anahtarı veya ücretli MCP bağlantısı bu entegrasyonun parçası değildir.

@@ -2017,6 +2017,16 @@ class ControlPanel(tk.Tk):
                 "Yalnızca ortak Binance–BtcTurk USDT evrenindeki tekil tam proje adı eşleşmesi coin ayrıntısına bağlanır.",
                 "Bu piyasa faaliyeti habere, bağımsız yayıncı teyidine, naratif puanına veya teknik fırsat koşullarına eklenmez.",
             ])
+        elif source_id == "defillama" or source_id.startswith("defillama_"):
+            lines.extend([
+                "",
+                "ERİŞİM: DeFiLlama ücretsiz herkese açık API; API anahtarı, hesap veya ücretli plan kullanılmaz.",
+                "Bağlanan veriler: tüm protokollerin TVL ve 1g/7g değişimi, zincir TVL, zincir bazında stablecoin arzı, toplam stablecoin arz geçmişi, DEX hacmi ve günlük protokol ücretleri.",
+                "Protokol kataloğu, zincir TVL, DEX hacmi ve ücret özeti 3 saatte; stablecoin verileri 6 saatte bir yenilenir. Hata veren kaynakların önceki önbelleği ayrı korunur.",
+                "Eşleştirme ortak Binance–BtcTurk USDT evrenindeki benzersiz protokol token sembolü veya tam proje adı üzerinden yapılır; belirsiz eşleşme atlanır.",
+                "Ücretsiz /pools getiri havuzu uç noktası 13 Kasım 2026'da kapatılacağı duyurulduğu için bu entegrasyonda kullanılmaz.",
+                "DeFiLlama verileri teknik/naratif puanları, A/B/C eşiklerini veya güçlü fırsat koşullarını değiştirmez.",
+            ])
         elif source_id == "santiment_history":
             lines.extend([
                 "",
@@ -2178,6 +2188,44 @@ class ControlPanel(tk.Tk):
                 "",
                 "DEX gerçek pair verisi: bu coin için son sorgu kapsamındaki adres eşleşmesinden henüz veri alınmadı.",
             ])
+        defillama_protocols = market_activity.get("defillama_protocols")
+        defillama_protocols = defillama_protocols if isinstance(defillama_protocols, list) else []
+        if defillama_protocols:
+            lines.extend([
+                "",
+                "DEFILLAMA — PROTOKOL VE DEFI FAALİYETİ",
+                "Eşleşme: tekil protokol token sembolü veya tam proje adı.",
+            ])
+            for protocol in defillama_protocols[:3]:
+                if not isinstance(protocol, dict):
+                    continue
+                def fmt_usd(value: Any) -> str:
+                    try:
+                        return f"{float(value):,.2f} USD" if value is not None else "veri yok"
+                    except (TypeError, ValueError):
+                        return "veri yok"
+                tvl_change_1d = protocol.get("tvl_change_1d_pct")
+                tvl_change_7d = protocol.get("tvl_change_7d_pct")
+                lines.append(
+                    f"{protocol.get('name') or '—'} · {protocol.get('category') or 'Kategori yok'} · "
+                    f"TVL {fmt_usd(protocol.get('tvl_usd'))}"
+                )
+                lines.append(
+                    f"TVL değişimi 1g/7g: "
+                    f"{float(tvl_change_1d):+.2f}% / {float(tvl_change_7d):+.2f}%"
+                    if tvl_change_1d is not None and tvl_change_7d is not None
+                    else "TVL değişimi 1g/7g: eksik veri"
+                )
+                lines.append(
+                    f"DEX hacmi 24s/7g: {fmt_usd(protocol.get('dex_volume_24h_usd'))} / "
+                    f"{fmt_usd(protocol.get('dex_volume_7d_usd'))}"
+                )
+                lines.append(
+                    f"Protokol ücretleri 24s/7g: {fmt_usd(protocol.get('fees_24h_usd'))} / "
+                    f"{fmt_usd(protocol.get('fees_7d_usd'))}"
+                )
+                protocol_chains = protocol.get("chains") if isinstance(protocol.get("chains"), list) else []
+                lines.append("Zincirler: " + (", ".join(protocol_chains[:8]) or "—"))
         santiment = market_activity.get("santiment") if isinstance(market_activity.get("santiment"), dict) else None
         if santiment:
             lines.extend([
@@ -2920,6 +2968,44 @@ class ControlPanel(tk.Tk):
                 f"Korku/Açgözlülük: {fear_greed.get('value', '—')} · {fear_greed.get('classification', '—')}",
                 f"Altcoin Sezon Endeksi: {altcoin_season.get('index', '—')} / 100",
             ])
+        defillama = market_context.get("defillama") if isinstance(market_context.get("defillama"), dict) else {}
+        if defillama:
+            def usd_text(value: Any) -> str:
+                try:
+                    return f"{float(value):,.2f} USD" if value is not None else "veri yok"
+                except (TypeError, ValueError):
+                    return "veri yok"
+
+            stable_history = defillama.get("stablecoin_history") if isinstance(defillama.get("stablecoin_history"), dict) else {}
+            stable_change = stable_history.get("change_7d_pct")
+            stable_change_text = f"{float(stable_change):+.2f}%" if stable_change is not None else "hesaplanamadı"
+            lines.extend([
+                "",
+                "GENEL DEFI BAĞLAMI — DEFILLAMA (teknik puandan bağımsız)",
+                f"Protokol sayısı: {defillama.get('protocol_count', 0)} · Zincir sayısı: {defillama.get('chain_count', 0)}",
+                f"Listelenen zincir TVL toplamı: {usd_text(defillama.get('sum_listed_chain_tvl_usd'))}",
+                f"Stablecoin arzı: {usd_text(stable_history.get('latest_supply_usd'))} · 7 günlük değişim: {stable_change_text}",
+                f"Protokol DEX hacmi verisi: {defillama.get('dex_protocol_count', 0)} protokol · Ücret verisi: {defillama.get('fees_protocol_count', 0)} protokol",
+            ])
+            top_chains = defillama.get("top_chains") if isinstance(defillama.get("top_chains"), list) else []
+            if top_chains:
+                lines.append("TVL bakımından öne çıkan zincirler:")
+                for chain in top_chains[:5]:
+                    if isinstance(chain, dict):
+                        lines.append(f"{chain.get('name') or '—'}: {usd_text(chain.get('tvl_usd'))}")
+            top_dexes = defillama.get("top_dex_protocols") if isinstance(defillama.get("top_dex_protocols"), list) else []
+            if top_dexes:
+                lines.append("24 saat DEX hacmi öne çıkan protokoller:")
+                for protocol in top_dexes[:5]:
+                    if isinstance(protocol, dict):
+                        lines.append(f"{protocol.get('name') or '—'}: {usd_text(protocol.get('total_24h_usd'))}")
+            top_fees = defillama.get("top_fee_protocols") if isinstance(defillama.get("top_fee_protocols"), list) else []
+            if top_fees:
+                lines.append("24 saat ücret geliri öne çıkan protokoller:")
+                for protocol in top_fees[:5]:
+                    if isinstance(protocol, dict):
+                        lines.append(f"{protocol.get('name') or '—'}: {usd_text(protocol.get('total_24h_usd'))}")
+            lines.append("DeFiLlama verileri piyasa bağlamıdır; tek başına alım-satım sinyali veya teknik puan değildir.")
         self._set_text(self.market_context_text, "\n".join(lines))
 
     def _refresh_settings_page(self) -> None:
