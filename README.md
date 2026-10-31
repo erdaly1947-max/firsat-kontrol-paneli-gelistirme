@@ -918,3 +918,56 @@ ChatGPT'nin Reddit hesabına bağlanması veya asistanın Reddit hesabını kull
 - **Hatırlatma:** Kullanıcıya Reddit başvurusunu yeniden gündeme getirip durumunu kontrol etmesi hatırlatılacaktır.
 
 **Kod durumu:** Bu kayıt yalnızca başvuru ve takip durumunu belgelendirir. Reddit API entegrasyon kodu henüz uygulanmış veya canlı test edilmiş sayılmaz.
+
+
+---
+
+## Ücretsiz kaynak entegrasyonları — 31 Ekim 2026 güncel durum
+
+### CoinMarketCap Keyless Public API
+
+Resmî Keyless Public API, desteklenen uç noktalar için hesap, kayıt, e-posta, API anahtarı veya kredi kartı gerektirmez. Çağrılar `https://pro-api.coinmarketcap.com/public-api` kökünü kullanır; `X-CMC_PRO_API_KEY` başlığı gönderilmez. Keyless çağrılar ortak IP kota havuzunu kullanır. HTTP 429 yanıtında Retry-After değeri dikkate alınır; kademeli bekleme (en fazla 6 saat), önbellek ve seri çağrı kullanılır.
+
+Entegrasyonda kullanılan uç noktalar:
+- `/v3/cryptocurrency/listings/latest`: İlk 100 piyasa listelemesi.
+- `/v1/cryptocurrency/map`: Ortak USDT evrenindeki coinleri CMC ID ile eşleştirme.
+- `/v3/cryptocurrency/quotes/latest`: Benzersiz CMC ID eşleşmesi bulunan coinlerin toplu USD fiyat/hacim verisi.
+- `/v1/global-metrics/quotes/latest`: Toplam piyasa değeri/hacmi ve BTC/ETH hâkimiyeti.
+- `/v3/fear-and-greed/latest`: Korku ve Açgözlülük.
+- `/v1/altcoin-season-index/latest`: Altcoin Sezon Endeksi.
+- `/v3/index/cmc100-latest` ve `/v3/index/cmc20-latest`: CMC100/CMC20 endeksleri.
+
+Yenileme aralıkları: listeleme, fiyat/hacim ve Global Metrics 1 saat; ID Map 6 saat; Korku/Açgözlülük 1 saat; Altcoin Sezonu 4 saat; CMC100/20 6 saat. Sembol çakışmalarında coin kimliği tahmin edilmez. Genel piyasa göstergeleri yalnızca bağlam bilgisidir; teknik puanı, teknik güçlü fırsat kapısını veya teknik alarm koşullarını değiştirmez. Coin fiyat/hacim verisi mevcut naratif piyasa tepkisi alanını tamamlar; teknik radar puanına aktarılmaz.
+
+Resmî doküman: https://coinmarketcap.com/api/documentation/pro-api-reference/keyless-public-api/
+
+### TrendKia News
+
+- Herkese açık MCP adresi: `https://trendkia.com/mcp`; API anahtarı, hesap veya kart bilgisi kullanılmaz.
+- Streamable HTTP MCP bağlantısı kurulur; `initialize`, `tools/list` ve `tools/call` adımları doğrulanır.
+- `list_recent_articles` en fazla 30 son yazıyı 30 dakikada bir getirir.
+- Kripto ve ilgili makroekonomi içerikleri süzülür; tarih yoksa, gelecek tarihliyse veya 72 saatten eskiyse güncel haber olarak alınmaz.
+- Başlık, kısa özet, yayın tarihi, kategori ve kaynak bağlantısı saklanır; tam metin kopyalanmaz.
+- Kaynak hata/kota/önbellek durumu Naratif Avcı kaynak listesinde gösterilir.
+- TrendKia haberleri naratif haber kanıtıdır; teknik puanı ve güçlü fırsat koşullarını değiştirmez.
+
+### Investing.com ekonomik takvimi
+
+Investing.com herkese açık veri API'si sunmadığını açıkça belirtir. Ücretsiz ekonomik takvim sayfası vardır; ayrıca web siteleri için ücretsiz widget sağlar. Widget'ın şartları kabul edilmeden üretilmemesi gerekir. Bu masaüstü uygulamasında **BTC ve Piyasa** sayfasına Türkçe Investing.com Ekonomik Takvimini varsayılan tarayıcıda açan düğme eklenir. Sayfa içeriği uygulamaya çekilmez, kopyalanmaz, saklanmaz veya naratif/teknik puana aktarılmaz. Böylece ücretsiz resmi takvim sayfası kullanılırken veri yeniden dağıtımı veya izinsiz otomatik erişim yapılmaz.
+
+Resmî kaynaklar:
+- API politikası: https://www.investing-support.com/hc/en-us/articles/115005473825-Do-You-Offer-API-Access-at-Investing-com
+- Ücretsiz araç/widget bilgisi: https://www.investing-support.com/hc/en-us/articles/360002357417-Use-our-data
+- Türkçe ekonomik takvim: https://tr.investing.com/economic-calendar/index
+
+### Erişim veya içerik kullanım izni bekleyenler
+
+- **The Fly:** Ücretsiz geliştirici planı olsa da içerik toplama/birleştirme ve türetilmiş ürün kullanımı için izin belirsizdir. Koddan otomatik çağrı yapılmaz.
+- **Reddit:** Data API başvurusu için açık onay ve OAuth bilgileri beklenir; onay gelene kadar çağrı yapılmaz.
+- **AIXBT Topic→Project:** Ayrıntılı eşleme yetkisi doğrulanmadığı için çağrılmaz; ücretsiz Topics ilk 25 akışı korunur.
+- **Investing.com widget verisi:** Takvim sayfası uygulamadan açılır. Widget'ın HTML içeriği masaüstü uygulamasına çekilmez; veri erişim lisansı varsayılmaz.
+- **X:** Önceki karara uygun olarak entegrasyon dışı kalır.
+
+### Test kapsamı
+
+Yeni testler CMC Keyless yanıt yapıları, USD quote dizisi, ID çakışması, toplu fiyat yanıtı, piyasa/sentiment göstergeleri, TrendKia MCP metin ayıklama/tarih filtresi, SSE aktarımı ve 429 bekleme süresini kapsar. Canlı MCP/CMC erişimi ve genel Actions sonucu, GitHub Actions tamamlandığında ayrıca raporlanır. ZIP veya Release bu test sonucuyla otomatik olarak onaylanmış sayılmaz.
