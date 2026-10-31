@@ -124,6 +124,11 @@ jobs:
       - name: Render piyasa geçidi testleri
         run: npm test --prefix render_relay
 
+      - name: Canlı Binance doğrudan WebSocket doğrulaması
+        id: direct_ws_live
+        continue-on-error: true
+        run: npm run smoke:direct --prefix render_relay
+
       - name: Canlı Render piyasa verisi ve WebSocket doğrulaması
         id: render_live
         continue-on-error: true
@@ -224,31 +229,6 @@ jobs:
           print(f"BtcTurk canlı USDT fiyatı alınan parite: {len(prices)}")
           print(f"Örnek fiyatlar: {sample}")
           PY
-
-      - name: Canlı entegrasyon sonuçlarını birleştir
-        if: always()
-        shell: bash
-        env:
-          RENDER_OUTCOME: ${{ steps.render_live.outcome }}
-          IMAGE_OUTCOME: ${{ steps.image_live.outcome }}
-          BTCTURK_OUTCOME: ${{ steps.btcturk_live.outcome }}
-        run: |
-          failed=0
-          for entry in \
-            "Render piyasa/WebSocket:${RENDER_OUTCOME}" \
-            "Görüntü/Cloudinary:${IMAGE_OUTCOME}" \
-            "BtcTurk doğrudan fiyat:${BTCTURK_OUTCOME}"; do
-            name="${entry%%:*}"
-            result="${entry#*:}"
-            echo "${name} sonucu: ${result}"
-            if [ "${result}" = "failure" ] || [ "${result}" = "cancelled" ]; then
-              failed=1
-            fi
-          done
-          if [ "${failed}" -ne 0 ]; then
-            echo "Bir veya daha fazla canlı entegrasyon kontrolü başarısız. Diğer bağımsız kontroller de çalıştırıldı."
-            exit 1
-          fi
 
       - name: Başarılı testlerden sonra Sürüm 01 ZIP ve SHA-256 oluştur
         if: success() && needs.windows-ui-smoke.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
@@ -423,3 +403,35 @@ jobs:
             dist/Firsat-Kontrol-Paneli-Surum-01.zip.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Canlı entegrasyon sonuçlarını birleştir
+        if: always()
+        shell: bash
+        env:
+          RENDER_OUTCOME: ${{ steps.render_live.outcome }}
+          DIRECT_WS_OUTCOME: ${{ steps.direct_ws_live.outcome }}
+          IMAGE_OUTCOME: ${{ steps.image_live.outcome }}
+          BTCTURK_OUTCOME: ${{ steps.btcturk_live.outcome }}
+        run: |
+          failed=0
+          echo "## Canlı bağlantı kontrolleri" >> "$GITHUB_STEP_SUMMARY"
+          for entry in \
+            "Binance doğrudan WebSocket:${DIRECT_WS_OUTCOME}" \
+            "Render piyasa REST+WebSocket:${RENDER_OUTCOME}" \
+            "Görüntü/Cloudinary:${IMAGE_OUTCOME}" \
+            "BtcTurk doğrudan fiyat:${BTCTURK_OUTCOME}"; do
+            name="${entry%%:*}"
+            result="${entry#*:}"
+            echo "${name} sonucu: ${result}"
+            echo "- **${name}:** ${result}" >> "$GITHUB_STEP_SUMMARY"
+            if [ "${result}" = "failure" ] || [ "${result}" = "cancelled" ]; then
+              failed=1
+            fi
+          done
+          if [ "${failed}" -ne 0 ]; then
+            echo "Canlı entegrasyon kontrollerinden en az biri başarısız. ZIP üretimi canlı bağlantı sonuçlarından bağımsız tamamlandı; başarısız rota ayrıca raporlandı."
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "En az bir canlı entegrasyon kontrolü başarısız. Paketleme bundan etkilenmedi; ZIP/SHA-256 ve açıkça istenmiş Release güncellemesi önceki adımlarda tamamlandı." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Doğrudan Binance ve Render canlı kontrolleri dahil tüm canlı entegrasyon kontrolleri başarılı."
