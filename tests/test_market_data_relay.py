@@ -213,25 +213,64 @@ class MarketDataRelayTests(unittest.TestCase):
         self.assertEqual(mocked.call_count, 1)
         self.assertEqual(mocked.call_args.args[0], relay_url)
 
-    def test_render_failure_during_cooldown_waits_for_scheduled_direct_recheck(self):
+    def test_render_failure_during_cooldown_immediately_recovers_direct_route(self):
         relay_url = "https://firsat.example.workers.dev/binance/api/v3/klines"
+        direct_url = "https://api.binance.com/api/v3/klines"
         ortak_piyasa._market_route_states["binance_rest"] = {
             "mode": "render", "direct_failures": 1,
             "retry_direct_at": time.monotonic() + 120,
             "last_transport": "render", "last_error": "ConnectTimeout",
         }
+
+        def request(url, **kwargs):
+            if url == relay_url:
+                raise requests.exceptions.ConnectionError("Render suspended")
+            if url == direct_url:
+                return self._json_response()
+            raise AssertionError("Başarılı ilk doğrudan uçtan sonra yeni host denenmemeli: " + url)
+
         with (
             patch.object(ortak_piyasa, "get_market_data_relay_url",
                          return_value="https://firsat.example.workers.dev"),
-            patch.object(
-                ortak_piyasa, "_requests_get",
-                side_effect=requests.exceptions.ConnectionError("Render suspended"),
-            ) as mocked,
+            patch.object(ortak_piyasa, "_requests_get", side_effect=request) as mocked,
         ):
-            with self.assertRaisesRegex(RuntimeError, "Render yedeği de erişilemiyor"):
+            response = ortak_piyasa.public_get(direct_url)
+
+        self.assertEqual(response.json(), {"ok": True})
+        self.assertEqual(
+            [call.args[0] for call in mocked.call_args_list],
+            [relay_url, direct_url],
+        )
+        status = ortak_piyasa.get_market_route_status()["binance_rest"]
+        self.assertEqual(status["mode"], "direct")
+        self.assertEqual(status["direct_failures"], 0)
+
+    def test_render_and_direct_failure_during_cooldown_retries_both_routes(self):
+        relay_url = "https://firsat.example.workers.dev/binance/api/v3/klines"
+        direct_urls = [
+            base + "/api/v3/klines" for base in ortak_piyasa.BINANCE_REST_BASES
+        ]
+        ortak_piyasa._market_route_states["binance_rest"] = {
+            "mode": "render", "direct_failures": 1,
+            "retry_direct_at": time.monotonic() + 120,
+            "last_transport": "render", "last_error": "ConnectTimeout",
+        }
+
+        def request(url, **kwargs):
+            raise requests.exceptions.ConnectionError("route unavailable: " + url)
+
+        with (
+            patch.object(ortak_piyasa, "get_market_data_relay_url",
+                         return_value="https://firsat.example.workers.dev"),
+            patch.object(ortak_piyasa, "_requests_get", side_effect=request) as mocked,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "doğrudan ve Render piyasa bağlantıları başarısız"):
                 ortak_piyasa.public_get("https://api.binance.com/api/v3/klines")
-        self.assertEqual(mocked.call_count, 1)
-        self.assertEqual(mocked.call_args.args[0], relay_url)
+
+        self.assertEqual(
+            [call.args[0] for call in mocked.call_args_list],
+            [relay_url, *direct_urls],
+        )
 
     def test_direct_route_is_retested_after_render_cooldown_and_recovers(self):
         ortak_piyasa._market_route_states["binance_rest"] = {
