@@ -232,7 +232,7 @@ jobs:
 
       - name: Başarılı testlerden sonra Sürüm 01 ZIP ve SHA-256 oluştur
         id: package_zip
-        if: success() && needs.windows-ui-smoke.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
+        if: success() && needs.windows-ui-smoke.result == 'success' && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_package == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PACKAGE_NOW]')))
         run: |
           python - <<'PY'
           import hashlib
@@ -395,7 +395,7 @@ jobs:
           PY
 
       - name: Sürüm 01 Windows deneme paketini indirilebilir artefakt olarak yayımla
-        if: success() && needs.windows-ui-smoke.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_package == true
+        if: success() && needs.windows-ui-smoke.result == 'success' && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_package == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PACKAGE_NOW]')))
         uses: actions/upload-artifact@v7
         with:
           name: Firsat-Kontrol-Paneli-Surum-01-${{ github.run_number }}
