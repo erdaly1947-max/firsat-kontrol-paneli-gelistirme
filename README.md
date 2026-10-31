@@ -988,3 +988,33 @@ TrendKia haber akışı ile yapılandırılmış RSS/Atom yayınları aynı olay
 Resmî CMC dokümanları:
 - https://coinmarketcap.com/api/documentation/pro-api-reference/cryptocurrency
 - https://coinmarketcap.com/api/documentation/pro-api-reference/keyless-public-api
+
+
+---
+
+## 155 dışında istenen kod değişiklikleri
+
+### İki motor arasında tümevarım ve tümdengelim — karşılıklı takip (31 Ekim 2026)
+
+**Talep:** Teknik radarın yakaladığı A/B/C aday coinlerin Naratif Avcı tarafından mevcut haber/keşif akışlarında araştırılması; Naratif Avcı'nın erken izleme listesine aldığı coinlerin teknik motor tarafından aday eşiğine ulaşmadan ayrı teknik takipte tutulması.
+
+**Neden:** Naratif ve teknik keşfin iki yönde birbirini tamamlaması; teknik fırsatların arkasındaki olası anlatıların bulunması ve erken naratiflerin gerçek teknik gelişimle desteklenip desteklenmediğinin zaman içinde izlenmesi.
+
+**Uygulama:** `d7cfbf0c1c31be20bdbbe155a218957b8123e1a0` commit'iyle `main` dalına eklendi.
+
+- `binance_erken_firsat_radari.py`: Teknik A/B/C adaylarını ve naratif erken izleme coinlerinin sekiz zaman dilimindeki teknik ölçümlerini `data/naratif_motor_koprusu.json` üzerinden aktarır. Aktarımın güncelliği 30 dakika sınırlandırılır. Her coin için teknik aşama, fiyat, göstergeler, BTC'ye göre göreceli güç ve korelasyon alanları ayrı tutulur.
+- `naratif_avcisi.py`: Teknik adayları mevcut RSS/Atom, TrendKia, AIXBT ve diğer bağlı keşif olaylarıyla proje adı/alias eşleşmesi üzerinden araştırır. Eşleşme bulundu, kanıt bulunamadı ve kaynak yetersizliği durumlarını birbirinden ayırır. Naratif coinlere teknik motorun ayrı takip ölçümlerini bağlar.
+- `tek_motor_paneli.pyw`: Naratif erken izleme tablosunda teknik aşama, takip durumu ve 15 dakikalık RSI gösterilir. Coin ayrıntısında sekiz zaman diliminin teknik ölçümleri ve BTC'ye göre güç bilgisi; teknik aday ayrıntısında Naratif Avcı araştırma sonucu gösterilir.
+- `analysis_report.py`: İki yönlü araştırma ve teknik takip alanlarını analiz raporuna ekler.
+- `tests/test_narrative_motor_bridge.py`: Köprü aktarımı, her iki yöndeki eşleştirme ve eski aktarımın güncel sayılmaması için üç test ekler.
+
+**Puan ve karar ayrımı:** Naratif puanı teknik puana, A/B/C eşiklerine, likidite kontrollerine veya güçlü fırsat/alarm koşullarına eklenmez. Naratif coin teknik A/B/C eşiğini geçmedikçe teknik aday ya da güçlü fırsat olarak sunulmaz. Otomatik emir gönderilmez.
+
+**Takip geçmişi:** Teknik motorun mevcut tüm-parite denetim geçmişine naratif izleme etkinliği, naratif puanı/aşaması/temaları/güveni ve Naratif Avcı araştırma durumu eklendi. Bu kayıt yalnızca ilk gerçek teknik/naratif gözlemden itibaren oluşur; geçmiş veri geri doldurulmaz. Yeni veri alanları `binance_candidates_history_..._v4.csv` şemasında saklanır.
+
+**Kaynak kullanımı ve sınır:** Teknik aday araştırması mevcut döngüde toplanmış kaynak ve önbellek içeriğini kullanır; aday başına ek API çağrısı yapmaz. Bu nedenle bu işlev, her coin için özel sorguyla bütün interneti taradığı anlamına gelmez. Araştırma sonucu yalnızca mevcut kaynak kapsamı ve proje alias eşleşmeleriyle sınırlıdır. Aktarım 30 dakikadan eskiyse güncel kabul edilmez.
+
+**Test/doğrulama:** GitHub Actions #227 kapsamında Windows Tkinter arayüz testi başarılı; Python kaynak derlemesi, ayar JSON doğrulaması, tüm Python birim testleri (yeni üç köprü testi dahil), Cloudflare Worker, rapor Worker ve Render relay yerel testleri başarılı; doğrudan Binance WebSocket canlı kontrolü başarılı. Son README kaydı anında Render canlı REST/WebSocket ve buna bağlı görüntü geçidi kontrolü henüz tamamlanmamıştı; genel Actions sonucu başarılı olarak işaretlenmemiştir. [Actions #227](https://github.com/erdaly1947-max/firsat-kontrol-paneli-gelistirme/actions/runs/41211272745).
+
+**README kaydı:** Bu bölümde kaydedildi.  
+**ZIP/Release:** Oluşturulmadı; ayrı açık kullanıcı talebi olmadan paketleme başlatılmaz.
