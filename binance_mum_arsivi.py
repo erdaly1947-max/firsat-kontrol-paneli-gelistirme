@@ -490,3 +490,19 @@ class CandleArchive:
                 (normalized_symbol, timeframe),
             ).fetchone()
         return int(row[0]) if row and row[0] is not None else None
+
+    def list_symbols(self, timeframe: str | None = None) -> list[str]:
+        """List symbols present in the durable archive, optionally for one timeframe."""
+        if timeframe is not None and timeframe not in SUPPORTED_TIMEFRAMES:
+            raise ValueError(f"Desteklenmeyen zaman dilimi: {timeframe}")
+        with self._connection() as connection:
+            if timeframe is None:
+                rows = connection.execute(
+                    "SELECT DISTINCT symbol FROM candle_history ORDER BY symbol"
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT DISTINCT symbol FROM candle_history WHERE timeframe = ? ORDER BY symbol",
+                    (timeframe,),
+                ).fetchall()
+        return [str(row[0]) for row in rows if row and isinstance(row[0], str)]
