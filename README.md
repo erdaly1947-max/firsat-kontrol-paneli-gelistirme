@@ -697,3 +697,34 @@ Bu sıra onaylanmış geliştirme yöntemidir; kendi başına kod değişikliği
 - `tek_motor_paneli.pyw` çok sayfalı arayüz entegrasyonundan sonra mevcut otomatik doğrulama iş akışı yeniden çalıştırılacaktır.
 - Bu kayıt yalnızca test tetikleme ve sonuç takibi içindir; ZIP oluşturma veya GitHub Release yayımlama izni vermez.
 - Test kapsamı: Python kaynak derleme kontrolü, Python birim testleri, bulut geçidi ve rapor Worker testleri, Render geçidi testleri ve yapılandırılmış canlı bağlantı kontrolleri.
+
+---
+
+## Sürekli kod değişikliği kaydı ve 1–155 izleme kuralı — 31 Ekim 2026
+
+Bu kural kullanıcı tarafından açıkça istenmiş ve onaylanmıştır. Takip ve README kayıt işlemleri için ayrıca onay istenmez.
+
+### 155 dışında istenen kod değişiklikleri
+
+- Kullanıcının 1–155 tasarım maddelerinin dışında ayrıca talep ettiği her kod değişikliği, 155. maddeye aitmiş gibi gösterilmeden ayrı kayıt olarak tutulur.
+- Her kayıt; talebin ne olduğunu, **neden istendiğini**, etkilenen dosya/işlevleri, uygulama durumunu, yapılan testleri ve sonucunu, ilgili GitHub commit kimliğini ve README'ye kaydedilip kaydedilmediğini belirtir.
+- Talep henüz uygulanmadıysa “talep edildi / uygulanmadı”; kod değişikliği yapıldıysa “uygulandı”; test edilmediyse “doğrulanmadı” olarak açıkça işaretlenir. Yalnızca README'ye yazılmış olması kodun uygulandığı anlamına gelmez.
+- Yeni bir 155 dışı kod değişikliği yapıldığında gerekçesi ve sonucu bu bölümün altında ayrı bir kayıt olarak eklenir. Sonradan düzeltme yapılırsa önceki kayıt silinmez; durum ve yeni commit bilgisi güncellenir veya ek kayıtla izlenir.
+
+### 1–155 maddelerinin sürekli durum takibi
+
+Her madde birbirinden ayrı şu başlıklarda izlenir:
+
+1. **Tasarım kararı:** Bekliyor, kullanıcı tarafından onaylandı veya tamamlandı.
+2. **Kod karşılığı:** Mevcut, kısmen mevcut, eksik, çelişkili veya henüz doğrulanmadı.
+3. **Uygulama:** Başlanmadı, sürüyor veya kodda uygulandı.
+4. **Test/doğrulama:** Çalıştırılmadı, başarılı, başarısız veya değerlendirilemedi.
+5. **README kaydı:** Uygulama ve test sonucu gerekçesiyle kaydedildi ya da henüz kaydedilmedi.
+
+“Uygulandı” ve “README'ye kaydedildi” iki ayrı durumdur. Bir madde ancak kaynak kod karşılığı ve ilgili doğrulama incelendiğinde uygulanmış sayılır. Uygulanan her değişikliğin hangi maddeyi karşıladığı, hangi dosyalarda yapıldığı ve hangi testle doğrulandığı README'de izlenir. Henüz uygulanmamış tasarım kararları uygulanmış gibi gösterilmez. 1–155 maddelerinin mevcut durumları da çalışma boyunca bu ayrımla kontrol edilir; kesinleşmiş kararlar kullanıcı açıkça değiştirmedikçe yeniden açılmaz.
+
+### Çalışma kurallarının değişmesi
+
+Çalışma yöntemini, onay akışını veya burada yazılı bağlayıcı kuralları değiştirmeden önce kullanıcıya değişiklik önerisi ve gerekçesi sunulur; **açık onay alınmadan kural değiştirilmez ve yeni kural uygulanmaz.** Kullanıcının bu bölümde açıkça verdiği talimat, bu izleme ve kayıt düzeninin kendisi için onaydır.
+
+Bu izleme/kayıt yetkisi, kaynak kodu, testleri, dağıtımı veya paketlemeyi değiştirmek için gereken mevcut açık onay şartını kaldırmaz. Yalnızca talep ve gerçekleşen işlerin durumunu takip etme ve onaylanmış değişiklikleri gerekçeleriyle README'ye kaydetme işlemleri için ayrıca onay gerekmez.
