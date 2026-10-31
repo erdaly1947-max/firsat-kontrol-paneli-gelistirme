@@ -2007,6 +2007,16 @@ class ControlPanel(tk.Tk):
                 "GEREKSİNİM: DEX Screener herkese açık profil/topluluk uç noktası; API anahtarı kullanılmaz.",
                 "Profil veya topluluk görünürlüğü tek başına organik talep ya da bağımsız haber teyidi değildir.",
             ])
+        elif source_id == "dex_market_activity":
+            lines.extend([
+                "",
+                "GEREKSİNİM: DEX Screener herkese açık tokens/v1 pair uç noktası; API anahtarı kullanılmaz.",
+                "Son profil/topluluk akışında bildirilen chain + token adresleri üzerinden gerçek işlem çiftleri sorgulanır.",
+                "Her 15 dakikada en fazla iki istek yapılır; istek başına en fazla 30 token adresi sorgulanır. Zincir grupları sırayla döndürülür.",
+                "Pair fiyatı, likiditesi, 5 dakika/1 saat/6 saat/24 saat hacmi ve alış/satış işlemleri alınır.",
+                "Yalnızca ortak Binance–BtcTurk USDT evrenindeki tekil tam proje adı eşleşmesi coin ayrıntısına bağlanır.",
+                "Bu piyasa faaliyeti habere, bağımsız yayıncı teyidine, naratif puanına veya teknik fırsat koşullarına eklenmez.",
+            ])
         elif source_id == "santiment_history":
             lines.extend([
                 "",
@@ -2125,6 +2135,49 @@ class ControlPanel(tk.Tk):
             )
         lines.extend(technical_lines)
         market_activity = selected.get("market_activity") if isinstance(selected.get("market_activity"), dict) else {}
+        dex_market = market_activity.get("dex_market_activity") if isinstance(market_activity.get("dex_market_activity"), dict) else None
+        if dex_market:
+            price_text = (
+                f"{float(dex_market.get('current_price_usd')):,.10f} USD"
+                if dex_market.get("current_price_usd") is not None else "hesaplanamadı"
+            )
+            change_text = (
+                f"{float(dex_market.get('price_change_24h_pct')):+.2f}%"
+                if dex_market.get("price_change_24h_pct") is not None else "hesaplanamadı"
+            )
+            lines.extend([
+                "",
+                "DEX — GERÇEK PİYASA FAALİYETİ",
+                f"İzlenen işlem çiftleri: {dex_market.get('pair_count', 0)} · Zincir sayısı: {dex_market.get('chain_count', 0)}",
+                f"Zincirler: {', '.join(dex_market.get('chains', [])) or '—'}",
+                f"Toplam likidite: {float(dex_market.get('liquidity_usd') or 0):,.2f} USD",
+                f"24 saatlik hacim: {float(dex_market.get('volume_usd_h24') or 0):,.2f} USD",
+                f"1 saat / 6 saat hacim: {float(dex_market.get('volume_usd_h1') or 0):,.2f} / {float(dex_market.get('volume_usd_h6') or 0):,.2f} USD",
+                f"24 saat alış / satış: {dex_market.get('buys_h24', 0)} / {dex_market.get('sells_h24', 0)}",
+                f"24 saat işlem sayısı: {dex_market.get('transactions_h24', 0)}",
+                f"Likidite ağırlıklı DEX fiyatı: {price_text}",
+                f"24 saat fiyat değişimi: {change_text}",
+                "Kapsam: son DEX profil/topluluk akışında bulunan adresler; bütün DEX evreni değildir.",
+            ])
+            top_pairs = dex_market.get("top_pairs") if isinstance(dex_market.get("top_pairs"), list) else []
+            if top_pairs:
+                lines.append("Likiditesi en yüksek işlem çiftleri:")
+                for pair in top_pairs[:5]:
+                    if not isinstance(pair, dict):
+                        continue
+                    pair_name = f"{pair.get('base_symbol') or '—'}/{pair.get('quote_symbol') or '—'}"
+                    lines.append(
+                        f"{pair_name} · {pair.get('chain') or '—'} · "
+                        f"likidite {float(pair.get('liquidity_usd') or 0):,.0f} USD · "
+                        f"24s hacim {float(pair.get('volume_usd_h24') or 0):,.0f} USD"
+                    )
+                    if pair.get("url"):
+                        lines.append(f"  DEX bağlantısı: {pair.get('url')}")
+        else:
+            lines.extend([
+                "",
+                "DEX gerçek pair verisi: bu coin için son sorgu kapsamındaki adres eşleşmesinden henüz veri alınmadı.",
+            ])
         santiment = market_activity.get("santiment") if isinstance(market_activity.get("santiment"), dict) else None
         if santiment:
             lines.extend([

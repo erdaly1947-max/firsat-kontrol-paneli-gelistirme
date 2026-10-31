@@ -36,8 +36,9 @@ Kaynak kodda bir adresin bulunması, canlı bağlantının başarılı olduğu a
 |---|---|
 | AIXBT v3 Topics | Ücretsiz/anahtarsız konu keşfi; ilk 25 konu ile sınırlı. Konu→proje ayrıntılı eşlemesi bu kodda çağrılmıyor. |
 | CoinMarketCap halka açık v3 listeleme | Anahtarsız piyasa listeleme/aktivite verisi. Haber veya bağımsız haber kaynağı olarak sayılmaz; ilk 100 kayıtla sınırlı istek yapılır. |
-| DEX Screener token profiles | Anahtarsız proje/token görünürlüğü. Tek başına organik talep veya haber teyidi değildir. |
-| DEX Screener community takeovers | Anahtarsız topluluk görünürlüğü. Tek başına bağımsız haber teyidi değildir. |
+| DEX Screener token profiles | Anahtarsız proje/token görünürlüğü. Son token adresleri, gerçek pair sorgusuna giriş evrenini oluşturur. Tek başına organik talep veya haber teyidi değildir. |
+| DEX Screener community takeovers | Anahtarsız topluluk görünürlüğü. Son token adresleri, gerçek pair sorgusuna giriş evrenini oluşturur. Tek başına bağımsız haber teyidi değildir. |
+| DEX Screener tokens/v1 pair activity | Son profil/topluluk akışındaki adreslerle gerçek pair fiyatı, likiditesi, hacmi ve alış/satış işlemleri. 15 dakikada en fazla iki istek, istek başına 30 adres; tüm DEX evreninin taraması değildir. Teknik/naratif puana veya haber teyidine eklenmez. |
 | CoinGecko Trending | Ücretsiz Demo erişimi için COINGECKO_DEMO_API_KEY ortam değişkeni gerekir. Anahtar yoksa devre dışıdır; gizli anahtar ayarlar dosyasına yazılmaz. |
 | RSS/Atom | Varsayılan akışlar Ethereum Foundation, CoinDesk, Cointelegraph, The Block, Decrypt, Bitcoin Magazine ve The Defiant. HTTPS adresleri ayarlar.json içindeki narrative_rss_feeds ile, aralık narrative_rss_interval_seconds ile düzenlenebilir. Her yayın akışı ayrı izlenir; URL/başlık/benzer başlık tekilleştirmesi tekrar yayıncıları puan artırmadan saklar. |
 | AIXBT konu→proje eşlemesi | Ek API erişimi/hesap yetkisi gerekebileceği için kullanılmıyor; bağlı gibi gösterilmez. |
@@ -1065,3 +1066,15 @@ RSS 2.0 ve Atom ayrıştırıcısı Atom `alternate` bağlantısını tercih ede
 Haber tekilleştirme sırası: (1) normalleştirilmiş makale URL'si, (2) noktalama/HTML farkları temizlenmiş tam başlık, (3) yalnızca iki yayın tarihi 72 saat içinde olduğunda yüksek benzerlikli başlık kontrolü. Benzer başlık karşılaştırması metin benzerliği yanında kelime örtüşmesini ve varsa coin eşleşmesini de dikkate alır; yalnızca aynı konuya değinen ama farklı gelişmeleri otomatik birleştirmemek için kısa başlıklar veya tarih bilgisi eksik kayıtlar benzerlik kuralıyla birleştirilmez.
 
 Aynı haber birden fazla yayıncıda yer alırsa tek olay olarak tutulur. İlk yayıncı ana kaynak kalır; diğer yayıncılar ve alternatif bağlantılar olay ayrıntısında saklanır. Tekrar yayıncıları bağımsız haber kaynağı sayısına, haber olay sayısına veya naratif puanına eklenmez. Haber tekilleştirme yalnızca editoryal RSS/TrendKia olayları içindir; AIXBT/CMC keşif olayları haber teyidi olarak sınıflandırılmaz.
+
+---
+
+## DEX Screener gerçek piyasa faaliyeti — 31 Ekim 2026
+
+Mevcut ücretsiz DEX Screener token-profile ve community-takeover akışlarında bildirilen açık token adresleri, gerçek pair verisinin sorgu evrenini oluşturur. Her adres `chainId + tokenAddress` bileşimiyle tekilleştirilir; bilinmeyen zincir/adres biçimleri sorgulanmaz.
+
+Pair ayrıntıları herkese açık `GET /tokens/v1/{chainId}/{tokenAddresses}` uç noktasından alınır. Bir istekte aynı zincire ait en fazla 30 token adresi gönderilir. Ücretsiz ve tutumlu trafik için her 15 dakikada en fazla iki istek yapılır; zincir/adres grupları döngüsel sırayla taranır. Sorgu rotasyonu yerel kaynak önbelleğinde tutulur. Kaynak hatasında önceki başarılı pair verisi korunur; kısmi başarıda başarılı zincir gruplarının verisi kullanılmaya devam eder.
+
+Pair verisinden işlem çifti sayısı, kapsanan zincirler, USD likidite, 5 dakika/1 saat/6 saat/24 saat hacim, 24 saat alış/satış/işlem sayısı, likidite ağırlıklı USD fiyatı ve fiyat değişimi çıkarılır. Coin eşleştirmesi yalnızca son token adreslerinden biriyle pair tarafının adresi birebir eşleştiğinde ve tokenın tam proje adı ortak Binance–BtcTurk USDT evreninde tek bir coin adına karşılık geldiğinde yapılır. Sembol benzerliği tek başına yeterli değildir.
+
+Bu akış, DEX Screener'ın bütün zincir ve işlem çiftlerini taradığı anlamına gelmez; yalnızca son profil/topluluk listelerinde görünen adreslerin seçilmiş zincir gruplarını kapsar. Bulunan gerçek piyasa faaliyeti coin ayrıntısında ve ayrı erken izleme satırında gösterilir. Haber, bağımsız yayıncı teyidi, naratif puanı, teknik puan, A/B/C aşaması veya güçlü fırsat/alarm kararı oluşturmaz.
