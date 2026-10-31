@@ -175,5 +175,114 @@ class NarrativeRuntimeTests(unittest.TestCase):
 
 
 
+
+
+    def test_aixbt_topic_discovery_does_not_count_as_independent_news_publisher(self):
+        engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+        events = [{
+            "event_id": "aixbt:layer2", "title": "Layer 2 ecosystem",
+            "source_id": "aixbt_topics", "source_kind": "topic_discovery",
+            "themes": ["Katman-2 (Layer 2)"], "rank": 1,
+            "symbols": [{"symbol": "ARB", "confidence": "YÜKSEK"}],
+        }]
+        narratives, watch = engine._build_narratives(events, {}, [])
+        self.assertEqual(narratives[0]["sources"], [])
+        self.assertEqual(narratives[0]["coverage"]["independent_news_sources"], 0)
+        self.assertEqual(narratives[0]["score_components"]["aixbt_topic_rank"], 100.0)
+        self.assertEqual(watch[0]["symbol"], "ARB")
+
+    def test_source_failure_remains_visible_while_cached_response_is_reused(self):
+        import logging
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+            engine.cache = {"feed": {
+                "data": [{"title": "cached"}],
+                "last_attempt_epoch": 100.0,
+                "last_success_epoch": 100.0,
+            }}
+            engine.stop_file = Path(temp) / "stop.flag"
+            engine.clock = lambda: 500.0
+            engine.logger = logging.getLogger("narrative-test")
+            first_status = {}
+            result = engine._fetch_source(
+                "feed", 300, lambda: (_ for _ in ()).throw(RuntimeError("HTTP 503")),
+                first_status, count_fn=len,
+            )
+            self.assertEqual(result, [{"title": "cached"}])
+            self.assertEqual(first_status["status"], "HATA — ÖNCEKİ VERİ VAR")
+            second_status = {}
+            engine.clock = lambda: 501.0
+            engine._fetch_source("feed", 300, lambda: self.fail("cache retry happened too early"),
+                                 second_status, count_fn=len)
+            self.assertEqual(second_status["status"], "HATA — ÖNCEKİ VERİ VAR")
+            self.assertIn("HTTP 503", second_status["error"])
+
+    def test_pending_stop_marker_prevents_new_source_request(self):
+        import logging
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as temp:
+            stop_file = Path(temp) / "stop.flag"
+            stop_file.write_text("stop", encoding="utf-8")
+            engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+            engine.cache = {}
+            engine.stop_file = stop_file
+            engine.clock = lambda: 1000.0
+            engine.logger = logging.getLogger("narrative-test")
+            called = []
+            status = {}
+            result = engine._fetch_source(
+                "feed", 300, lambda: called.append(True), status,
+            )
+            self.assertIsNone(result)
+            self.assertEqual(called, [])
+            self.assertEqual(status["status"], "DURDURMA İSTENDİ")
+
+    def test_narrative_history_snapshot_is_throttled_to_five_minutes(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as temp:
+            engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+            engine.history_path = Path(temp) / "history.sqlite3"
+            narrative_row = {
+                "narrative_id": "layer-2",
+                "name": "Katman-2 (Layer 2)",
+                "phase": "BAŞLANGIÇ",
+                "narrative_score": 60.0,
+                "interest_direction": "İLK GÖZLEM",
+                "confidence": "DÜŞÜK",
+            }
+            engine._save_history([dict(narrative_row)], [])
+            engine._save_history([dict(narrative_row)], [])
+            with sqlite3.connect(engine.history_path) as connection:
+                count = connection.execute(
+                    "SELECT COUNT(*) FROM narrative_snapshots WHERE narrative_id='layer-2'"
+                ).fetchone()[0]
+            self.assertEqual(count, 1)
+
+    def test_first_observed_history_and_alert_rows_are_persisted(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as temp:
+            engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+            engine.history_path = Path(temp) / "history.sqlite3"
+            engine.previous_state = {}
+            row = {
+                "narrative_id": "rwa",
+                "name": "Gerçek Dünya Varlıkları (RWA)",
+                "phase": "BAŞLANGIÇ",
+                "narrative_score": 55.0,
+                "interest_direction": "İLK GÖZLEM",
+                "confidence": "DÜŞÜK",
+                "last_observed_at_utc": "2026-10-31T09:00:00+00:00",
+            }
+            engine._save_history([dict(row)], [])
+            alerts = engine._alerts([row])
+            self.assertEqual(len(alerts), 1)
+            with sqlite3.connect(engine.history_path) as connection:
+                event = connection.execute(
+                    "SELECT alert_type FROM narrative_alerts WHERE narrative_id='rwa'"
+                ).fetchone()
+            self.assertEqual(event[0], "YENİ NARATİF")
+
+
 if __name__ == "__main__":
     unittest.main()
