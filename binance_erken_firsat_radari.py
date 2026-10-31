@@ -2085,6 +2085,14 @@ class BinanceRadar:
                              for sym, map_tf in self.bars.items()}
             symbol_updates = dict(self.last_symbol_update)
         pair_map = {p["binance_symbol"]: p for p in pairs}
+        narrative_state = load_json(DATA_DIR / "naratif_state.json", {}) or {}
+        narrative_age = _age_seconds_from_utc_timestamp(narrative_state.get("generated_at_utc"))
+        narrative_fresh = narrative_age is not None and narrative_age <= 1800
+        narrative_by_symbol = {
+            str(item.get("symbol") or "").upper(): item
+            for item in narrative_state.get("early_watch", [])
+            if isinstance(item, dict) and item.get("symbol")
+        } if isinstance(narrative_state.get("early_watch"), list) else {}
         btc_bars = bars_snapshot.get("BTCUSDT", {})
         threshold = float(self.settings.get("websocket_stale_seconds_binance", 45))
         now = time.time()
@@ -2126,6 +2134,19 @@ class BinanceRadar:
             if candidate is None:
                 continue
             candidate["latest_price"] = live_price if live_price is not None else candidate.get("latest_price")
+            narrative_symbol = str(pair.get("base_asset") or symbol.removesuffix("USDT")).upper()
+            narrative_match = narrative_by_symbol.get(narrative_symbol)
+            if narrative_match:
+                candidate["narrative_support"] = {
+                    "narrative_score": narrative_match.get("narrative_score"),
+                    "narratives": narrative_match.get("narratives", []),
+                    "phase": narrative_match.get("phase"),
+                    "confidence": narrative_match.get("confidence"),
+                    "sources": narrative_match.get("sources", []),
+                    "fresh": narrative_fresh,
+                    "observed_at_utc": narrative_state.get("generated_at_utc"),
+                    "note": "Naratif desteği ayrı bilgidir; teknik puan ve güçlü fırsat kapılarına eklenmez.",
+                }
             pair_info = pair_map.get(symbol, {})
             candidate["strong_alarm_eligible"] = _strong_alarm_permission(
                 pair_info, single_engine=getattr(self, "single_engine", False) is True
@@ -2622,6 +2643,23 @@ class BinanceRadar:
                             "comparable_coin_count": 0,
                         }),
                         "universe_generated_at_utc": self.universe.get("generated_at_utc"),
+                        "narrative_status": (
+                            "GÜNCEL" if _age_seconds_from_utc_timestamp(
+                                (load_json(DATA_DIR / "naratif_state.json", {}) or {}).get("generated_at_utc")
+                            ) is not None and _age_seconds_from_utc_timestamp(
+                                (load_json(DATA_DIR / "naratif_state.json", {}) or {}).get("generated_at_utc")
+                            ) <= 1800 else "VERİ YOK / ESKİ"
+                        ),
+                        "narrative_generated_at_utc": (
+                            load_json(DATA_DIR / "naratif_state.json", {}) or {}
+                        ).get("generated_at_utc"),
+                        "narrative_early_watch": (
+                            (load_json(DATA_DIR / "naratif_state.json", {}) or {}).get("early_watch", [])
+                        ),
+                        "narrative_source_statuses": (
+                            (load_json(DATA_DIR / "naratif_state.json", {}) or {}).get("source_statuses", {})
+                        ),
+                        "narrative_history_backfilled": False,
                         "btcturk_universe_generated_at_utc": self.universe.get("btcturk_universe_generated_at_utc"),
                         "btcturk_universe_age_seconds": (
                             _age_seconds_from_utc_timestamp(
