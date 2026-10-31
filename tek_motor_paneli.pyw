@@ -79,6 +79,9 @@ STATE_PATH = DATA_DIR / "binance_state.json"
 SETTINGS_PATH = ROOT / "ayarlar.json"
 ENGINE_PATH = ROOT / "binance_erken_firsat_radari.py"
 STOP_FILE = RUN_DIR / "stop_radar.flag"
+NARRATIVE_ENGINE_PATH = ROOT / "naratif_avcisi.py"
+NARRATIVE_STOP_FILE = RUN_DIR / "stop_narrative.flag"
+NARRATIVE_STATE_PATH = DATA_DIR / "naratif_state.json"
 PANEL_LOG_PATH = LOG_DIR / "tek_motor_paneli.log"
 ENGINE_LOG_PATH = LOG_DIR / "binance_radar.log"
 APP_TITLE = "FIRSAT-KONTROL PANELİ"
@@ -721,8 +724,10 @@ class ControlPanel(tk.Tk):
         self.font_size = _normalize_font_size(font_size)
 
         self.engine: subprocess.Popen[str] | None = None
+        self.narrative_engine: subprocess.Popen[str] | None = None
         self.engine_started_epoch: float | None = None
         self.stop_requested_epoch: float | None = None
+        self.narrative_stop_requested_epoch: float | None = None
         self.close_after_stop = False
         self.output_queue: queue.Queue[str] = queue.Queue()
         self.current_state: dict[str, Any] = {}
@@ -736,6 +741,7 @@ class ControlPanel(tk.Tk):
         self._level_previous_price: float | None = None
         self._level_crossed: set[str] = set()
         self._log_read_thread: threading.Thread | None = None
+        self._narrative_log_read_thread: threading.Thread | None = None
         self._last_error_state_stamp: str | None = None
         self.btcturk_prices: dict[str, float] = {}
         self.btcturk_prices_updated_at: float | None = None
@@ -744,7 +750,8 @@ class ControlPanel(tk.Tk):
         self._historical_backtest_cancel = threading.Event()
         self._historical_backtest_thread: threading.Thread | None = None
 
-        self.status_var = tk.StringVar(value="Motor durduruldu")
+        self.status_var = tk.StringVar(value="Motorlar durduruldu")
+        self.narrative_status_var = tk.StringVar(value="Naratif Avcı: durduruldu")
         self.live_status_var = tk.StringVar(value="CANLI AKIŞ  ·  UYARI")
         self.history_status_var = tk.StringVar(value="GEÇMİŞ MUMLAR  ·  BEKLİYOR")
         self.start_time_var = tk.StringVar(value="Başlangıç: —")
@@ -839,6 +846,7 @@ class ControlPanel(tk.Tk):
             ("radar", "Fırsat Radarı"),
             ("tracking", "Aktif Takip"),
             ("analysis", "Parite Analizi"),
+            ("narrative", "Naratif Avcısı"),
             ("market", "BTC ve Piyasa"),
             ("plans", "Planlar ve Uyarılar"),
             ("reports", "Raporlar"),
@@ -876,6 +884,11 @@ class ControlPanel(tk.Tk):
         self.live_status_label.pack(side="left", padx=(0, 12))
         self.history_status_label = ttk.Label(status_row, textvariable=self.history_status_var, style="HistoryPending.TLabel")
         self.history_status_label.pack(side="left", padx=(0, 12))
+        self.narrative_status_label = ttk.Label(
+            status_row, textvariable=self.narrative_status_var,
+            style="SectionPending.TLabel", anchor="w",
+        )
+        self.narrative_status_label.pack(side="left", padx=(0, 12))
         self.operation_status_label = ttk.Label(status_row, textvariable=self.status_var, style="TLabel", anchor="e")
         self.operation_status_label.pack(side="right", fill="x", expand=True)
         ttk.Separator(self.radar_page, orient="horizontal").pack(fill="x", padx=12, pady=(0, 7))
@@ -1118,11 +1131,13 @@ class ControlPanel(tk.Tk):
         self.plans_page = ttk.Frame(self.workspace_pages)
         self.reports_page = ttk.Frame(self.workspace_pages)
         self.settings_page = ttk.Frame(self.workspace_pages)
+        self.narrative_page = ttk.Frame(self.workspace_pages)
 
         for key, frame in (
             ("overview", self.overview_page),
             ("tracking", self.tracking_page),
             ("analysis", self.analysis_page),
+            ("narrative", self.narrative_page),
             ("market", self.market_page),
             ("plans", self.plans_page),
             ("reports", self.reports_page),
@@ -1135,6 +1150,91 @@ class ControlPanel(tk.Tk):
             band.pack(fill="x")
             ttk.Label(band, text=title, style="Section.TLabel").pack(anchor="w")
             ttk.Label(band, text=subtitle, wraplength=1000).pack(anchor="w", pady=(3, 0))
+
+        # Naratif Avcısı — ayrı kanıt/puan katmanı; teknik alarm üretmez.
+        heading(
+            self.narrative_page,
+            "Naratif Avcısı",
+            "Piyasa temalarını ve teknik radarın henüz öne çıkarmadığı USDT coinlerini izler. Naratif puanı teknik puanı veya güçlü fırsat kapılarını değiştirmez.",
+        )
+        narrative_toolbar = ttk.Frame(self.narrative_page, padding=(12, 3, 12, 8))
+        narrative_toolbar.pack(fill="x")
+        ttk.Label(narrative_toolbar, textvariable=self.narrative_status_var, style="Section.TLabel").pack(side="left")
+        self.narrative_phase_filter_var = tk.StringVar(value="Tümü")
+        self.narrative_interest_filter_var = tk.StringVar(value="Tümü")
+        ttk.Label(narrative_toolbar, text="Aşama").pack(side="left", padx=(18, 4))
+        self.narrative_phase_filter = ttk.Combobox(
+            narrative_toolbar, textvariable=self.narrative_phase_filter_var,
+            values=("Tümü", "BAŞLANGIÇ", "YAYILMA", "GÜÇLENME", "AŞIRI ISINMA", "ZAYIFLAMA", "BELİRSİZ"),
+            state="readonly", width=16,
+        )
+        self.narrative_phase_filter.pack(side="left")
+        self.narrative_phase_filter.bind("<<ComboboxSelected>>", lambda _event: self._refresh_narrative_page())
+        ttk.Label(narrative_toolbar, text="İlgi yönü").pack(side="left", padx=(12, 4))
+        self.narrative_interest_filter = ttk.Combobox(
+            narrative_toolbar, textvariable=self.narrative_interest_filter_var,
+            values=("Tümü", "YÜKSELİYOR", "YATAY", "DÜŞÜYOR", "İLK GÖZLEM"),
+            state="readonly", width=14,
+        )
+        self.narrative_interest_filter.pack(side="left")
+        self.narrative_interest_filter.bind("<<ComboboxSelected>>", lambda _event: self._refresh_narrative_page())
+
+        narrative_split = ttk.Panedwindow(self.narrative_page, orient="horizontal")
+        narrative_split.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        narrative_left = ttk.Frame(narrative_split)
+        narrative_right = ttk.Frame(narrative_split)
+        narrative_split.add(narrative_left, weight=6)
+        narrative_split.add(narrative_right, weight=4)
+        narrative_table_frame = ttk.LabelFrame(narrative_left, text="Naratifler", padding=7)
+        narrative_table_frame.pack(fill="both", expand=True, pady=(0, 7))
+        narrative_columns = ("name", "phase", "score", "direction", "coins", "confidence")
+        self.narrative_tree = ttk.Treeview(
+            narrative_table_frame, columns=narrative_columns, show="headings", selectmode="browse",
+        )
+        for column, label, width in (
+            ("name", "Naratif", 210), ("phase", "Aşama", 110), ("score", "Naratif Puanı", 95),
+            ("direction", "İlgi", 105), ("coins", "Coin sayısı", 80), ("confidence", "Güven", 80),
+        ):
+            self.narrative_tree.heading(column, text=label)
+            self.narrative_tree.column(column, width=width, minwidth=55, stretch=column in ("name", "direction"))
+        self.narrative_tree.pack(fill="both", expand=True)
+        self.narrative_tree.bind("<<TreeviewSelect>>", lambda _event: self._narrative_show_selected())
+        self.narrative_watch_frame = ttk.LabelFrame(narrative_left, text="Teknik sinyalden önce erken izlenen coinler", padding=7)
+        self.narrative_watch_frame.pack(fill="both", expand=True)
+        watch_columns = ("symbol", "score", "phase", "confidence", "themes")
+        self.narrative_watch_tree = ttk.Treeview(
+            self.narrative_watch_frame, columns=watch_columns, show="headings", selectmode="browse", height=7,
+        )
+        for column, label, width in (
+            ("symbol", "Coin", 85), ("score", "Naratif Puanı", 95),
+            ("phase", "Aşama", 110), ("confidence", "Güven", 80), ("themes", "İlişkili temalar", 260),
+        ):
+            self.narrative_watch_tree.heading(column, text=label)
+            self.narrative_watch_tree.column(column, width=width, minwidth=50, stretch=column == "themes")
+        self.narrative_watch_tree.pack(fill="both", expand=True)
+        self.narrative_watch_tree.bind("<<TreeviewSelect>>", lambda _event: self._narrative_show_watch())
+
+        source_frame = ttk.LabelFrame(narrative_right, text="Kaynak bağlantıları ve veri durumu", padding=7)
+        source_frame.pack(fill="both", expand=True, pady=(0, 7))
+        source_columns = ("source", "status", "items", "age")
+        self.narrative_source_tree = ttk.Treeview(
+            source_frame, columns=source_columns, show="headings", selectmode="browse", height=9,
+        )
+        for column, label, width in (
+            ("source", "Kaynak", 140), ("status", "Durum", 125),
+            ("items", "Kayıt", 55), ("age", "Veri yaşı", 80),
+        ):
+            self.narrative_source_tree.heading(column, text=label)
+            self.narrative_source_tree.column(column, width=width, minwidth=45, stretch=column == "source")
+        self.narrative_source_tree.pack(fill="both", expand=True)
+        detail_frame = ttk.LabelFrame(narrative_right, text="Seçili naratif / bildirim ayrıntısı", padding=7)
+        detail_frame.pack(fill="both", expand=True)
+        self.narrative_detail_text = tk.Text(
+            detail_frame, wrap="word", height=13, state="disabled",
+            background="#000000", foreground="#FFFFFF", insertbackground="#FFFFFF",
+            relief="flat", padx=7, pady=6, font=("Segoe UI", max(8, self.font_size - 1)),
+        )
+        self.narrative_detail_text.pack(fill="both", expand=True)
 
         # Genel Bakış
         heading(
@@ -1508,6 +1608,8 @@ class ControlPanel(tk.Tk):
                 self._btcturk_pro_load_pair(self.btcturk_pro_symbol)
         elif page == "analysis":
             self._refresh_analysis_view()
+        elif page == "narrative":
+            self._refresh_narrative_page()
         elif page == "market":
             self._refresh_market_page()
         elif page == "overview":
@@ -1529,6 +1631,181 @@ class ControlPanel(tk.Tk):
         self._refresh_settings_page()
         if self.workspace_current_page == "analysis":
             self._refresh_analysis_view()
+        elif self.workspace_current_page == "narrative":
+            self._refresh_narrative_page()
+
+    def _refresh_narrative_page(self) -> None:
+        if not hasattr(self, "narrative_tree"):
+            return
+        state = _read_json(NARRATIVE_STATE_PATH, {})
+        if not isinstance(state, dict):
+            state = {}
+        generated = str(state.get("generated_at_utc") or "")
+        age = _parse_utc_epoch(generated)
+        age_seconds = max(0.0, time.time() - age) if age is not None else None
+        process_running = self.narrative_engine is not None and self.narrative_engine.poll() is None
+        if process_running:
+            label = str(state.get("status") or "VERİ BEKLENİYOR")
+            if age_seconds is None or age_seconds > 1800:
+                label = "NARATİF VERİSİ ESKİ / BEKLENİYOR"
+            self.narrative_status_var.set("Naratif Avcı: " + label)
+        elif state.get("process_status") == "DURDURULDU":
+            self.narrative_status_var.set("Naratif Avcı: durduruldu")
+        elif state.get("generated_at_utc"):
+            self.narrative_status_var.set("Naratif Avcı: son kayıt / motor kapalı")
+        else:
+            self.narrative_status_var.set("Naratif Avcı: henüz çalıştırılmadı")
+
+        old_selection = self.narrative_tree.selection()
+        selected_id = old_selection[0] if old_selection else None
+        self.narrative_tree.delete(*self.narrative_tree.get_children())
+        phase_filter = self.narrative_phase_filter_var.get()
+        interest_filter = self.narrative_interest_filter_var.get()
+        narratives = state.get("narratives") if isinstance(state.get("narratives"), list) else []
+        for item in narratives:
+            if not isinstance(item, dict):
+                continue
+            if phase_filter != "Tümü" and item.get("phase") != phase_filter:
+                continue
+            if interest_filter != "Tümü" and item.get("interest_direction") != interest_filter:
+                continue
+            narrative_id = str(item.get("narrative_id") or item.get("name") or "")
+            if not narrative_id:
+                continue
+            self.narrative_tree.insert(
+                "", "end", iid=narrative_id,
+                values=(
+                    item.get("name", "—"), item.get("phase", "—"),
+                    item.get("narrative_score") if item.get("narrative_score") is not None else "—",
+                    item.get("interest_direction", "—"),
+                    len(item.get("related_coins", [])) if isinstance(item.get("related_coins"), list) else 0,
+                    item.get("confidence", "—"),
+                ),
+            )
+        if selected_id and self.narrative_tree.exists(selected_id):
+            self.narrative_tree.selection_set(selected_id)
+
+        old_watch = self.narrative_watch_tree.selection()
+        selected_symbol = old_watch[0] if old_watch else None
+        self.narrative_watch_tree.delete(*self.narrative_watch_tree.get_children())
+        watch = state.get("early_watch") if isinstance(state.get("early_watch"), list) else []
+        for item in watch:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            self.narrative_watch_tree.insert(
+                "", "end", iid=symbol,
+                values=(
+                    symbol, item.get("narrative_score") if item.get("narrative_score") is not None else "—",
+                    item.get("phase", "—"), item.get("confidence", "—"),
+                    ", ".join(item.get("narratives", [])[:3]) if isinstance(item.get("narratives"), list) else "—",
+                ),
+            )
+        if selected_symbol and self.narrative_watch_tree.exists(selected_symbol):
+            self.narrative_watch_tree.selection_set(selected_symbol)
+
+        self.narrative_source_tree.delete(*self.narrative_source_tree.get_children())
+        sources = state.get("source_statuses") if isinstance(state.get("source_statuses"), dict) else {}
+        for key, item in sources.items():
+            if not isinstance(item, dict):
+                continue
+            age_value = item.get("age_seconds")
+            age_label = _format_age(age_value) if isinstance(age_value, (int, float)) else "—"
+            self.narrative_source_tree.insert(
+                "", "end", iid=str(key),
+                values=(item.get("name", key), item.get("status", "—"), item.get("item_count", 0), age_label),
+            )
+        if selected_id and self.narrative_tree.exists(selected_id):
+            self._narrative_show_selected()
+        elif selected_symbol and self.narrative_watch_tree.exists(selected_symbol):
+            self._narrative_show_watch()
+        else:
+            coverage = state.get("source_coverage") if isinstance(state.get("source_coverage"), dict) else {}
+            alerts = state.get("alerts") if isinstance(state.get("alerts"), list) else []
+            lines = [
+                f"Motor durumu: {state.get('status', 'Henüz veri yok')}",
+                f"Son gözlem: {generated or '—'}",
+                f"Naratif sayısı: {coverage.get('narrative_count', len(narratives))}",
+                f"Erken izlenen coin: {coverage.get('early_watch_count', len(watch))}",
+                "",
+                "Son naratif bildirimleri:",
+            ]
+            lines.extend(str(item.get("message") or "") for item in alerts[-5:] if isinstance(item, dict))
+            lines.extend([
+                "",
+                "Not: İlk kaynak kaydı bu motorun ilk çalıştığı andan itibaren tutulur. Geçmiş haber/naratif verisi geriye dönük uydurulmaz.",
+                "Naratif puanı teknik puan ve güçlü fırsat alarmından ayrıdır.",
+            ])
+            self._set_text(self.narrative_detail_text, "\n".join(lines))
+
+    def _narrative_show_selected(self) -> None:
+        selection = self.narrative_tree.selection()
+        if not selection:
+            return
+        state = _read_json(NARRATIVE_STATE_PATH, {})
+        rows = state.get("narratives", []) if isinstance(state, dict) else []
+        selected = next(
+            (item for item in rows if isinstance(item, dict) and str(item.get("narrative_id")) == selection[0]),
+            None,
+        )
+        if not selected:
+            return
+        coverage = selected.get("coverage") if isinstance(selected.get("coverage"), dict) else {}
+        lines = [
+            f"Naratif: {selected.get('name', '—')}",
+            f"Aşama: {selected.get('phase', '—')}",
+            f"Naratif puanı: {selected.get('narrative_score', '—')} / 100",
+            f"İlgi yönü / değişim: {selected.get('interest_direction', '—')} / {selected.get('interest_change', '—')}",
+            f"Güven: {selected.get('confidence', '—')}",
+            f"İlişkili coinler: {', '.join(selected.get('related_coins', [])) or 'Eşleşme yok'}",
+            f"Kaynak aileleri: {', '.join(selected.get('sources', [])) or '—'}",
+            f"Farklı olay: {coverage.get('event_count', 0)} · bağımsız kaynak: {coverage.get('independent_news_sources', 0)}",
+            f"Eksik kanıt: {', '.join(coverage.get('missing', [])) or 'Belirtilmedi'}",
+            "",
+            "Puan bileşenleri:",
+        ]
+        components = selected.get("score_components") if isinstance(selected.get("score_components"), dict) else {}
+        lines.extend(f"• {key}: {value}" for key, value in components.items())
+        lines.extend(["", "Son gelişmeler:"])
+        for event in selected.get("latest_events", []) if isinstance(selected.get("latest_events"), list) else []:
+            if not isinstance(event, dict):
+                continue
+            lines.append(f"• {event.get('source', 'Kaynak')}: {event.get('title', 'Başlık yok')}")
+            if event.get("published_at"):
+                lines.append(f"  Tarih: {event.get('published_at')}")
+            if event.get("url"):
+                lines.append(f"  Bağlantı: {event.get('url')}")
+            if event.get("republishers"):
+                lines.append(f"  Aynı haberin tekrar yayıncıları (ek teyit sayılmaz): {', '.join(event['republishers'])}")
+        lines.extend(["", "Bu kayıt bir işlem veya güçlü fırsat alarmı değildir."])
+        self._set_text(self.narrative_detail_text, "\n".join(lines))
+
+    def _narrative_show_watch(self) -> None:
+        selection = self.narrative_watch_tree.selection()
+        if not selection:
+            return
+        state = _read_json(NARRATIVE_STATE_PATH, {})
+        rows = state.get("early_watch", []) if isinstance(state, dict) else []
+        selected = next(
+            (item for item in rows if isinstance(item, dict) and str(item.get("symbol", "")).upper() == selection[0]),
+            None,
+        )
+        if not selected:
+            return
+        lines = [
+            f"Erken izlenen coin: {selected.get('symbol')}",
+            f"Naratif puanı: {selected.get('narrative_score', '—')} / 100",
+            f"İlişkili temalar: {', '.join(selected.get('narratives', []))}",
+            f"Aşama: {selected.get('phase', '—')}",
+            f"Güven: {selected.get('confidence', '—')}",
+            f"Kaynaklar: {', '.join(selected.get('sources', []))}",
+            "",
+            "Teknik radar henüz sinyal üretmemiş olsa bile coin naratif nedeniyle erken takipte tutulur.",
+            "Bu kayıt teknik puana eklenmez ve tek başına güçlü fırsat/alım alarmı oluşturmaz.",
+        ]
+        self._set_text(self.narrative_detail_text, "\n".join(lines))
 
     def _candidate_for_symbol(self, symbol: str) -> dict[str, Any] | None:
         wanted = str(symbol or "").upper()
@@ -1779,6 +2056,16 @@ class ControlPanel(tk.Tk):
                     f"Hedef {index}: {_format_price(target.get('price'))} USDT "
                     f"({target.get('basis') or target.get('name') or 'teknik hedef'})"
                 )
+        narrative = candidate.get("narrative_support") if isinstance(candidate.get("narrative_support"), dict) else {}
+        narrative_lines = (
+            [
+                f"Naratif desteği: {', '.join(narrative.get('narratives', [])) or '—'}",
+                f"Naratif aşaması/puanı: {narrative.get('phase', '—')} / {narrative.get('narrative_score', '—')}",
+                f"Naratif güven/veri: {narrative.get('confidence', '—')} / {'GÜNCEL' if narrative.get('fresh') else 'ESKİ/TEYİTSİZ'}",
+            ]
+            if narrative else
+            ["Naratif desteği: kayıt yok; teknik aday bu nedenle elenmez."]
+        )
         details = [
             f"Plan durumu: {plan.get('status') or 'plan yok'}",
             f"Plan türü: {plan_presentation}",
@@ -1788,7 +2075,10 @@ class ControlPanel(tk.Tk):
             *(target_lines or ["Teknik hedef: mevcut değil"]),
             f"Geçersizlik koşulu: {plan.get('invalid_if') or plan.get('reason') or 'belirtilmedi'}",
             "",
-            "Not: Koşullu plan seviyeleri grafik üzerinde ayrı gösterilir; emir gönderilmez ve plan otomatik etkinleştirilmez.",
+            *narrative_lines,
+            "",
+            "Not: Naratif puanı teknik puandan ayrıdır; tek başına alım veya güçlü fırsat sinyali değildir.",
+            "Not: Koşullu teknik plan seviyeleri emir göndermez ve otomatik etkinleştirilmez.",
         ]
         self._set_text(self.analysis_plan_text, "\n".join(details))
         self._refresh_analysis_indicators()
@@ -3492,75 +3782,132 @@ class ControlPanel(tk.Tk):
         timeframe = str(candidate.get("phase_timeframe") or candidate.get("timeframe") or "")
         return f"{symbol}|{timeframe}"
 
+    def _live_processes(self) -> list[tuple[str, subprocess.Popen[str] | None]]:
+        return [("TEKNİK RADAR", self.engine), ("NARATİF AVCISI", self.narrative_engine)]
+
+    def _live_engines_running(self) -> bool:
+        return any(process is not None and process.poll() is None for _, process in self._live_processes())
+
+    def _update_live_engine_controls(self) -> None:
+        running = [(name, process) for name, process in self._live_processes()
+                   if process is not None and process.poll() is None]
+        if hasattr(self, "start_button"):
+            self.start_button.configure(state="disabled" if running else "normal")
+        pending_stop = (
+            (self.engine is not None and self.engine.poll() is None and self.stop_requested_epoch is None)
+            or (self.narrative_engine is not None and self.narrative_engine.poll() is None
+                and self.narrative_stop_requested_epoch is None)
+        )
+        if hasattr(self, "stop_button"):
+            self.stop_button.configure(state="normal" if pending_stop else "disabled")
+
     def start_engine(self) -> None:
-        if self.engine and self.engine.poll() is None:
+        if self._live_engines_running():
             return
-        if not ENGINE_PATH.is_file():
-            messagebox.showerror("Motor dosyası bulunamadı", f"Başlatılacak kaynak dosyası yok:\n{ENGINE_PATH}")
-            return
-        STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            STOP_FILE.unlink(missing_ok=True)
-        except OSError as exc:
-            messagebox.showerror("Başlatılamadı", f"Durdurma işareti kaldırılamadı: {exc}")
+        if not ENGINE_PATH.is_file() or not NARRATIVE_ENGINE_PATH.is_file():
+            missing = [str(path) for path in (ENGINE_PATH, NARRATIVE_ENGINE_PATH) if not path.is_file()]
+            messagebox.showerror(
+                "Canlı motor dosyası bulunamadı",
+                "Başlatma için iki motor dosyası da bulunmalıdır:\n" + "\n".join(missing),
+            )
             return
         self.engine_started_epoch = time.time()
         self.start_time_var.set("Başlangıç: " + datetime.fromtimestamp(self.engine_started_epoch).strftime("%H:%M:%S"))
         self.stop_requested_epoch = None
+        self.narrative_stop_requested_epoch = None
         self._last_rendered_stamp = None
         self._previous_strong_keys.clear()
         self._alarm_primed = False
         interpreter = _get_engine_interpreter()
-        command = [interpreter, str(ENGINE_PATH), "--stop-file", str(STOP_FILE), "--single-engine"]
-        try:
-            env = os.environ.copy()
-            env["PYTHONUTF8"] = "1"
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-            self.engine = subprocess.Popen(
-                command, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace", bufsize=1,
-                env=env, creationflags=creationflags,
-            )
-        except (OSError, ValueError) as exc:
-            self.engine = None
+        env = os.environ.copy()
+        env["PYTHONUTF8"] = "1"
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        errors: list[str] = []
+        started: list[str] = []
+        specs = (
+            ("TEKNİK", ENGINE_PATH, STOP_FILE,
+             ["--stop-file", str(STOP_FILE), "--single-engine"], "engine"),
+            ("NARATİF", NARRATIVE_ENGINE_PATH, NARRATIVE_STOP_FILE,
+             ["--stop-file", str(NARRATIVE_STOP_FILE)], "narrative_engine"),
+        )
+        for label, path, stop_path, arguments, attribute in specs:
+            try:
+                stop_path.parent.mkdir(parents=True, exist_ok=True)
+                stop_path.unlink(missing_ok=True)
+                process = subprocess.Popen(
+                    [interpreter, str(path), *arguments],
+                    cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, encoding="utf-8", errors="replace", bufsize=1,
+                    env=env, creationflags=creationflags,
+                )
+                setattr(self, attribute, process)
+                started.append(label)
+                self._log_line(f"{label} motoru başlatıldı (PID {process.pid}): {path.name}")
+                reader = threading.Thread(
+                    target=self._read_engine_output, args=(process, label),
+                    daemon=True, name=f"{label.lower()}-output-reader",
+                )
+                reader.start()
+                if attribute == "engine":
+                    self._log_read_thread = reader
+                else:
+                    self._narrative_log_read_thread = reader
+            except (OSError, ValueError) as exc:
+                setattr(self, attribute, None)
+                errors.append(f"{label}: {type(exc).__name__}: {exc}")
+                LOGGER.exception("%s motoru başlatılamadı", label)
+        if not started:
             self.engine_started_epoch = None
-            self.status_var.set("Motor başlatılamadı")
-            self.start_button.configure(state="normal")
-            self.stop_button.configure(state="disabled")
-            LOGGER.exception("Motor başlatılamadı")
-            messagebox.showerror("Motor başlatılamadı", f"{type(exc).__name__}: {exc}")
+            self.status_var.set("Canlı motorlar başlatılamadı")
+            self._update_live_engine_controls()
+            messagebox.showerror("Motorlar başlatılamadı", "\n".join(errors) or "Bilinmeyen başlatma hatası.")
             return
-        self._log_line(f"Motor başlatıldı (PID {self.engine.pid}); komut: {Path(interpreter).name} binance_erken_firsat_radari.py --single-engine")
-        self.status_var.set("BAŞLATILIYOR — ilk güncel motor durumu bekleniyor")
-        self.start_button.configure(state="disabled")
-        self.stop_button.configure(state="normal")
-        self._log_read_thread = threading.Thread(target=self._read_engine_output, args=(self.engine,),
-                                                 daemon=True, name="engine-output-reader")
-        self._log_read_thread.start()
+        self.status_var.set("İKİ CANLI MOTOR BAŞLATILIYOR — teknik ve naratif durumları ayrı izleniyor")
+        self.narrative_status_var.set("Naratif Avcı: başlatılıyor")
+        self._update_live_engine_controls()
+        if errors:
+            messagebox.showwarning(
+                "Kısmi motor başlatma",
+                "Başlatılabilen motor çalışmaya devam ediyor; başarısız olan diğer motorun durumu ayrı gösterilecek.\n\n"
+                + "\n".join(errors),
+            )
 
-    def _read_engine_output(self, process: subprocess.Popen[str]) -> None:
+    def _read_engine_output(
+        self, process: subprocess.Popen[str], component: str = "TEKNİK",
+    ) -> None:
         try:
             if process.stdout is not None:
                 for raw_line in process.stdout:
-                    self.output_queue.put(raw_line.rstrip("\r\n"))
+                    self.output_queue.put(f"[{component}] {raw_line.rstrip(chr(13) + chr(10))}")
         except (OSError, ValueError) as exc:
-            self.output_queue.put(f"[stdout okuyucu uyarısı] {type(exc).__name__}: {exc}")
+            self.output_queue.put(f"[{component} stdout okuyucu uyarısı] {type(exc).__name__}: {exc}")
 
     def stop_engine(self) -> None:
-        if not self.engine or self.engine.poll() is not None:
-            self.status_var.set("Motor durduruldu")
-            self.start_button.configure(state="normal")
-            self.stop_button.configure(state="disabled")
-            return
-        try:
-            STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
-            STOP_FILE.write_text("stop requested\n", encoding="utf-8")
-            self.stop_requested_epoch = time.time()
-            self.status_var.set("DURDURMA İSTEĞİ GÖNDERİLDİ")
-            self._log_line("Motor için kontrollü durdurma istendi.")
-            self.stop_button.configure(state="disabled")
-        except OSError as exc:
-            messagebox.showerror("Durdurma isteği başarısız", str(exc))
+        now = time.time()
+        requests_sent: list[str] = []
+        errors: list[str] = []
+        targets = (
+            ("TEKNİK", self.engine, STOP_FILE, "stop_requested_epoch"),
+            ("NARATİF", self.narrative_engine, NARRATIVE_STOP_FILE, "narrative_stop_requested_epoch"),
+        )
+        for label, process, stop_path, timer_attr in targets:
+            if process is None or process.poll() is not None:
+                continue
+            try:
+                stop_path.parent.mkdir(parents=True, exist_ok=True)
+                stop_path.write_text("stop requested\n", encoding="utf-8")
+                setattr(self, timer_attr, now)
+                requests_sent.append(label)
+            except OSError as exc:
+                errors.append(f"{label}: {exc}")
+        if requests_sent:
+            self.status_var.set("İKİ CANLI MOTOR İÇİN KONTROLLÜ DURDURMA İSTENDİ")
+            self._log_line("Kontrollü durdurma istendi: " + ", ".join(requests_sent))
+        elif not self._live_engines_running():
+            self.status_var.set("Canlı motorlar durduruldu")
+        if errors:
+            messagebox.showerror("Durdurma isteği başarısız", "\n".join(errors))
+        self._update_live_engine_controls()
 
     def update_universe(self) -> None:
         if not self.update_list_button.instate(["!disabled"]):
@@ -3638,33 +3985,73 @@ class ControlPanel(tk.Tk):
 
     def _poll(self) -> None:
         self._drain_output_queue()
-        if self.engine:
-            return_code = self.engine.poll()
+        now = time.time()
+        for label, process, timer_attr, process_attr in (
+            ("TEKNİK", self.engine, "stop_requested_epoch", "engine"),
+            ("NARATİF", self.narrative_engine, "narrative_stop_requested_epoch", "narrative_engine"),
+        ):
+            if process is None:
+                continue
+            return_code = process.poll()
             if return_code is not None:
-                self._log_line(f"Motor süreci sona erdi. Çıkış kodu: {return_code}")
-                self.engine = None
-                self.stop_time_var.set("Bitiş: " + datetime.now().strftime("%H:%M:%S"))
-                if self._level_watch_key:
-                    self._level_watch_key = None
-                    self._level_previous_price = None
-                    self._level_crossed.clear()
-                    self.level_var.set("Seviye takibi: kapalı (motor durdu)")
-                    self.level_button.configure(text="Seviye Takibi: Kapalı")
-                self.start_button.configure(state="normal")
-                self.stop_button.configure(state="disabled")
-                if not self.close_after_stop:
-                    self.status_var.set("Motor durduruldu" if return_code == 0 else f"Motor kapandı (çıkış kodu {return_code})")
-                if self.close_after_stop:
-                    self._btcturk_price_stop.set()
-                    self.destroy()
-                    return
-            elif self.stop_requested_epoch and time.time() - self.stop_requested_epoch > 30:
-                self._log_line("Motor 30 saniye içinde kapanmadı; kontrollü kapatma başarısız olduğu için işlem sonlandırılıyor.")
-                try:
-                    self.engine.terminate()
-                except OSError:
-                    pass
-                self.stop_requested_epoch = None
+                self._log_line(f"{label} motoru sona erdi. Çıkış kodu: {return_code}")
+                setattr(self, process_attr, None)
+                setattr(self, timer_attr, None)
+                if process_attr == "engine":
+                    if not self.close_after_stop:
+                        self.status_var.set(
+                            "Teknik motor durduruldu" if return_code == 0
+                            else f"Teknik motor kapandı (çıkış kodu {return_code})"
+                        )
+                    if self._level_watch_key:
+                        self._level_watch_key = None
+                        self._level_previous_price = None
+                        self._level_crossed.clear()
+                        self.level_var.set("Seviye takibi: kapalı (motor durdu)")
+                        self.level_button.configure(text="Seviye Takibi: Kapalı")
+                else:
+                    self.narrative_status_var.set(
+                        "Naratif Avcı: durduruldu" if return_code == 0
+                        else f"Naratif Avcı: hata (çıkış {return_code})"
+                    )
+            else:
+                requested_at = getattr(self, timer_attr)
+                if requested_at and now - requested_at > 30:
+                    self._log_line(
+                        f"{label} motoru 30 saniyede kontrollü kapanmadı; sonlandırma isteği gönderiliyor."
+                    )
+                    try:
+                        process.terminate()
+                    except OSError:
+                        pass
+                    setattr(self, timer_attr, None)
+
+        running = self._live_engines_running()
+        self._update_live_engine_controls()
+        if not running and self.engine_started_epoch is not None:
+            self.stop_time_var.set("Bitiş: " + datetime.now().strftime("%H:%M:%S"))
+            self.engine_started_epoch = None
+            if not self.close_after_stop:
+                self.status_var.set("Canlı motorlar durduruldu")
+            if self.close_after_stop:
+                self._btcturk_price_stop.set()
+                self.destroy()
+                return
+
+        narrative_state = _read_json(NARRATIVE_STATE_PATH, {})
+        if isinstance(narrative_state, dict):
+            narrative_stamp = _parse_utc_epoch(str(narrative_state.get("generated_at_utc") or ""))
+            narrative_running = self.narrative_engine is not None and self.narrative_engine.poll() is None
+            if narrative_running:
+                age = max(0.0, now - narrative_stamp) if narrative_stamp is not None else None
+                label = str(narrative_state.get("status") or "kaynak verisi bekleniyor")
+                if age is None or age > 1800:
+                    label = "kaynak verisi eski / güncelleme bekleniyor"
+                self.narrative_status_var.set("Naratif: " + label)
+            elif narrative_state.get("process_status") == "DURDURULDU":
+                self.narrative_status_var.set("Naratif Avcı: durduruldu")
+        if self.workspace_current_page == "narrative":
+            self._refresh_narrative_page()
 
         state = _read_json(STATE_PATH, None)
         if isinstance(state, dict):
@@ -4696,7 +5083,10 @@ class ControlPanel(tk.Tk):
     def create_analysis_report(self) -> None:
         """Create a compact TA-only report and upload it asynchronously when configured."""
         try:
-            payload = build_analysis_report(self.current_state)
+            payload = build_analysis_report(
+                self.current_state,
+                _read_json(NARRATIVE_STATE_PATH, {}),
+            )
             compressed = compress_analysis_report(payload)
             report_path = REPORT_DIR / "analiz_raporu.json.gz"
             temporary = report_path.with_name(f".{report_path.name}.{os.getpid()}.tmp")
@@ -4955,13 +5345,16 @@ class ControlPanel(tk.Tk):
             messagebox.showerror("Klasör açılamadı", str(exc))
 
     def _on_close(self) -> None:
-        if self.engine and self.engine.poll() is None:
-            if not messagebox.askyesno("Paneli kapat", "Motor çalışıyor. Kontrollü durdurma isteği gönderip panel kapatılsın mı?"):
+        if self._live_engines_running():
+            if not messagebox.askyesno(
+                "Paneli kapat",
+                "Teknik ve/veya Naratif motoru çalışıyor. İkisine de kontrollü durdurma isteği gönderilip panel kapatılsın mı?",
+            ):
                 return
             self._historical_backtest_cancel.set()
             self.close_after_stop = True
             self.stop_engine()
-            self.status_var.set("Motor kapanması bekleniyor…")
+            self.status_var.set("Canlı motorların kapanması bekleniyor…")
             return
         self._historical_backtest_cancel.set()
         self._btcturk_price_stop.set()
