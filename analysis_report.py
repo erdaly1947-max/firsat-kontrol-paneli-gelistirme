@@ -97,7 +97,7 @@ CANDIDATE_FIELDS = (
     "strong_opportunity_qualified", "strong_opportunity_gate_reasons",
     "group_category", "group_category_verified", "group_category_source",
     "group_comparable_count", "group_leadership_score", "group_leadership_basis",
-    "group_leadership_summary", "liquidity_assessment",
+    "group_leadership_summary", "liquidity_assessment", "narrative_support",
 )
 
 def _copy_known(source: Any, fields: tuple[str, ...]) -> dict[str, Any]:
