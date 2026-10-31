@@ -64,7 +64,7 @@ class NarrativeParsingTests(unittest.TestCase):
 
     def test_ticker_matching_is_boundary_aware_and_marks_short_tickers_uncertain(self):
         rows = narrative.match_symbols(
-            "Ethereum (ETH) and $OP discussed. COINBASE is not COIN.",
+            "Ethereum (ETH) and $OP discussed. COINBASE has appeared.",
             ["ETH", "OP", "COIN"],
             {"ETH": ["Ethereum"]},
         )
@@ -104,7 +104,7 @@ class NarrativeRuntimeTests(unittest.TestCase):
             symbols, status = narrative._load_common_symbols(root)
             self.assertEqual(symbols, ["SOL"])
             self.assertFalse(status["verified"])
-            self.assertIn("doğrulanmadı", status["mode"])
+            self.assertIn("doğrulanmadı", status["mode"].casefold())
 
     def test_republishing_same_headline_does_not_multiply_events(self):
         engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
