@@ -1018,3 +1018,17 @@ Resmî CMC dokümanları:
 
 **README kaydı:** Bu bölümde kaydedildi.  
 **ZIP/Release:** Oluşturulmadı; ayrı açık kullanıcı talebi olmadan paketleme başlatılmaz.
+
+
+---
+
+## AIXBT v3 Topic→Project entegrasyonu (31 Ekim 2026)
+
+- Naratif Avcı, mevcut anahtarsız `/v3/topics` ilk 25 konu akışını kullanmaya devam eder.
+- Ayrı olarak belgelenmiş `GET /v3/topics/{topicId}/projects` uç noktası `AIXBT_API_KEY` ortam değişkeninden alınan anahtarla çağrılır; istek başlığında `x-api-key` kullanılır.
+- Anahtar AIXBT hesabındaki [Integrations](https://aixbt.tech/integrations) alanından kullanıcının kendisi tarafından oluşturulur. Masaüstü uygulamamız üçüncü taraf hesaba giriş yapıp anahtar üretemez. API planı/erişimi doğrulanmadan ücretli abonelik, kart isteyen deneme veya ödeme yöntemi başlatılmaz.
+- Anahtar yoksa proje eşleme devre dışı kalır; mevcut ücretsiz Topics kaynağı çalışmayı sürdürür. Anahtar yalnızca yerel Windows `AIXBT_API_KEY` ortam değişkeninden okunur; ayarlar dosyasına, kaynak koda, README'ye veya GitHub'a yazılmaz.
+- Kota koruması için saatte en fazla beş konu sorgulanır; mevcut ilk 25 konu beş saatlik döngüyle döndürülür. Her konuda ilk 50 proje alınır; sayfalama yapılmaz. İstekler seri yürütülür, yanıtlar yerel önbelleğe alınır; HTTP 429 sonrası Retry-After ve kademeli bekleme uygulanır.
+- Proje adı/slug yalnızca ortak Binance–BtcTurk USDT evrenindeki yüksek güvenli isim/alias eşleşmesiyle coin izlemeye alınır. Ticker benzerliği tek başına yeterli değildir. Coin ayrıntısında eşleşen konu, gözlenen gönderi/yazar sayısı ve konu içindeki payı gösterilir.
+- AIXBT proje eşlemesi konu keşif verisidir; editoryal haber veya bağımsız teyit sayılmaz. Naratif kanıtı teknik puanı, teknik güçlü fırsat koşullarını, teknik alarmı veya işlem emirlerini değiştirmez.
+- Bir API anahtarıyla gerçek hesap/plan erişimi henüz doğrulanmış sayılmaz. 401/403 yanıtları kaynak durumunda görünür; bu yanıtlar erişim yetkisinin/plan kapsamının ayrıca doğrulanmasını gerektirir.

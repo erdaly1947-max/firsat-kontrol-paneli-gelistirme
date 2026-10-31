@@ -2063,6 +2063,31 @@ class ControlPanel(tk.Tk):
             f"İlgi yönü: {selected.get('interest_direction', '—')}",
             f"En güncel kaynak yaşı: {_format_age(selected.get('data_freshness_seconds')) if selected.get('data_freshness_seconds') is not None else 'hesaplanamadı'}",
         ]
+        aixbt_associations = selected.get("aixbt_topic_associations")
+        if isinstance(aixbt_associations, list) and aixbt_associations:
+            lines.extend(["", "AIXBT KONU→PROJE EŞLEŞMELERİ"])
+            for association in aixbt_associations[:10]:
+                if not isinstance(association, dict):
+                    continue
+                topic_name = association.get("topic_name") or "—"
+                topic_rank = association.get("topic_rank")
+                post_count = association.get("observed_posts")
+                author_count = association.get("distinct_authors")
+                share = association.get("share_of_topic_posts")
+                details = []
+                if post_count is not None:
+                    details.append(f"{post_count} gönderi")
+                if author_count is not None:
+                    details.append(f"{author_count} yazar")
+                if share is not None:
+                    details.append(f"konu payı {share}")
+                suffix = " · ".join(details)
+                lines.append(
+                    f"{association.get('project_name') or selected.get('symbol')} ← {topic_name}"
+                    + (f" (konu sırası {topic_rank})" if topic_rank is not None else "")
+                    + (f" · {suffix}" if suffix else "")
+                )
+            lines.append("Bu, AIXBT konu keşif eşleşmesidir; bağımsız haber teyidi değildir.")
         technical = selected.get("technical_tracking") if isinstance(selected.get("technical_tracking"), dict) else {}
         technical_relative = technical.get("relative_strength_vs_btc_pct_points") if isinstance(technical.get("relative_strength_vs_btc_pct_points"), dict) else {}
         technical_lines = [

@@ -38,6 +38,7 @@ MOTOR_BRIDGE_MAX_AGE_SECONDS = 1800
 LOG_PATH = LOG_DIR / "naratif_avcisi.log"
 
 AIXBT_TOPICS_URL = "https://api.aixbt.tech/v3/topics"
+AIXBT_TOPIC_PROJECTS_URL = "https://api.aixbt.tech/v3/topics/{topic_id}/projects"
 CMC_KEYLESS_BASE_URL = "https://pro-api.coinmarketcap.com/public-api"
 CMC_LISTINGS_URL = f"{CMC_KEYLESS_BASE_URL}/v3/cryptocurrency/listings/latest"
 CMC_ID_MAP_URL = f"{CMC_KEYLESS_BASE_URL}/v1/cryptocurrency/map"
@@ -64,6 +65,7 @@ DEFAULT_FEEDS = [
 ]
 SOURCE_INTERVALS = {
     "aixbt_topics": 300,
+    "aixbt_project_mapping": 3600,
     "cmc_market_activity": 3600,
     "cmc_id_map": 6 * 3600,
     "cmc_quotes": 3600,
@@ -86,6 +88,9 @@ SOURCE_INTERVALS = {
 MAX_SOURCE_ITEMS = 500
 MAX_RSS_ITEMS_PER_FEED = 100
 MAX_SANTIMENT_SYMBOLS = 30
+MAX_AIXBT_TOPICS_PER_REFRESH = 5
+MAX_AIXBT_PROJECTS_PER_TOPIC = 50
+AIXBT_PROJECT_MAPPING_MAX_AGE_SECONDS = 8 * 3600
 USER_AGENT = "FirsatKontrolPaneli-NarrativeResearch/1.0 (+local desktop research client)"
 
 THEME_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -185,11 +190,11 @@ def _records(payload: Any) -> list[dict[str, Any]]:
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
     if isinstance(data, dict):
-        for key in ("topics", "cryptoCurrencyList", "list", "items", "results", "tokens"):
+        for key in ("topics", "projects", "cryptoCurrencyList", "list", "items", "results", "tokens"):
             rows = data.get(key)
             if isinstance(rows, list):
                 return [item for item in rows if isinstance(item, dict)]
-    for key in ("topics", "items", "results", "tokens"):
+    for key in ("topics", "projects", "items", "results", "tokens"):
         rows = payload.get(key)
         if isinstance(rows, list):
             return [item for item in rows if isinstance(item, dict)]
@@ -219,6 +224,41 @@ def parse_aixbt_topics(payload: Any) -> list[dict[str, Any]]:
             "last_seen_at": item.get("lastSeenAt") or item.get("updatedAt"),
         })
     return result[:25]
+
+
+def parse_aixbt_topic_projects(payload: Any, topic: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one AIXBT v3 topic→project association response."""
+    topic_id = str(topic.get("id") or topic.get("topic_id") or "").strip()
+    projects = []
+    for item in _records(payload):
+        project = item.get("project")
+        if not isinstance(project, dict):
+            continue
+        project_id = project.get("id")
+        slug = str(project.get("slug") or "").strip()
+        name = str(project.get("name") or "").strip()
+        if not slug or not name:
+            continue
+        sentiment = item.get("sentiment") if isinstance(item.get("sentiment"), dict) else {}
+        projects.append({
+            "project_id": str(project_id) if project_id is not None else None,
+            "slug": slug[:120],
+            "name": name[:180],
+            "observed_posts": _safe_int(item.get("observedPosts")),
+            "distinct_authors": _safe_int(item.get("distinctAuthors")),
+            "share_of_topic_posts": _safe_float(item.get("shareOfTopicPosts")),
+            "first_observed_at": item.get("firstObservedAt"),
+            "last_observed_at": item.get("lastObservedAt"),
+            "sentiment_populated": sentiment.get("populated"),
+            "sentiment_coverage": _safe_float(sentiment.get("coverage")),
+        })
+    return {
+        "topic_id": topic_id,
+        "topic_name": str(topic.get("name") or "")[:180],
+        "topic_rank": _safe_int(topic.get("rank")),
+        "checked_at_utc": utc_now(),
+        "projects": projects[:MAX_AIXBT_PROJECTS_PER_TOPIC],
+    }
 
 
 def _cmc_data_records(payload: Any) -> list[dict[str, Any]]:
@@ -1101,6 +1141,59 @@ class NarrativeEngine:
                 raise RuntimeError(f"CoinMarketCap API hatası {error_code}: {str(payload['status'].get('error_message') or '')[:300]}")
         return payload
 
+    def _fetch_aixbt_topic_project_mappings(self, topics: list[dict[str, Any]]) -> dict[str, Any]:
+        """Fetch five rotating topic→project pages per hour; retain recent topic snapshots."""
+        api_key = os.environ.get("AIXBT_API_KEY", "").strip()
+        if not api_key:
+            return {"by_topic": {}, "next_cursor": 0, "checked_at_utc": utc_now()}
+
+        eligible = []
+        seen = set()
+        for topic in sorted(
+            (row for row in topics if isinstance(row, dict)),
+            key=lambda row: _safe_int(row.get("rank")) or 999,
+        ):
+            topic_id = str(topic.get("id") or "").strip()
+            if not re.fullmatch(r"topic_[a-f0-9]{20}", topic_id) or topic_id in seen:
+                continue
+            seen.add(topic_id)
+            eligible.append(topic)
+        if not eligible:
+            return {"by_topic": {}, "next_cursor": 0, "checked_at_utc": utc_now(),
+                    "eligible_topic_count": 0}
+
+        previous = self._cached_data("aixbt_project_mapping")
+        previous = previous if isinstance(previous, dict) else {}
+        previous_topics = previous.get("by_topic")
+        previous_topics = previous_topics if isinstance(previous_topics, dict) else {}
+        eligible_ids = {str(row["id"]) for row in eligible}
+        by_topic = {
+            topic_id: item for topic_id, item in previous_topics.items()
+            if topic_id in eligible_ids and isinstance(item, dict)
+            and (_timestamp_age_seconds(item.get("checked_at_utc"), self.clock())
+                 or 0.0) <= AIXBT_PROJECT_MAPPING_MAX_AGE_SECONDS
+        }
+        cursor = (_safe_int(previous.get("next_cursor")) or 0) % len(eligible)
+        batch_size = min(MAX_AIXBT_TOPICS_PER_REFRESH, len(eligible))
+        selected = [eligible[(cursor + offset) % len(eligible)] for offset in range(batch_size)]
+
+        for topic in selected:
+            topic_id = str(topic["id"])
+            payload = self._get_json(
+                AIXBT_TOPIC_PROJECTS_URL.format(topic_id=topic_id),
+                headers={"x-api-key": api_key},
+                params={"ranking": "trend", "limit": MAX_AIXBT_PROJECTS_PER_TOPIC},
+            )
+            by_topic[topic_id] = parse_aixbt_topic_projects(payload, topic)
+
+        return {
+            "by_topic": by_topic,
+            "next_cursor": (cursor + batch_size) % len(eligible),
+            "checked_at_utc": utc_now(),
+            "last_batch_topic_ids": [str(row["id"]) for row in selected],
+            "eligible_topic_count": len(eligible),
+        }
+
     def _post_graphql(self, query: str) -> Any:
         api_key = os.environ.get("SANTIMENT_API_KEY", "").strip()
         if not api_key:
@@ -1647,15 +1740,36 @@ class NarrativeEngine:
             if isinstance(data, list):
                 rss_events.extend(item for item in data if isinstance(item, dict))
 
-        # The free AIXBT topic list is keyless; richer topic->project mappings are not
-        # silently assumed to be available. Keep the optional entitlement visibly separate.
         aixbt_key = os.environ.get("AIXBT_API_KEY", "").strip()
-        statuses["aixbt_project_mapping"] = _source_status(
+        aixbt_mapping_status = _source_status(
             "aixbt_project_mapping",
-            role="AIXBT konu→proje eşlemesi; ek API anahtarı/hesap yetkisi gerektirebilir, varsayılan olarak kullanılmaz.",
-            enabled=False,
-            status="EK API ERİŞİMİ GEREKİR — KULLANILMIYOR" if not aixbt_key else "YETKİ DOĞRULANMADI — KULLANILMIYOR",
+            role="AIXBT v3 konu→proje eşlemesi; en fazla beş konu/saat, ilk 50 proje/konu, yalnızca keşif kanıtı.",
+            enabled=bool(aixbt_key),
+            status="BEKLİYOR" if aixbt_key else "API ANAHTARI YOK — DEVRE DIŞI",
         )
+        if aixbt_key:
+            aixbt_project_mappings = self._fetch_source(
+                "aixbt_project_mapping",
+                SOURCE_INTERVALS["aixbt_project_mapping"],
+                lambda: self._fetch_aixbt_topic_project_mappings(topics or []),
+                aixbt_mapping_status,
+                count_fn=lambda value: sum(
+                    len(item.get("projects", []))
+                    for item in (value.get("by_topic", {}).values() if isinstance(value, dict)
+                                 and isinstance(value.get("by_topic"), dict) else [])
+                    if isinstance(item, dict)
+                ),
+            )
+            if isinstance(aixbt_project_mappings, dict):
+                aixbt_mapping_status["topics_scanned"] = len(aixbt_project_mappings.get("by_topic", {}))
+                aixbt_mapping_status["topics_in_last_batch"] = len(aixbt_project_mappings.get("last_batch_topic_ids", []))
+                if not aixbt_project_mappings.get("eligible_topic_count"):
+                    aixbt_mapping_status["status"] = "GEÇERLİ TOPIC ID YOK — SORGULANMADI"
+        else:
+            aixbt_project_mappings = None
+            aixbt_mapping_status["item_count"] = 0
+        aixbt_mapping_status["name"] = "AIXBT Konu→Proje"
+        statuses["aixbt_project_mapping"] = aixbt_mapping_status
         statuses["x_api"] = _source_status(
             "x_api",
             role="X paylaşım akışı; bu sürümde API bağlantısı veya veri toplama yok.",
@@ -1682,6 +1796,7 @@ class NarrativeEngine:
         )
         return statuses, rss_events, {
             "topics": topics or [],
+            "aixbt_project_mappings": aixbt_project_mappings,
             "cmc": cmc or [],
             "cmc_id_map": cmc_map or [],
             "cmc_quotes": cmc_quotes or [],
@@ -1811,14 +1926,50 @@ class NarrativeEngine:
         symbols: list[str],
         aliases: dict[str, list[str]],
         category_events: list[dict[str, Any]] | None = None,
+        aixbt_project_mappings: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         events: dict[str, dict[str, Any]] = {}
+        mapping_root = aixbt_project_mappings if isinstance(aixbt_project_mappings, dict) else {}
+        mappings_by_topic = mapping_root.get("by_topic")
+        mappings_by_topic = mappings_by_topic if isinstance(mappings_by_topic, dict) else {}
         for topic in topics:
             title = str(topic.get("name") or "").strip()
             summary = str(topic.get("summary") or "")
             text = f"{title} {summary}"
             key = "aixbt:" + str(topic.get("id") or _event_id(title))
-            matches = match_symbols(text, symbols, aliases)
+            matched_by_symbol = {
+                str(match.get("symbol") or "").upper(): dict(match)
+                for match in match_symbols(text, symbols, aliases)
+            }
+            mapping = mappings_by_topic.get(str(topic.get("id") or ""), {})
+            project_associations = mapping.get("projects", []) if isinstance(mapping, dict) else []
+            for project in project_associations:
+                if not isinstance(project, dict):
+                    continue
+                project_text = f"{project.get('name') or ''} {project.get('slug') or ''}"
+                for match in match_symbols(project_text, symbols, aliases):
+                    if match.get("confidence") != "YÜKSEK":
+                        continue
+                    symbol = str(match.get("symbol") or "").upper()
+                    row = matched_by_symbol.setdefault(symbol, dict(match))
+                    association = {
+                        "topic_id": mapping.get("topic_id"),
+                        "topic_name": mapping.get("topic_name"),
+                        "topic_rank": mapping.get("topic_rank"),
+                        "project_id": project.get("project_id"),
+                        "project_name": project.get("name"),
+                        "project_slug": project.get("slug"),
+                        "observed_posts": project.get("observed_posts"),
+                        "distinct_authors": project.get("distinct_authors"),
+                        "share_of_topic_posts": project.get("share_of_topic_posts"),
+                        "first_observed_at": project.get("first_observed_at"),
+                        "last_observed_at": project.get("last_observed_at"),
+                        "mapping_checked_at_utc": mapping.get("checked_at_utc"),
+                    }
+                    associations = row.setdefault("aixbt_topic_associations", [])
+                    if association not in associations:
+                        associations.append(association)
+            matches = list(matched_by_symbol.values())
             events[key] = {
                 "event_id": key,
                 "title": title,
@@ -1834,6 +1985,7 @@ class NarrativeEngine:
                 "trend": topic.get("trend"),
                 "post_count": topic.get("post_count"),
                 "author_count": topic.get("author_count"),
+                "project_association_count": len(project_associations),
                 "evidence_class": "NARATİF KEŞFİ",
             }
 
@@ -1950,6 +2102,7 @@ class NarrativeEngine:
                     "coins": {}, "news_sources": set(), "discovery_sources": set(),
                     "aixbt_rank": None, "aixbt_post_count": 0, "aixbt_author_count": 0,
                     "category_momentum_scores": [],
+                    "aixbt_project_associations": {},
                 })
                 group["events"].append(event)
                 source_id = str(event.get("source_id") or "")
@@ -1980,6 +2133,12 @@ class NarrativeEngine:
                             group["coins"].get(base, 0),
                             2 if match.get("confidence") == "YÜKSEK" else 1,
                         )
+                        associations = match.get("aixbt_topic_associations")
+                        if isinstance(associations, list) and associations:
+                            target = group["aixbt_project_associations"].setdefault(base, [])
+                            for association in associations:
+                                if isinstance(association, dict) and association not in target:
+                                    target.append(association)
 
         narratives: list[dict[str, Any]] = []
         early_watch: dict[str, dict[str, Any]] = {}
@@ -2164,6 +2323,7 @@ class NarrativeEngine:
                     "missing": coverage_missing,
                 },
                 "related_coins": symbols,
+                "aixbt_project_associations": group["aixbt_project_associations"],
                 "sources": sources,
                 "discovery_sources": discovery_sources,
                 "data_freshness_seconds": round(freshest_source_age, 1) if freshest_source_age is not None else None,
@@ -2195,6 +2355,7 @@ class NarrativeEngine:
                     "narratives": [],
                     "sources": set(),
                     "discovery_sources": set(),
+                    "aixbt_topic_associations": [],
                     "confidence": confidence,
                     "market_activity": market_map.get(symbol, {}),
                     "reason": "Teknik sinyalden bağımsız naratif erken izleme; teknik puan ve güçlü alarm değişmez.",
@@ -2206,6 +2367,9 @@ class NarrativeEngine:
                     watch["interest_direction"] = direction
                     watch["data_freshness_seconds"] = narrative["data_freshness_seconds"]
                 watch["narratives"].append(group["name"])
+                for association in group["aixbt_project_associations"].get(symbol, []):
+                    if association not in watch["aixbt_topic_associations"]:
+                        watch["aixbt_topic_associations"].append(association)
                 watch["sources"].update(sources)
                 watch["discovery_sources"].update(discovery_sources)
                 if confidence == "YÜKSEK" or (confidence == "ORTA" and watch["confidence"] == "DÜŞÜK"):
@@ -2215,6 +2379,13 @@ class NarrativeEngine:
             watch["sources"] = sorted(watch["sources"])
             watch["discovery_sources"] = sorted(watch["discovery_sources"])
             watch["narratives"] = sorted(set(watch["narratives"]))
+            watch["aixbt_topic_associations"].sort(
+                key=lambda item: (
+                    _safe_int(item.get("topic_rank")) or 999,
+                    -(_safe_int(item.get("observed_posts")) or 0),
+                    str(item.get("project_name") or ""),
+                )
+            )
 
         # Rising, evidence-backed and non-overheated themes lead the list;
         # incomplete themes remain visible below them.
@@ -2603,6 +2774,7 @@ class NarrativeEngine:
         events = self._normalise_events(
             source_data["topics"], rss_events, symbols, aliases,
             source_data.get("cmc_category_events", []),
+            source_data.get("aixbt_project_mappings"),
         )
         market_map = self._market_map(
             source_data["cmc_category_coins"] + source_data["cmc"] + source_data["cmc_quotes"],
@@ -2678,6 +2850,8 @@ class NarrativeEngine:
                 "news_feeds_connected": connected_news,
                 "news_feeds_enabled": enabled_news,
                 "aixbt_topic_source_connected": topic_connected,
+                "aixbt_project_mapping_connected": statuses.get("aixbt_project_mapping", {}).get("status") in ("BAĞLI", "ÖNBELLEK"),
+                "aixbt_project_mapping_count": statuses.get("aixbt_project_mapping", {}).get("item_count", 0),
                 "cmc_category_source_connected": category_connected,
                 "topic_sources_connected": int(topic_connected) + int(category_connected),
                 "evidence_sources_connected": connected_news + int(topic_connected) + int(category_connected),
@@ -2705,19 +2879,24 @@ class NarrativeEngine:
                 "cmc_theme_coin_matches": len(source_data["cmc_category_coins"]),
                 "dex_profiles_count": len(source_data["dex_profiles"]),
                 "dex_community_count": len(source_data["dex_community"]),
+                "aixbt_project_topic_count": len(
+                    source_data.get("aixbt_project_mappings", {}).get("by_topic", {})
+                    if isinstance(source_data.get("aixbt_project_mappings"), dict) else {}
+                ),
+                "aixbt_project_association_count": statuses.get("aixbt_project_mapping", {}).get("item_count", 0),
                 "santiment_coin_count": len(santiment_map),
                 "santiment_symbols": sorted(santiment_map),
             },
             "limits": [
                 "AIXBT ücretsiz/anahtarsız Topics uç noktası mevcut ilk 25 konuyu verir; tüm AIXBT konu arşivi değildir.",
-                "AIXBT konu→proje ayrıntılı eşlemesi ek API erişimi gerektirebilir ve bu sürümde kullanılmaz.",
+                "AIXBT v3 konu→proje eşlemesi AIXBT_API_KEY ile çalışır; saatte en fazla beş konu ve konu başına ilk 50 proje sorgulanır. İlk 25 konu beş saatlik döngüyle sırayla taranır; 429 yanıtında kademeli bekleme uygulanır.",
                 "CoinMarketCap Keyless Public API hesap, kayıt, API anahtarı veya kart istemez; ortak IP kotası nedeniyle çağrılar seyrek ve seri yapılır.",
                 "CMC ID Map sembol çakışmalarını tahmin etmez; tekil CMC ID eşleşmesi bulunmayan coinlerin quote verisi atlanır.",
                 "CMC Global Metrics, Fear and Greed, Altcoin Season, CMC100 ve CMC20 piyasa bağlamıdır; teknik puan, güçlü fırsat kapısı ve teknik alarmı değiştirmez.",
                 "CMC fiyat/hacim verisi yalnızca mevcut naratif piyasa tepkisi alanını tamamlar; teknik radar puanına aktarılmaz.",
                 "CMC Categories/Category Keyless uçları tema→coin keşfi sağlar; tema listesi altı saatte bir, coin ayrıntıları en fazla üç kategori olacak şekilde altı saatte bir yenilenir.",
                 "Kategori coinleri yalnızca ortak Binance–BtcTurk USDT evrenindeki benzersiz CMC ID eşleşmesiyle erken izlemeye alınır; sembol benzerliği tek başına yeterli değildir.",
-                "AIXBT gönderi/katılımcı sayısı topluluk etkinliği bileşenidir; bağımsız haber teyidi veya teknik puan sayılmaz.",
+                "AIXBT gönderi/katılımcı sayısı ve konu→proje eşlemesi topluluk keşif verisidir; bağımsız haber teyidi veya teknik puan sayılmaz. Proje yalnızca ortak USDT evrenindeki yüksek güvenli ad/alias eşleşmesiyle erken izlemeye alınır.",
                 "DEX Screener ve CoinGecko trend işaretleri eşleşen coinlerde piyasa keşif etkinliğini destekler; bağımsız haber teyidi değildir.",
                 "TrendKia herkese açık MCP üzerinden API anahtarı veya kart olmadan okunur; 30 yazılık akış 30 dakikada bir alınır ve 72 saat filtresinden geçirilir.",
                 "TrendKia yalnızca naratif haber kanıtıdır; teknik puanı ve güçlü fırsat koşullarını değiştirmez.",

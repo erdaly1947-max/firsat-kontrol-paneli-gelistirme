@@ -9,6 +9,105 @@ import naratif_avcisi as narrative
 
 
 class NarrativeParsingTests(unittest.TestCase):
+    def test_aixbt_topic_projects_normalizes_v3_associations(self):
+        topic = {"id": "topic_0123456789abcdefabcd", "name": "AI agents", "rank": 2}
+        rows = narrative.parse_aixbt_topic_projects({
+            "data": [
+                {"project": {"id": 7, "slug": "ethereum", "name": "Ethereum"},
+                 "observedPosts": 15, "distinctAuthors": 8, "shareOfTopicPosts": 0.25,
+                 "firstObservedAt": "2026-10-30T10:00:00Z",
+                 "lastObservedAt": "2026-10-31T10:00:00Z",
+                 "sentiment": {"populated": True, "coverage": 0.8}},
+                {"project": {"id": 8, "slug": "", "name": "Missing slug"}},
+                {"project": {"id": 9, "slug": "empty-name", "name": ""}},
+                {"no_project": True},
+            ]
+        }, topic)
+        self.assertEqual(rows["topic_id"], topic["id"])
+        self.assertEqual(len(rows["projects"]), 1)
+        self.assertEqual(rows["projects"][0]["name"], "Ethereum")
+        self.assertEqual(rows["projects"][0]["observed_posts"], 15)
+        self.assertEqual(rows["projects"][0]["sentiment_coverage"], 0.8)
+
+    def test_aixbt_mapping_uses_api_key_and_rotates_five_topics(self):
+        from unittest.mock import patch
+
+        class FakeResponse:
+            status_code = 200
+            headers = {}
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {"data": [{
+                    "project": {"id": "eth-id", "slug": "ethereum", "name": "Ethereum"},
+                    "observedPosts": 9, "distinctAuthors": 4,
+                    "shareOfTopicPosts": 0.4,
+                    "sentiment": {"populated": True, "coverage": 1.0},
+                }]}
+
+        class FakeSession:
+            def __init__(self):
+                self.calls = []
+            def get(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                return FakeResponse()
+
+        engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+        engine.session = FakeSession()
+        engine.clock = narrative.time.time
+        engine.cache = {"aixbt_project_mapping": {
+            "data": {"by_topic": {}, "next_cursor": 0}
+        }}
+        topics = [
+            {"id": f"topic_{index:020x}", "name": f"Topic {index}", "rank": index}
+            for index in range(1, 8)
+        ]
+        with patch.dict("os.environ", {"AIXBT_API_KEY": "test-secret"}, clear=False):
+            first = engine._fetch_aixbt_topic_project_mappings(topics)
+        self.assertEqual(len(engine.session.calls), 5)
+        self.assertIn("/v3/topics/topic_00000000000000000001/projects", engine.session.calls[0][0])
+        self.assertEqual(engine.session.calls[0][1]["headers"]["x-api-key"], "test-secret")
+        self.assertEqual(first["last_batch_topic_ids"], [row["id"] for row in topics[:5]])
+
+        engine.cache["aixbt_project_mapping"]["data"] = first
+        with patch.dict("os.environ", {"AIXBT_API_KEY": "test-secret"}, clear=False):
+            second = engine._fetch_aixbt_topic_project_mappings(topics)
+        self.assertEqual(len(engine.session.calls), 10)
+        self.assertEqual(second["last_batch_topic_ids"], [topics[i]["id"] for i in [5, 6, 0, 1, 2]])
+        self.assertIn(topics[0]["id"], second["by_topic"])
+        self.assertEqual(second["by_topic"][topics[0]["id"]]["projects"][0]["name"], "Ethereum")
+
+    def test_aixbt_topic_projects_join_to_common_universe_by_project_name(self):
+        engine = narrative.NarrativeEngine.__new__(narrative.NarrativeEngine)
+        topic = {"id": "topic_0123456789abcdefabcd", "name": "AI Agents", "rank": 1}
+        mapping = {
+            "by_topic": {
+                topic["id"]: {
+                    "topic_id": topic["id"], "topic_name": "AI Agents",
+                    "topic_rank": 1, "checked_at_utc": "2026-10-31T10:00:00+00:00",
+                    "projects": [{
+                        "project_id": "eth-id", "slug": "ethereum", "name": "Ethereum",
+                        "observed_posts": 12, "distinct_authors": 6,
+                        "share_of_topic_posts": 0.3,
+                    }],
+                }
+            }
+        }
+        events = engine._normalise_events(
+            [topic], [], ["ETH"], {"ETH": ["Ethereum"]},
+            aixbt_project_mappings=mapping,
+        )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["source_kind"], "topic_discovery")
+        self.assertEqual(events[0]["symbols"][0]["symbol"], "ETH")
+        association = events[0]["symbols"][0]["aixbt_topic_associations"][0]
+        self.assertEqual(association["project_id"], "eth-id")
+        self.assertEqual(association["observed_posts"], 12)
+
+        _narratives, watch = engine._build_narratives(events, {}, [])
+        self.assertEqual(watch[0]["symbol"], "ETH")
+        self.assertEqual(watch[0]["aixbt_topic_associations"][0]["project_name"], "Ethereum")
+
     def test_aixbt_topics_accepts_v3_data_list_and_caps_at_top_25(self):
         payload = {"data": [
             {"id": str(i), "name": f"Topic {i}", "summary": "Ethereum layer 2",
