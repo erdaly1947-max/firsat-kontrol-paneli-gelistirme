@@ -67,6 +67,9 @@ DEFILLAMA_STABLECOIN_CHAINS_URL = f"{DEFILLAMA_BASE_URL}/stablecoinchains"
 DEFILLAMA_STABLECOIN_HISTORY_URL = f"{DEFILLAMA_BASE_URL}/stablecoincharts/all"
 DEFILLAMA_DEX_OVERVIEW_URL = f"{DEFILLAMA_BASE_URL}/overview/dexs"
 DEFILLAMA_FEES_OVERVIEW_URL = f"{DEFILLAMA_BASE_URL}/overview/fees"
+NEWSDATA_CRYPTO_URL = "https://newsdata.io/api/1/crypto"
+GITHUB_API_BASE_URL = "https://api.github.com"
+GITHUB_SEARCH_REPOSITORIES_URL = f"{GITHUB_API_BASE_URL}/search/repositories"
 
 DEFAULT_FEEDS = [
     {"id": "ethereum_foundation", "name": "Ethereum Foundation", "url": "https://blog.ethereum.org/en/feed.xml", "kind": "official"},
@@ -105,6 +108,8 @@ SOURCE_INTERVALS = {
     "defillama_stablecoin_history": 6 * 3600,
     "defillama_dex_overview": 3 * 3600,
     "defillama_fees_overview": 3 * 3600,
+    "newsdata_crypto": 6 * 3600,
+    "github_activity": 6 * 3600,
 }
 MAX_SOURCE_ITEMS = 500
 MAX_CMC_CATEGORY_ITEMS = 5000
@@ -1584,6 +1589,75 @@ def _news_headlines_are_near_duplicates(
     )
 
 
+def parse_newsdata_crypto_items(payload: Any) -> list[dict[str, Any]]:
+    """Normalize NewsData.io Crypto API articles into the shared news-event shape."""
+    if not isinstance(payload, dict):
+        raise ValueError("NewsData.io yanıtı JSON nesnesi değil.")
+    api_status = str(payload.get("status") or "").strip().lower()
+    if api_status and api_status not in ("success", "ok"):
+        error = payload.get("results") or payload.get("message") or payload.get("error") or api_status
+        raise ValueError(f"NewsData.io API hatası: {str(error)[:240]}")
+    raw_rows = payload.get("results")
+    if not isinstance(raw_rows, list):
+        raw_rows = []
+    result = []
+    for item in raw_rows[:10]:
+        if not isinstance(item, dict):
+            continue
+        title = html.unescape(str(item.get("title") or "").strip())
+        if not title:
+            continue
+        raw_url = str(item.get("link") or item.get("url") or "").strip()
+        canonical_url = canonicalize_news_url(raw_url)
+        domain = ""
+        try:
+            domain = (urlparse(raw_url).hostname or "").lower()
+            if domain.startswith("www."):
+                domain = domain[4:]
+        except ValueError:
+            domain = ""
+        publisher_id = str(item.get("source_id") or item.get("source") or domain or "").strip()
+        publisher_name = str(
+            item.get("source_name") or item.get("source") or publisher_id or "NewsData.io yayıncısı"
+        ).strip()
+        if domain and (not publisher_id or publisher_id.casefold() in ("null", "none")):
+            publisher_id = domain
+        description = str(item.get("description") or item.get("content") or "")
+        description = html.unescape(re.sub(r"<[^>]+>", " ", description))
+        description = " ".join(description.split())
+        article_id = str(item.get("article_id") or item.get("id") or "").strip()
+        published_at = str(
+            item.get("pubDate") or item.get("pubDateTZ") or item.get("published_at") or ""
+        ).strip()
+        keywords = item.get("keywords") if isinstance(item.get("keywords"), list) else []
+        tags = item.get("ai_tag") if isinstance(item.get("ai_tag"), list) else []
+        creator = item.get("creator") if isinstance(item.get("creator"), list) else []
+        coins = item.get("coin") if isinstance(item.get("coin"), list) else (
+            [item.get("coin")] if item.get("coin") else []
+        )
+        fingerprint_source = article_id or canonical_url or normalize_news_title(title)
+        result.append({
+            "id": _event_id("newsdata:" + fingerprint_source),
+            "title": title[:300],
+            "title_fingerprint": _event_id(normalize_news_title(title)),
+            "summary": description[:1800],
+            "url": raw_url[:1000],
+            "canonical_url": canonical_url,
+            "article_id": article_id[:180],
+            "published_at": published_at[:120],
+            "source_id": publisher_id[:180],
+            "source_name": publisher_name[:180],
+            "source_kind": "media",
+            "provider": "NewsData.io",
+            "keywords": [str(value)[:80] for value in keywords[:12]],
+            "ai_tags": [str(value)[:80] for value in tags[:12]],
+            "creator": [str(value)[:100] for value in creator[:5]],
+            "coin_tags": [str(value).upper()[:32] for value in coins[:5]],
+            "sentiment": str(item.get("sentiment") or "")[:40],
+        })
+    return result
+
+
 def parse_rss_items(xml_text: str, *, source_id: str, source_name: str, source_kind: str) -> list[dict[str, Any]]:
     """Parse RSS 2.0 and Atom, preferring article links over feed/self/hub links."""
     try:
@@ -1999,7 +2073,7 @@ class NarrativeEngine:
         # Secrets are sourced only from environment variables, never from ayarlar.json.
         self.settings = {
             key: value for key, value in self.settings.items()
-            if str(key).upper() not in {"AIXBT_API_KEY", "COINGECKO_DEMO_API_KEY", "SANTIMENT_API_KEY"}
+            if str(key).upper() not in {"AIXBT_API_KEY", "COINGECKO_DEMO_API_KEY", "SANTIMENT_API_KEY", "NEWSDATA_API_KEY"}
         }
         self.cache = _read_json(self.cache_path, {})
         if not isinstance(self.cache, dict):
@@ -2035,6 +2109,20 @@ class NarrativeEngine:
         if response.status_code == 429:
             raise SourceRateLimited("Kaynak HTTP 429 hız sınırı yanıtı verdi.",
                                     _retry_after_seconds(response.headers.get("Retry-After")))
+        if response.status_code == 403:
+            retry_after = _retry_after_seconds(response.headers.get("Retry-After"))
+            remaining = str(response.headers.get("X-RateLimit-Remaining") or "")
+            reset_epoch = _safe_float(response.headers.get("X-RateLimit-Reset"))
+            secondary_rate_limit = "secondary rate limit" in str(getattr(response, "text", "")).casefold()
+            if remaining == "0" and reset_epoch is not None:
+                retry_after = max(retry_after, reset_epoch - self.clock(), 60.0)
+            elif secondary_rate_limit and retry_after <= 0:
+                retry_after = 60.0
+            if retry_after > 0:
+                raise SourceRateLimited(
+                    "GitHub API hız sınırı; reset/Retry-After süresi bekleniyor.",
+                    retry_after,
+                )
         if response.status_code == 418:
             raise RuntimeError("Kaynak HTTP 418 hız sınırı yanıtı verdi; alternatif hostla aşılmadı.")
         response.raise_for_status()
@@ -2295,6 +2383,12 @@ class NarrativeEngine:
                 self.logger.info("%s kaynağı yenilendi.", key)
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {str(exc)[:300]}"
+                if key == "newsdata_crypto":
+                    last_error = re.sub(
+                        r"(?i)apikey=[^&]+",
+                        "apikey=[REDACTED]",
+                        last_error,
+                    )
                 failure_count = int(_safe_int(entry.get("rate_limit_failures")) or 0)
                 updated_entry = {**entry, "last_attempt_epoch": attempted, "last_error": last_error}
                 if isinstance(exc, SourceRateLimited):
@@ -2460,6 +2554,298 @@ class NarrativeEngine:
             "partial_errors": errors,
             "checked_at_utc": utc_now(),
             "scope": "SON DEX PROFİL/TOPLULUK TOKEN LİSTELERİNDEKİ ADRESLER",
+        }
+
+    def _fetch_github_candidate_activity(
+        self,
+        coin_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Rotate one fresh A/B/C candidate through public repo search and commit sampling."""
+        cached = self._cached_data("github_activity")
+        cached = cached if isinstance(cached, dict) else {}
+        by_symbol_raw = cached.get("by_symbol")
+        by_symbol = dict(by_symbol_raw) if isinstance(by_symbol_raw, dict) else {}
+        bridge = _read_json(self.motor_bridge_path, {})
+        bridge = bridge if isinstance(bridge, dict) else {}
+        generated = str(bridge.get("generated_at_utc") or "").strip()
+        bridge_age = _timestamp_age_seconds(generated, self.clock())
+        bridge_fresh = bridge_age is not None and bridge_age <= MOTOR_BRIDGE_MAX_AGE_SECONDS
+        raw_candidates = bridge.get("technical_candidates")
+        raw_candidates = raw_candidates if isinstance(raw_candidates, list) else []
+        if not bridge_fresh or not raw_candidates:
+            return {
+                **cached,
+                "by_symbol": by_symbol,
+                "candidate_count": 0,
+                "requests_used_last_refresh": 0,
+                "searched_symbol": None,
+                "checked_at_utc": utc_now(),
+                "handoff_fresh": bridge_fresh,
+                "scope_note": "Yalnızca 30 dakikadan yeni teknik A/B/C adayları GitHub araştırmasına alınır.",
+            }
+
+        name_options: dict[str, set[str]] = {}
+        for row in coin_rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol") or "").strip().upper()
+            name = str(row.get("name") or "").strip()
+            if symbol and name:
+                name_options.setdefault(symbol, set()).add(name)
+        name_by_symbol = {
+            symbol: next(iter(names))
+            for symbol, names in name_options.items()
+            if len(names) == 1
+        }
+
+        candidates_by_symbol: dict[str, dict[str, Any]] = {}
+        for row in raw_candidates[:100]:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol or len(symbol) > 32:
+                continue
+            candidate = dict(row)
+            candidate["symbol"] = symbol
+            candidates_by_symbol.setdefault(symbol, candidate)
+        candidates = list(candidates_by_symbol.values())
+        phase_rank = {"A": 0, "B": 1, "C": 2}
+        candidates.sort(
+            key=lambda row: (
+                phase_rank.get(str(row.get("phase") or "").upper(), 9),
+                -(_safe_float(row.get("opportunity_score")) or 0.0),
+                str(row.get("symbol") or ""),
+            )
+        )
+        if not candidates:
+            return {
+                **cached,
+                "by_symbol": by_symbol,
+                "candidate_count": 0,
+                "requests_used_last_refresh": 0,
+                "searched_symbol": None,
+                "checked_at_utc": utc_now(),
+                "handoff_fresh": True,
+                "scope_note": "Güncel teknik A/B/C aday listesi boş.",
+            }
+
+        now = self.clock()
+        cursor = (_safe_int(cached.get("next_candidate_cursor")) or 0) % len(candidates)
+        selected_index = None
+        selected_action = None
+        for offset in range(len(candidates)):
+            index = (cursor + offset) % len(candidates)
+            symbol = candidates[index]["symbol"]
+            previous = by_symbol.get(symbol) if isinstance(by_symbol.get(symbol), dict) else {}
+            repository = previous.get("repository") if isinstance(previous.get("repository"), dict) else {}
+            searched_at = _safe_float(previous.get("repo_search_epoch")) or 0.0
+            if not repository and (not searched_at or now - searched_at >= 7 * 86400):
+                selected_index, selected_action = index, "search"
+                break
+        if selected_index is None:
+            repo_candidates = []
+            for index, row in enumerate(candidates):
+                previous = by_symbol.get(row["symbol"]) if isinstance(by_symbol.get(row["symbol"]), dict) else {}
+                repository = previous.get("repository") if isinstance(previous.get("repository"), dict) else {}
+                if repository.get("full_name"):
+                    repo_candidates.append((
+                        _safe_float(previous.get("last_activity_check_epoch")) or 0.0,
+                        (index - cursor) % len(candidates),
+                        index,
+                    ))
+            if repo_candidates:
+                repo_candidates.sort()
+                selected_index = repo_candidates[0][2]
+                selected_action = "commits"
+            else:
+                return {
+                    **cached,
+                    "by_symbol": by_symbol,
+                    "candidate_count": len(candidates),
+                    "requests_used_last_refresh": 0,
+                    "searched_symbol": None,
+                    "checked_at_utc": utc_now(),
+                    "handoff_fresh": True,
+                    "scope_note": "Mevcut A/B/C adayları için güvenilir proje adı veya depo eşleşmesi henüz yok.",
+                }
+
+        candidate = candidates[selected_index]
+        symbol = candidate["symbol"]
+        coin_name = name_by_symbol.get(symbol)
+        previous = by_symbol.get(symbol) if isinstance(by_symbol.get(symbol), dict) else {}
+        record = dict(previous)
+        record.update({
+            "symbol": symbol,
+            "coin_name": coin_name,
+            "technical_phase": candidate.get("phase"),
+            "technical_phase_timeframe": candidate.get("phase_timeframe"),
+            "technical_score": _safe_float(candidate.get("opportunity_score")),
+            "handoff_generated_at_utc": generated,
+            "handoff_fresh": True,
+        })
+        request_count = 0
+        search_performed = False
+
+        if selected_action == "search":
+            if not coin_name:
+                record.update({
+                    "status": "CMC PROJE ADI EŞLEŞMESİ YOK — GITHUB ARAMASI ATLANDI",
+                    "repo_search_epoch": now,
+                    "repo_search_checked_at_utc": utc_now(),
+                    "repository": None,
+                    "recent_commits": [],
+                })
+                by_symbol[symbol] = record
+            else:
+                query = f'"{coin_name}" in:name,description fork:false'
+                payload = self._get_json(
+                    GITHUB_SEARCH_REPOSITORIES_URL,
+                    headers={
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params={"q": query, "sort": "updated", "order": "desc", "per_page": 10},
+                )
+                request_count += 1
+                search_performed = True
+                raw_items = payload.get("items") if isinstance(payload, dict) else []
+                raw_items = raw_items if isinstance(raw_items, list) else []
+                normalized_project = normalize_news_title(coin_name)
+                symbol_topic = symbol.casefold()
+                ranked = []
+                for repo_item in raw_items:
+                    if not isinstance(repo_item, dict) or repo_item.get("fork") is True or repo_item.get("archived") is True:
+                        continue
+                    repo_name = normalize_news_title(
+                        str(repo_item.get("name") or "").replace("-", " ").replace("_", " ")
+                    )
+                    description = normalize_news_title(str(repo_item.get("description") or ""))
+                    topics = repo_item.get("topics") if isinstance(repo_item.get("topics"), list) else []
+                    topic_set = {str(topic).casefold() for topic in topics}
+                    score = 0
+                    match_type = ""
+                    if normalized_project and repo_name == normalized_project:
+                        score, match_type = 8, "DEPO ADI TAM EŞLEŞME"
+                    elif normalized_project and normalized_project in repo_name:
+                        score, match_type = 6, "DEPO ADI İÇERİYOR"
+                    elif normalized_project and normalized_project in description and symbol_topic in topic_set:
+                        score, match_type = 5, "AÇIKLAMA + COIN KONUSU EŞLEŞMESİ"
+                    elif normalized_project and normalized_project in description:
+                        score, match_type = 3, "AÇIKLAMA EŞLEŞMESİ"
+                    if symbol_topic in topic_set:
+                        score += 1
+                    if score < 4:
+                        continue
+                    owner = repo_item.get("owner") if isinstance(repo_item.get("owner"), dict) else {}
+                    ranked.append((
+                        score,
+                        _safe_int(repo_item.get("stargazers_count")) or 0,
+                        repo_item,
+                        match_type,
+                        str(owner.get("type") or ""),
+                    ))
+                ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+                if not ranked:
+                    record.update({
+                        "status": "GITHUB DEPO ADAYI BULUNAMADI",
+                        "repo_search_epoch": now,
+                        "repo_search_checked_at_utc": utc_now(),
+                        "repo_search_query": query,
+                        "repository": None,
+                        "recent_commits": [],
+                        "last_activity_check_epoch": now,
+                    })
+                    by_symbol[symbol] = record
+                else:
+                    _score, _stars, selected_repo, match_type, owner_type = ranked[0]
+                    full_name = str(selected_repo.get("full_name") or "").strip()
+                    selected_owner = selected_repo.get("owner") if isinstance(selected_repo.get("owner"), dict) else {}
+                    record.update({
+                        "status": "DEPO ADAYI BULUNDU — RESMÎ SAHİPLİK TEYİTSİZ",
+                        "repo_search_epoch": now,
+                        "repo_search_checked_at_utc": utc_now(),
+                        "repo_search_query": query,
+                        "repository": {
+                            "full_name": full_name,
+                            "name": str(selected_repo.get("name") or "")[:160],
+                            "owner": str(selected_owner.get("login") or "")[:120],
+                            "owner_type": owner_type,
+                            "description": str(selected_repo.get("description") or "")[:500],
+                            "url": str(selected_repo.get("html_url") or "")[:1000],
+                            "language": str(selected_repo.get("language") or "")[:80],
+                            "default_branch": str(selected_repo.get("default_branch") or "")[:120],
+                            "stars": _safe_int(selected_repo.get("stargazers_count")) or 0,
+                            "forks": _safe_int(selected_repo.get("forks_count")) or 0,
+                            "topics": [str(topic)[:80] for topic in selected_repo.get("topics", [])[:12]]
+                            if isinstance(selected_repo.get("topics"), list) else [],
+                            "created_at": selected_repo.get("created_at"),
+                            "updated_at": selected_repo.get("updated_at"),
+                            "pushed_at": selected_repo.get("pushed_at"),
+                            "match_type": match_type,
+                            "match_confidence": (
+                                "YÜKSEK İSİM EŞLEŞMESİ"
+                                if match_type == "DEPO ADI TAM EŞLEŞME"
+                                else "OLASI PROJE EŞLEŞMESİ"
+                            ),
+                            "official_ownership_verified": False,
+                        },
+                        "recent_commits": [],
+                    })
+            selected_action = "commits" if isinstance(record.get("repository"), dict) else "done"
+
+        if selected_action == "commits":
+            repository = record.get("repository") if isinstance(record.get("repository"), dict) else {}
+            full_name = str(repository.get("full_name") or "").strip()
+            if full_name and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", full_name):
+                commits_payload = self._get_json(
+                    f"{GITHUB_API_BASE_URL}/repos/{full_name}/commits",
+                    headers={
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params={"per_page": 5},
+                )
+                request_count += 1
+                commits = commits_payload if isinstance(commits_payload, list) else []
+                recent_commits = []
+                for commit_item in commits[:5]:
+                    if not isinstance(commit_item, dict):
+                        continue
+                    commit_data = commit_item.get("commit") if isinstance(commit_item.get("commit"), dict) else {}
+                    author_data = commit_data.get("author") if isinstance(commit_data.get("author"), dict) else {}
+                    committer_data = commit_data.get("committer") if isinstance(commit_data.get("committer"), dict) else {}
+                    author_user = commit_item.get("author") if isinstance(commit_item.get("author"), dict) else {}
+                    message = str(commit_data.get("message") or "").splitlines()[0].strip()
+                    recent_commits.append({
+                        "sha": str(commit_item.get("sha") or "")[:12],
+                        "message": message[:220],
+                        "author": str(author_user.get("login") or author_data.get("name") or "")[:100],
+                        "committed_at_utc": str(author_data.get("date") or committer_data.get("date") or ""),
+                        "url": str(commit_item.get("html_url") or "")[:1000],
+                    })
+                record["recent_commits"] = recent_commits
+                record["last_commit_at_utc"] = recent_commits[0].get("committed_at_utc") if recent_commits else None
+                record["last_activity_check_epoch"] = self.clock()
+                record["last_activity_checked_at_utc"] = utc_now()
+                record["status"] = "GITHUB DEPO ADAYI VE COMMIT GEÇMİŞİ OKUNDU"
+                by_symbol[symbol] = record
+
+        return {
+            "by_symbol": by_symbol,
+            "candidate_count": len(candidates),
+            "requests_used_last_refresh": request_count,
+            "searched_symbol": symbol,
+            "action": "COMMIT GÜNCELLEME" if selected_action == "commits" and not search_performed else (
+                "DEPO ARAMASI + COMMIT ÖRNEĞİ" if request_count >= 2 else "DEPO ARAMASI"
+            ),
+            "checked_at_utc": utc_now(),
+            "handoff_generated_at_utc": generated,
+            "handoff_fresh": True,
+            "next_candidate_cursor": (selected_index + 1) % len(candidates),
+            "scope_note": (
+                "Kamuya açık GitHub deposu için arama ve en fazla beş son commit örneklenir. "
+                "Repo eşleşmesi resmî proje bağlantısıyla doğrulanmadıkça aday eşleşmesi olarak kalır."
+            ),
         }
 
     def _collect_sources(self) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
@@ -2930,6 +3316,70 @@ class NarrativeEngine:
             aixbt_mapping_status["item_count"] = 0
         aixbt_mapping_status["name"] = "AIXBT Konu→Proje"
         statuses["aixbt_project_mapping"] = aixbt_mapping_status
+        newsdata_key = os.environ.get("NEWSDATA_API_KEY", "").strip()
+        newsdata_status = _source_status(
+            "newsdata_crypto",
+            role="NewsData.io Crypto API; ücretsiz planda 12 saat gecikmeli haber, 48 saatlik pencere, en fazla 10 makale/istek.",
+            enabled=bool(newsdata_key),
+            status="BEKLİYOR" if newsdata_key else "API ANAHTARI YOK — DEVRE DIŞI",
+        )
+        newsdata_status["planned_requests_per_day"] = 4
+        newsdata_status["free_daily_credit_limit"] = 200
+        newsdata_status["provider_delay_hours"] = 12
+        if newsdata_key:
+            newsdata_items = self._fetch_source(
+                "newsdata_crypto",
+                SOURCE_INTERVALS["newsdata_crypto"],
+                lambda: parse_newsdata_crypto_items(self._get_json(
+                    NEWSDATA_CRYPTO_URL,
+                    params={
+                        "apikey": newsdata_key,
+                        "size": 10,
+                        "timeframe": 48,
+                        "removeduplicate": 1,
+                        "prioritydomain": "medium",
+                    },
+                )),
+                newsdata_status,
+                count_fn=lambda value: len(value or []),
+            )
+            if isinstance(newsdata_items, list):
+                rss_events.extend(item for item in newsdata_items if isinstance(item, dict))
+        else:
+            newsdata_status["item_count"] = 0
+            newsdata_status["last_error"] = None
+        statuses["newsdata_crypto"] = newsdata_status
+
+        github_status = _source_status(
+            "github_activity",
+            role="Kamuya açık GitHub repo araması ve son beş commit örneği; teknik A/B/C adayları için döngüsel ve anahtarsız.",
+            enabled=True,
+        )
+        github_activity = self._fetch_source(
+            "github_activity",
+            SOURCE_INTERVALS["github_activity"],
+            lambda: self._fetch_github_candidate_activity(
+                (cmc_map or []) + (cmc_quotes or []) + (cmc or [])
+            ),
+            github_status,
+            count_fn=lambda value: len(value.get("by_symbol", {}))
+            if isinstance(value, dict) and isinstance(value.get("by_symbol"), dict) else 0,
+        )
+        if isinstance(github_activity, dict):
+            github_status["candidate_count"] = github_activity.get("candidate_count", 0)
+            github_status["requests_used_last_refresh"] = github_activity.get("requests_used_last_refresh", 0)
+            github_status["searched_symbol"] = github_activity.get("searched_symbol")
+            github_status["scope_note"] = github_activity.get("scope_note")
+            if github_activity.get("handoff_fresh") is not True:
+                github_status["status"] = "TEKNİK ADAY AKTARIMI ESKİ — GITHUB SORGUSU YOK"
+            elif github_activity.get("candidate_count", 0) == 0:
+                github_status["status"] = "GÜNCEL A/B/C ADAY YOK — GITHUB SORGUSU YOK"
+            elif github_activity.get("requests_used_last_refresh", 0) == 0:
+                github_status["status"] = "GITHUB SIRA/PROJE EŞLEŞMESİ BEKLENİYOR"
+            elif github_activity.get("action") == "COMMIT GÜNCELLEME":
+                github_status["last_action"] = "Bir mevcut depo için en fazla beş commit güncellendi."
+        statuses["github_activity"] = github_status
+
         statuses["x_api"] = _source_status(
             "x_api",
             role="X paylaşım akışı; bu sürümde API bağlantısı veya veri toplama yok.",
@@ -2976,6 +3426,7 @@ class NarrativeEngine:
             "dex_community": dex_community or [],
             "dex_market_activity": dex_market_activity if isinstance(dex_market_activity, dict) else {},
             "coingecko": cg or {},
+            "github_activity": github_activity if isinstance(github_activity, dict) else {},
         }
 
     def _save_santiment_observations(
@@ -4093,13 +4544,14 @@ class NarrativeEngine:
                     events_by_symbol.setdefault(symbol, []).append(event)
 
         source_groups = {
-            "haber": lambda key: key.startswith("rss_") or key == "trendkia_news",
+            "haber": lambda key: key.startswith("rss_") or key in ("trendkia_news", "newsdata_crypto"),
             "kesif": lambda key: key in (
                 "aixbt_topics", "aixbt_project_mapping", "cmc_narrative_categories",
             ) or key.startswith("cmc_category_"),
             "dex": lambda key: key in ("dex_profiles", "dex_community", "dex_market_activity"),
             "defillama": lambda key: key == "defillama" or key.startswith("defillama_"),
             "santiment": lambda key: key == "santiment" or key.startswith("santiment_"),
+            "gelistirme": lambda key: key == "github_activity",
             "piyasa": lambda key: key in (
                 "cmc_market_activity", "cmc_id_map", "cmc_quotes", "coingecko_trending",
             ),
@@ -4130,7 +4582,7 @@ class NarrativeEngine:
                 display_name = str(source_row.get("name") or key)
                 if group in ("haber", "kesif") and display_name not in checked_sources:
                     checked_sources.append(display_name)
-                if group in ("dex", "defillama", "santiment", "piyasa") and display_name not in checked_market_sources:
+                if group in ("dex", "defillama", "santiment", "piyasa", "gelistirme") and display_name not in checked_market_sources:
                     checked_market_sources.append(display_name)
 
         result_rows = []
@@ -4141,6 +4593,7 @@ class NarrativeEngine:
             "candidates_with_dex_activity": 0,
             "candidates_with_defi_activity": 0,
             "candidates_with_santiment_data": 0,
+            "candidates_with_github_activity": 0,
             "candidates_with_market_data": 0,
             "candidates_with_any_evidence": 0,
         }
@@ -4197,6 +4650,12 @@ class NarrativeEngine:
             defi_rows = defi_rows if isinstance(defi_rows, list) else []
             santiment = coin_market.get("santiment")
             santiment = santiment if isinstance(santiment, dict) else None
+            github = coin_market.get("github_activity")
+            github = github if isinstance(github, dict) else None
+            github_repository = (
+                github.get("repository") if isinstance(github, dict)
+                and isinstance(github.get("repository"), dict) else {}
+            )
 
             cmc_evidence = {}
             for field in (
@@ -4284,9 +4743,34 @@ class NarrativeEngine:
                         ),
                     }
 
+            github_evidence = None
+            if github_repository.get("full_name"):
+                github_evidence = {
+                    "status": github.get("status"),
+                    "coin_name": github.get("coin_name"),
+                    "repository": {
+                        key: github_repository.get(key)
+                        for key in (
+                            "full_name", "name", "owner", "owner_type", "description", "url",
+                            "language", "stars", "forks", "topics", "pushed_at",
+                            "match_type", "match_confidence", "official_ownership_verified",
+                        )
+                    },
+                    "last_commit_at_utc": github.get("last_commit_at_utc"),
+                    "last_activity_checked_at_utc": github.get("last_activity_checked_at_utc"),
+                    "recent_commits": [
+                        dict(item) for item in (
+                            github.get("recent_commits")
+                            if isinstance(github.get("recent_commits"), list) else []
+                        )[:5] if isinstance(item, dict)
+                    ],
+                    "scope_note": "Depo araması proje adıyla aday eşleşmesi üretir; resmî sahiplik ayrıca doğrulanmamıştır.",
+                }
+
             has_cmc = bool(cmc_evidence)
             has_dex = bool(dex_evidence and dex_evidence.get("pair_count"))
             has_defi = bool(defi_evidence)
+            has_github = bool(github_evidence and github_evidence.get("repository", {}).get("full_name"))
             has_santiment = bool(santiment_evidence and any(
                 santiment_evidence.get(field) is not None
                 for field in (
@@ -4296,7 +4780,7 @@ class NarrativeEngine:
             ))
             has_news = bool(news_sources)
             has_narrative = bool(themes)
-            any_evidence = bool(matches or has_cmc or has_dex or has_defi or has_santiment)
+            any_evidence = bool(matches or has_cmc or has_dex or has_defi or has_santiment or has_github)
 
             if not bridge_fresh:
                 research_status = "TEKNİK ADAY AKTARIMI ESKİ"
@@ -4349,6 +4833,18 @@ class NarrativeEngine:
                     if fees is not None:
                         parts.append(f"24s ücret {_safe_float(fees):,.0f} USD")
                     findings.append(" · ".join(parts) + ".")
+            if has_github:
+                repo_row = github_evidence.get("repository", {})
+                commits = github_evidence.get("recent_commits", [])
+                latest_commit = github_evidence.get("last_commit_at_utc") or "tarih yok"
+                findings.append(
+                    f"GitHub depo adayı: {repo_row.get('full_name')} · "
+                    f"son push {repo_row.get('pushed_at') or 'bilinmiyor'} · "
+                    f"son commit {latest_commit} · son {len(commits)} commit örneği."
+                )
+                findings.append(
+                    "GitHub depo eşleşmesi resmî proje deposu olarak doğrulanmadı; geliştirici faaliyeti kanıtı bu nedenle ihtiyatlı yorumlanmalı."
+                )
             if has_santiment:
                 active_change = santiment_evidence.get("active_addresses_change_24h_pct")
                 dev_change = santiment_evidence.get("dev_activity_change_7d_pct")
@@ -4374,6 +4870,8 @@ class NarrativeEngine:
                 missing.append("DeFiLlama protokol verisiyle güvenilir coin eşleşmesi bulunmadı.")
             if not has_santiment:
                 missing.append("Santiment ücretsiz ölçümlerinde coin için veri yok veya API erişimi etkin değil.")
+            if not has_github:
+                missing.append("GitHub için güvenilir proje deposu eşleşmesi henüz bulunmadı veya sıra bekliyor.")
             if not bridge_fresh:
                 missing.append("Teknik aday aktarımı 30 dakikalık güncellik sınırını aştı; güncel aday teyidi bekleniyor.")
 
@@ -4412,6 +4910,7 @@ class NarrativeEngine:
                     "dex": dex_evidence,
                     "defillama_protocols": defi_evidence,
                     "santiment": santiment_evidence,
+                    "github": github_evidence,
                 },
                 "research_findings": findings[:10],
                 "missing_evidence": missing[:10],
@@ -4446,6 +4945,7 @@ class NarrativeEngine:
             counts["candidates_with_dex_activity"] += int(has_dex)
             counts["candidates_with_defi_activity"] += int(has_defi)
             counts["candidates_with_santiment_data"] += int(has_santiment)
+            counts["candidates_with_github_activity"] += int(has_github)
             counts["candidates_with_market_data"] += int(has_cmc)
             counts["candidates_with_any_evidence"] += int(any_evidence)
 
@@ -4549,6 +5049,17 @@ class NarrativeEngine:
             symbols,
             aliases,
         )
+        github_root = source_data.get("github_activity", {})
+        github_by_symbol = (
+            github_root.get("by_symbol", {})
+            if isinstance(github_root, dict) and isinstance(github_root.get("by_symbol"), dict)
+            else {}
+        )
+        for symbol, github_row in github_by_symbol.items():
+            normalized_symbol = str(symbol or "").strip().upper()
+            if normalized_symbol and isinstance(github_row, dict):
+                market_map.setdefault(normalized_symbol, {"symbol": normalized_symbol})["github_activity"] = github_row
+
         santiment_map = self._collect_santiment(statuses, events, aliases)
         # Supplementary detail only: the narrative scorer reads price/volume fields, not this nested field.
         for symbol, metrics in santiment_map.items():
@@ -4574,7 +5085,7 @@ class NarrativeEngine:
         alerts = self._alerts(narratives)
         news_statuses = [
             item for key, item in statuses.items()
-            if key.startswith("rss_") or key == "trendkia_news"
+            if key.startswith("rss_") or key in ("trendkia_news", "newsdata_crypto")
         ]
         topic_status = statuses.get("aixbt_topics", {})
         connected_news = sum(
@@ -4604,6 +5115,12 @@ class NarrativeEngine:
             isinstance(defillama_status, dict)
             and defillama_status.get("status") in ("BAĞLI", "ÖNBELLEK")
         )
+        github_status = statuses.get("github_activity", {})
+        github_connected = bool(
+            isinstance(github_status, dict)
+            and github_status.get("status") in ("BAĞLI", "ÖNBELLEK")
+            and github_status.get("item_count", 0) > 0
+        )
         errors = [
             f"{item['name']}: {item['status']}"
             for item in statuses.values()
@@ -4612,7 +5129,7 @@ class NarrativeEngine:
         state = {
             "schema_version": 1,
             "engine": "Naratif Avcısı",
-            "status": "ÇALIŞIYOR" if (connected_news or topic_connected or category_connected or santiment_connected or defillama_connected) else "KAYNAK VERİSİ BEKLENİYOR",
+            "status": "ÇALIŞIYOR" if (connected_news or topic_connected or category_connected or santiment_connected or defillama_connected or github_connected) else "KAYNAK VERİSİ BEKLENİYOR",
             "generated_at_utc": utc_now(),
             "first_observed_only": True,
             "historical_narrative_backfill": False,
@@ -4635,6 +5152,7 @@ class NarrativeEngine:
                 "technical_candidates_with_dex_activity": technical_candidate_research.get("candidates_with_dex_activity", 0),
                 "technical_candidates_with_defi_activity": technical_candidate_research.get("candidates_with_defi_activity", 0),
                 "technical_candidates_with_santiment_data": technical_candidate_research.get("candidates_with_santiment_data", 0),
+                "technical_candidates_with_github_activity": technical_candidate_research.get("candidates_with_github_activity", 0),
                 "technical_candidates_with_any_market_data": technical_candidate_research.get("candidates_with_market_data", 0),
                 "technical_candidates_with_any_research_evidence": technical_candidate_research.get("candidates_with_any_evidence", 0),
                 "narrative_coin_technical_watch_count": technical_watch_bridge.get("tracked_coin_count", 0),

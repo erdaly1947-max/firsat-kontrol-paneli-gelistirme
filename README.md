@@ -1117,3 +1117,24 @@ Araştırma çıktısı kaynak ailelerini birbirinden ayırır:
 Kontrol edilen kaynakların BAĞLI/ÖNBELLEK durumu, son başarılı erişim zamanı ve veri yaşı ayrı gösterilir. Kaynak erişilemediyse veya coin eşleşmesi bulunmadıysa bu, olumsuz piyasa sinyali ya da sıfır değer olarak yorumlanmaz; eksik kanıt listesinde kalır.
 
 Coin ayrıntısındaki teknik aday kartında araştırma durumu, eşleşen temalar, bağımsız haber yayıncıları, DEX faaliyeti, protokol TVL/DEX hacmi/ücret bilgileri, Santiment ölçümleri ve eksik kanıtlar birlikte gösterilir. Teknik radarın kendi teknik puanı, A/B/C aşaması, likidite kapıları, güçlü fırsat koşulları ve bildirim izinleri değiştirilmez. Hedefli araştırma açıklayıcı kanıt sunar; alım-satım sinyali, otomatik emir veya kârlılık iddiası değildir.
+
+
+---
+
+## NewsData.io ve GitHub kaynakları — 31 Ekim 2026
+
+### NewsData.io Crypto News
+
+NewsData.io'nun \`/api/1/crypto\` uç noktası \`NEWSDATA_API_KEY\` Windows kullanıcı ortam değişkeniyle etkinleşir. Anahtar ayarlar dosyasına, kod deposuna, günlük dosyasına veya rapora yazılmaz; HTTP hata kayıtlarında da \`apikey\` parametresi maskelenir.
+
+Ücretsiz planın resmî kapsamı günde 200 API kredisi, son 48 saatlik haber aralığı, 12 saat gecikme ve istek başına en fazla 10 makaledir. Program tek sayfa ve tek istek kullanır; \`removeduplicate=1\` ve orta öncelikli yayıncı filtresi uygulanır. Kaynak altı saatte bir yenilenir; beklenen üst sınır günde dört istek/kredi olup ücretsiz günlük bütçenin yaklaşık %2'sidir. Sayfalama veya coin başına ek istek yapılmaz. 12 saatlik yayın gecikmesi haberin canlı/son dakika olduğu anlamına gelmediği için kaynak durumunda açıkça gösterilir.
+
+NewsData makaleleri orijinal yayıncı adı ve alan adıyla ortak RSS/TrendKia olay tekilleştirmesine girer. Aynı haber farklı kanallarda tekrar çıkarsa tek olay olarak kalır; yayıncı listesi korunur, bağımsız teyit sayısı yapay olarak artırılmaz.
+
+### GitHub geliştirici etkinliği
+
+GitHub'ın herkese açık REST API'si kimlik doğrulama olmadan kullanılabilir; resmî bir proje deposu bulunduğu varsayılmaz. Teknik A/B/C adaylarından bir coin her altı saatte bir sırayla seçilir. Tam proje adı CMC kimlik eşlemesinden alınır; ad belirsizse veya bulunmuyorsa sorgu atlanır. GitHub repository search sonucunda depo adı/proje adı eşleşmesi yeterince güçlü değilse kayıt oluşturulmaz.
+
+Seçilen depo adayı için en fazla beş son commit örneği alınır. GitHub araması ve commit ayrıntısı birlikte en fazla iki HTTP isteği/altı saat, yani normal durumda en fazla sekiz istek/gün bütçesinde kalır. GitHub'ın resmî dokümanındaki kimlik doğrulamasız REST ana sınırı saat başına 60 istektir; 403/429 ve reset/Retry-After yanıtları geri çekilme süresine uydurulur. GitHub'da depo araması tek başına resmî sahiplik kanıtı değildir; arayüzde her eşleşme "resmî sahiplik teyitsiz depo adayı" olarak gösterilir.
+
+GitHub commit/push bilgisi geliştirme etkinliği bağlamıdır; kod kalitesi, proje güvenliği, token fiyatı veya yatırım değeri kanıtı değildir. NewsData ve GitHub sonuçları haber/teknik/naratif puanlarına, A/B/C eşiklerine, güçlü fırsat koşullarına veya alarm kararlarına eklenmez. İki kaynak da teknik aday araştırma kartında diğer kanıtlardan ayrı gösterilir.
