@@ -185,6 +185,7 @@ class NarrativeRuntimeTests(unittest.TestCase):
                 "generated_at_utc": "2026-10-31T09:00:00+00:00",
                 "narratives": [{"name": "Katman-2 (Layer 2)", "narrative_score": 73}],
                 "early_watch": [{"symbol": "ARB", "narrative_score": 73}],
+                "alerts": [{"alert_type": "YENİ NARATİF", "narrative": "Katman-2"}],
                 "source_statuses": {"aixbt_topics": {"name": "AIXBT Topics", "status": "BAĞLI"}},
             },
         )
@@ -192,6 +193,7 @@ class NarrativeRuntimeTests(unittest.TestCase):
         self.assertEqual(report["candidate_count"], 1)
         self.assertEqual(report["narrative"]["narrative_count"], 1)
         self.assertEqual(report["narrative"]["early_watch"][0]["symbol"], "ARB")
+        self.assertEqual(report["narrative"]["alerts"][0]["alert_type"], "YENİ NARATİF")
         self.assertNotIn("narrative_score", report["candidates"][0])
         self.assertEqual(
             report["candidates"][0]["narrative_support"]["narrative_score"], 61
