@@ -464,12 +464,14 @@ class NarrativeEngine:
         data = entry.get("data")
         last_success = entry.get("last_success_epoch")
         last_attempt = entry.get("last_attempt_epoch")
+        last_error = entry.get("last_error")
         if self._due(key, interval):
             if self.stop_file.exists():
                 status["status"] = "DURDURMA İSTENDİ"
                 status["item_count"] = len(data) if isinstance(data, list) else 0
                 return data
             attempted = self.clock()
+            last_attempt = attempted
             status["last_attempt_utc"] = datetime.fromtimestamp(attempted, timezone.utc).isoformat(timespec="seconds")
             self.cache[key] = {**entry, "last_attempt_epoch": attempted}
             try:
@@ -480,17 +482,25 @@ class NarrativeEngine:
                     "data": fresh,
                     "last_attempt_epoch": attempted,
                     "last_success_epoch": success,
+                    "last_error": None,
                 }
                 last_success = success
+                last_error = None
                 status["status"] = "BAĞLI"
                 status["last_success_utc"] = datetime.fromtimestamp(success, timezone.utc).isoformat(timespec="seconds")
                 self.logger.info("%s kaynağı yenilendi.", key)
             except Exception as exc:
+                last_error = f"{type(exc).__name__}: {str(exc)[:300]}"
+                self.cache[key] = {**entry, "last_attempt_epoch": attempted, "last_error": last_error}
                 status["status"] = "HATA — ÖNCEKİ VERİ VAR" if data is not None else "ERİŞİLEMEDİ"
-                status["error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
-                self.logger.warning("%s kaynağı başarısız: %s", key, status["error"])
+                status["error"] = last_error
+                self.logger.warning("%s kaynağı başarısız: %s", key, last_error)
         else:
-            status["status"] = "ÖNBELLEK"
+            if last_error:
+                status["status"] = "HATA — ÖNCEKİ VERİ VAR" if data is not None else "ERİŞİLEMEDİ"
+                status["error"] = str(last_error)
+            else:
+                status["status"] = "ÖNBELLEK"
         if last_success:
             age = max(0.0, self.clock() - float(last_success))
             status["age_seconds"] = round(age, 1)
@@ -748,7 +758,8 @@ class NarrativeEngine:
                     "coins": {}, "news_sources": set(), "aixbt_rank": None,
                 })
                 group["events"].append(event)
-                if event.get("source_kind") in ("official", "media", "topic_discovery"):
+                if event.get("source_kind") in ("official", "media"):
+                    # AIXBT Topics is discovery intelligence, not an independent news publisher.
                     group["news_sources"].add(str(event.get("source_id") or ""))
                 if event.get("source_kind") == "topic_discovery":
                     rank = _safe_int(event.get("rank"))
@@ -1055,11 +1066,20 @@ class NarrativeEngine:
         self._save_history(narratives, events)
         alerts = self._alerts(narratives)
         news_statuses = [
-            item for key, item in statuses.items()
-            if key == "aixbt_topics" or key.startswith("rss_")
+            item for key, item in statuses.items() if key.startswith("rss_")
         ]
-        connected_news = sum(item.get("status") in ("BAĞLI", "ÖNBELLEK") and item.get("item_count", 0) > 0 for item in news_statuses)
+        topic_status = statuses.get("aixbt_topics", {})
+        connected_news = sum(
+            item.get("status") in ("BAĞLI", "ÖNBELLEK")
+            and item.get("item_count", 0) > 0
+            for item in news_statuses
+        )
         enabled_news = sum(bool(item.get("enabled")) for item in news_statuses)
+        topic_connected = bool(
+            isinstance(topic_status, dict)
+            and topic_status.get("status") in ("BAĞLI", "ÖNBELLEK")
+            and topic_status.get("item_count", 0) > 0
+        )
         errors = [
             f"{item['name']}: {item['status']}"
             for item in statuses.values()
@@ -1068,14 +1088,17 @@ class NarrativeEngine:
         state = {
             "schema_version": 1,
             "engine": "Naratif Avcısı",
-            "status": "ÇALIŞIYOR" if connected_news else "KAYNAK VERİSİ BEKLENİYOR",
+            "status": "ÇALIŞIYOR" if (connected_news or topic_connected) else "KAYNAK VERİSİ BEKLENİYOR",
             "generated_at_utc": utc_now(),
             "first_observed_only": True,
             "historical_narrative_backfill": False,
             "source_statuses": statuses,
             "source_coverage": {
-                "news_sources_connected": connected_news,
-                "news_sources_enabled": enabled_news,
+                "news_feeds_connected": connected_news,
+                "news_feeds_enabled": enabled_news,
+                "aixbt_topic_source_connected": topic_connected,
+                "topic_sources_connected": int(topic_connected),
+                "evidence_sources_connected": connected_news + int(topic_connected),
                 "event_count": len(events),
                 "narrative_count": len(narratives),
                 "early_watch_count": len(early_watch),
