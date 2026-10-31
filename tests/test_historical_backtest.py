@@ -159,7 +159,13 @@ class HistoricalReplayTests(unittest.TestCase):
             archive = CandleArchive(archive_path)
             start = stamp()
             rows = [
-                bar(start + index * backtest.FIVE_MINUTES_MS, close=100.0 + index * 0.1)
+                bar(
+                    start + index * backtest.FIVE_MINUTES_MS,
+                    open_=100.0 + index * 0.1,
+                    high=101.0 + index * 0.1,
+                    low=99.0 + index * 0.1,
+                    close=100.0 + index * 0.1,
+                )
                 for index in range(40)
             ]
             archive.upsert_bars("BTCUSDT", "5m", rows)
