@@ -743,6 +743,7 @@ class ControlPanel(tk.Tk):
         self._log_read_thread: threading.Thread | None = None
         self._narrative_log_read_thread: threading.Thread | None = None
         self._last_error_state_stamp: str | None = None
+        self._last_radar_narrative_refresh_epoch = 0.0
         self.btcturk_prices: dict[str, float] = {}
         self.btcturk_prices_updated_at: float | None = None
         self.btcturk_price_error: str | None = None
@@ -4147,6 +4148,12 @@ class ControlPanel(tk.Tk):
                 self.narrative_status_var.set("Naratif Avcı: durduruldu")
         if self.workspace_current_page == "narrative":
             self._refresh_narrative_page()
+        elif (
+            self.workspace_current_page == "radar"
+            and now - self._last_radar_narrative_refresh_epoch >= 5.0
+        ):
+            self._refresh_radar_narrative_watch()
+            self._last_radar_narrative_refresh_epoch = now
 
         state = _read_json(STATE_PATH, None)
         if isinstance(state, dict):
